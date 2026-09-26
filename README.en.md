@@ -2,7 +2,7 @@
 
 Keep your remaining quota, daily usage and estimated costs in one small window.
 
-[Try the demo](https://codex-cockpit.pages.dev/) · [Bilibili video](https://www.bilibili.com/video/BV1SXbv6REWz/) · [Download](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [中文](README.md)
+[Official website](https://codex-cockpit.pages.dev/) · [Bilibili video](https://www.bilibili.com/video/BV1SXbv6REWz/) · [Download](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [中文](README.md)
 
 Codex Cockpit is a companion app for Mac and Windows. A floating widget stays out of the way while you work. Open it to check your quota, explore usage and plan the rest of your day.
 
@@ -33,7 +33,7 @@ For repeated use, ask `$skill-installer` to install `skills/codex-cockpit` from 
 - **Bring several computers together.** Combine Mac and Windows usage in a shared space. Choose your own member names, colors and device assignments.
 - **Find a comfortable pace.** Record how your daily usage feels and use plans and reminders to adjust it.
 
-The [website](https://codex-cockpit.pages.dev/) is an interactive demo with sample data, not a web view of your account. The desktop app may look different as it evolves.
+Visit the [official website](https://codex-cockpit.pages.dev/) for feature introductions and a look at the interface. Its interactive previews use sample data, not your account's usage. The desktop app may look different as it evolves.
 
 ## Install
 

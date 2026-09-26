@@ -2,7 +2,7 @@
 
 还剩多少额度，今天用了多少，都放在一个小窗口里。
 
-[看看演示](https://codex-cockpit.pages.dev/) · [B 站视频](https://www.bilibili.com/video/BV1SXbv6REWz/) · [下载安装](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [English](README.en.md)
+[官方网站](https://codex-cockpit.pages.dev/) · [B 站视频](https://www.bilibili.com/video/BV1SXbv6REWz/) · [下载安装](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [English](README.en.md)
 
 Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬浮窗待在屏幕一旁，点开后就能看额度、查用量、安排今天的使用计划，不必来回翻记录。
 
@@ -32,7 +32,7 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 - **把几台电脑放在一起看**：Mac、Windows 的用量可以汇总到同一个空间。成员叫什么、用什么颜色、设备归谁，都由你设置。
 - **找到自己的使用节奏**：记录每天用起来是紧张还是宽裕，配合计划和提醒调整用量。
 
-想先看看长什么样，可以打开[演示网站](https://codex-cockpit.pages.dev/)。网页里的数据是演示数据，不会显示你的真实用量；实际功能以桌面 App 为准。
+更多功能介绍和界面展示见[官方网站](https://codex-cockpit.pages.dev/)。官网中的交互预览使用示例数据，不会显示你的真实用量；实际功能以桌面 App 为准。
 
 ## 怎么安装？
 
