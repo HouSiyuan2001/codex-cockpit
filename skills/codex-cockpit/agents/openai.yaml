@@ -1,0 +1,4 @@
+interface:
+  display_name: "驾驶舱安装与排障"
+  short_description: "协助安装 Mac 或 Windows 驾驶舱，检查用量、金额与同步问题"
+  default_prompt: "使用 $codex-cockpit 帮我安装或排查驾驶舱，先确认版本和具体问题，再做必要的改动。"

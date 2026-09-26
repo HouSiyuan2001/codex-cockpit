@@ -8,6 +8,20 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 
 它是独立社区项目，不是 OpenAI 官方产品。
 
+## 让 Codex 帮你装、帮你查问题
+
+把下面这段发给自己的 Codex 就可以：
+
+```text
+请帮我安装 Codex 驾驶舱：https://github.com/HouSiyuan2001/codex-cockpit
+先读 skills/codex-cockpit/SKILL.md，根据我的系统选 Releases 安装包，
+核对文件后协助安装。保留已有设置，不部署服务器、不关闭安全保护。
+```
+
+仓库附有[安装与排障 Skill](skills/codex-cockpit/SKILL.md)、[Cloudflare 部署 Skill](skills/cloudflare-sync/SKILL.md)，以及让 Codex 知道“问题该去哪里查”的[仓库地图](skills/codex-cockpit/references/repository-map.md)。
+
+经常使用的话，可以把 Skill 安装到自己的 Codex。具体方法和排障提示词见[让 Codex 帮忙](docs/CODEX-HELP.md)。目前仓库私有，Codex 也需要你自己的仓库访问权限。
+
 ## 可以用它做什么？
 
 - **看还剩多少**：把本周剩余额度、重置时间和今日计划放在一起。

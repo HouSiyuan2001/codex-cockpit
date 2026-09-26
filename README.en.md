@@ -8,6 +8,21 @@ Codex Cockpit is a companion app for Mac and Windows. A floating widget stays ou
 
 This is an independent community project, not an OpenAI product.
 
+## Let Codex help you
+
+Send your Codex this prompt:
+
+```text
+Help me install Codex Cockpit: https://github.com/HouSiyuan2001/codex-cockpit
+Read skills/codex-cockpit/SKILL.md first. Choose the Release package for my
+system, verify it, and help me install it. Keep my settings; do not deploy
+a server or disable system security protections.
+```
+
+The repository includes an [installation and troubleshooting skill](skills/codex-cockpit/SKILL.md), a [Cloudflare skill](skills/cloudflare-sync/SKILL.md), and a [code and troubleshooting map](skills/codex-cockpit/references/repository-map.md). The guides are written in Chinese; Codex can use them while responding in your language.
+
+For repeated use, ask `$skill-installer` to install `skills/codex-cockpit` from `HouSiyuan2001/codex-cockpit`. See [setup and support prompts](docs/CODEX-HELP.md). Repository access is still required while it is private. Installing a skill does not install the app or deploy a server.
+
 ## What can I do with it?
 
 - **Check what's left.** See your remaining weekly quota, reset time and daily plan together.
