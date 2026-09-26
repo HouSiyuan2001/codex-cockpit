@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { createUsagePreview } from "../lib/tokeiUsage";
+import { UsageCalendar } from "./UsageCalendar";
+afterEach(cleanup);
+it("stays collapsed until opened and chooses day, week, month, quarter and year", () => {
+  const now = new Date(2026, 8, 22, 12), onSelect = vi.fn(), onMetricChange = vi.fn();
+  render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={onSelect} onMetricChange={onMetricChange} now={now} />);
+  const open = () => fireEvent.click(screen.getByRole("button", { name: "日历" }));
+  expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "日历" }).querySelector(".usage-calendar-trigger-tile")).toBeInTheDocument();
+  open();
+  expect(screen.getByRole("region", { name: "用量日历" }).querySelectorAll(".usage-calendar-cell")).toHaveLength(35);
+  expect(screen.getByRole("region", { name: "用量日历" })).toHaveTextContent("$0.00");
+  expect(screen.getByRole("region", { name: "用量日历" })).toHaveTextContent("$2.70");
+  expect(screen.getByRole("button", { name: "2026-09-22 · $2.70 · 部分数据" })).toHaveStyle({ backgroundColor: "rgb(39, 80, 119)" });
+  expect(screen.getByRole("button", { name: "2026-09-22 · $2.70 · 部分数据" })).toHaveAttribute("data-tooltip", "2026-09-22 · $2.70 · 部分数据");
+  expect(screen.getByRole("button", { name: "2026-09-21 · 暂无数据" })).toHaveClass("is-missing");
+  fireEvent.click(screen.getByRole("button", { name: "Token" }));
+  expect(onMetricChange).toHaveBeenCalledWith("tokens");
+  fireEvent.click(screen.getByRole("button", { name: "2026-09-22 · $2.70 · 部分数据" }));
+  expect(onSelect).toHaveBeenLastCalledWith({ start: "2026-09-22", end: "2026-09-22", scale: "day" });
+  expect(screen.getByRole("region", { name: "用量日历" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "选择周 2026-09-21 – 2026-09-27" }));
+  expect(onSelect).toHaveBeenLastCalledWith({ start: "2026-09-21", end: "2026-09-27", scale: "week" });
+  fireEvent.click(screen.getByRole("button", { name: "周" }));
+  const weeklyCells = screen.getByRole("region", { name: "用量日历" }).querySelectorAll(".usage-calendar-cell");
+  expect(weeklyCells).toHaveLength(5);
+  expect(weeklyCells[0]).toHaveTextContent("36周");
+  const weekTile = [...weeklyCells].find(cell => cell.getAttribute("aria-label")?.startsWith("2026-09-21 – 2026-09-27 ·"));
+  expect(weekTile).toBeDefined();
+  expect(weekTile).toHaveAttribute("data-tooltip", weekTile?.getAttribute("aria-label"));
+  fireEvent.click(weekTile!);
+  expect(onSelect).toHaveBeenLastCalledWith({ start: "2026-09-21", end: "2026-09-27", scale: "week" });
+  fireEvent.click(screen.getByRole("button", { name: "月" }));
+  fireEvent.click(screen.getByRole("button", { name: "2026-09-01 – 2026-09-30 · $2.70 · 部分数据" }));
+  expect(onSelect.mock.calls.at(-1)?.[0].scale).toBe("month");
+  fireEvent.click(screen.getByRole("button", { name: "季" }));
+  fireEvent.click(screen.getByRole("button", { name: "2026-07-01 – 2026-09-30 · $2.70 · 部分数据" }));
+  expect(onSelect.mock.calls.at(-1)?.[0].scale).toBe("quarter");
+  fireEvent.click(screen.getByRole("button", { name: "年" }));
+  fireEvent.click(screen.getByRole("button", { name: "2026-01-01 – 2026-12-31 · $2.70 · 部分数据" }));
+  expect(onSelect.mock.calls.at(-1)?.[0].scale).toBe("year");
+  expect(screen.getByRole("region", { name: "用量日历" })).toBeInTheDocument();
+});
+
+it("keeps the heatmap as the focus without duplicate footer actions", () => {
+  const now = new Date(2026, 8, 22, 12);
+  render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={vi.fn()} onMetricChange={vi.fn()} now={now} />);
+  const trigger = screen.getByRole("button", { name: "日历" });
+  fireEvent.click(trigger);
+  const calendar = screen.getByRole("region", { name: "用量日历" });
+  expect(calendar).not.toHaveTextContent("橙点：部分数据");
+  expect(screen.queryByRole("button", { name: "返回时间筛选" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "收起日历" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "回到今天" })).toHaveTextContent("今");
+  fireEvent.keyDown(calendar, { key: "Escape" });
+  expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
+  fireEvent.click(trigger);
+  expect(screen.getByRole("region", { name: "用量日历" })).toBeInTheDocument();
+  fireEvent.click(trigger);
+  expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
+});
+
+it("renders in a side panel and keeps it open after selecting a date", () => {
+  const now = new Date(2026, 8, 22, 12), onSelect = vi.fn();
+  const target = document.createElement("aside");
+  document.body.append(target);
+  render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={onSelect} onMetricChange={vi.fn()} now={now} open portalTarget={target} onOpenChange={vi.fn()} />);
+  expect(target.querySelector('[role="region"]')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "2026-09-22 · $2.70 · 部分数据" }));
+  expect(onSelect).toHaveBeenCalledWith({ start: "2026-09-22", end: "2026-09-22", scale: "day" });
+  expect(target.querySelector('[role="region"]')).toBeInTheDocument();
+  target.remove();
+});

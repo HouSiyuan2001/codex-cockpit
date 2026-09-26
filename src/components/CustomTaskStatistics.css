@@ -1,0 +1,52 @@
+.custom-task-statistics { margin: .35rem 0 .75rem; color: var(--glass-ink); }
+.custom-statistics-trigger { padding: 5px 3px; }
+.custom-statistics-panel { margin-top: .4rem; border: 1px solid var(--glass-edge); border-radius: 16px; padding: 14px; background: var(--glass-surface); }
+.custom-statistics-panel header { display: flex; align-items: center; min-width: 0; font-size: .9rem; }
+.custom-statistics-panel header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-statistics-panel small { opacity: .78; }
+.custom-statistics-total { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px 12px; align-items: baseline; margin: 8px 0 12px; }
+.custom-statistics-total > span { white-space: nowrap; }
+.custom-statistics-total strong { min-width: 0; overflow: hidden; font-size: 1.45rem; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.custom-statistics-total small { min-width: 0; max-width: 100%; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.custom-statistics-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: .5rem; }
+.custom-statistics-actions button { flex: 0 0 auto; white-space: nowrap; color: inherit; border: 1px solid var(--glass-edge); border-radius: 8px; padding: .3rem .55rem; background: transparent; }
+.custom-statistics-actions button:disabled { opacity: .45; }
+.custom-statistics-actions .custom-statistics-copy { margin-left: auto; background: #7898af; border-color: #7898af; color: white; font-weight: 700; }
+.custom-statistics-actions .custom-statistics-copy:enabled:hover { background: #587e99; }
+.custom-statistics-feedback { margin: .55rem 0 0; font-size: .85rem; color: var(--glass-ink); }
+.receipt-printer-hint { margin: -2px 0 8px; text-align: center; color: var(--glass-ink); font-size: .8rem; opacity: .78; }
+.custom-statistics-panel ul { padding: 0; margin: 8px 0 0; list-style: none; max-height: 320px; overflow-y: auto; }
+.custom-statistics-panel li + li { border-top: 1px solid var(--glass-edge); }
+.custom-statistics-panel label { display: flex; align-items: center; gap: .7rem; padding: .55rem 0; cursor: pointer; }
+.custom-statistics-panel input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #607fc6; }
+.custom-task-name { flex: 1; min-width: 0; overflow: hidden; }
+.custom-task-name > span, .custom-task-name small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-task-name small, .custom-task-cost small { font-size: .8rem; }
+.custom-task-cost { text-align: right; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.receipt-printer { position: relative; width: 225px; height: 157px; margin: 8px auto 0; isolation: isolate; }
+.receipt-printer-hand { position: absolute; z-index: 1; top: 9px; left: 152px; width: 58px; height: 90px; border: 2px solid #b98466; border-radius: 19px 22px 28px 26px; background: #e5b899; transform: rotate(-24deg); box-shadow: 4px 7px 0 rgba(34, 54, 72, .09); }
+.receipt-printer-hand::before { content: ""; position: absolute; top: -13px; left: 8px; width: 37px; height: 32px; border-radius: 17px; background: #e5b899; }
+.receipt-printer-hand::after { content: ""; position: absolute; top: 24px; left: -19px; width: 27px; height: 35px; border: 2px solid #b98466; border-radius: 16px; background: #e5b899; transform: rotate(28deg); }
+.receipt-printer-body { position: absolute; z-index: 3; top: 0; left: 18px; width: 174px; height: 75px; border: 2px solid #354e64; border-radius: 17px 17px 11px 11px; background: linear-gradient(145deg, #83a2b5, #57758c); box-shadow: inset 0 5px 0 rgba(255,255,255,.23), 0 7px 13px rgba(35,56,73,.19); }
+.receipt-printer-body::before { content: ""; position: absolute; top: 17px; left: 15px; width: 91px; height: 25px; border-radius: 5px; background: #dbe8e8; box-shadow: inset 0 2px 3px rgba(35,56,73,.24); }
+.receipt-printer-body::after { content: "CODEX"; position: absolute; top: 22px; left: 28px; color: #354e64; font-size: 14px; letter-spacing: .08em; }
+.receipt-printer-light { position: absolute; top: 24px; right: 18px; width: 10px; height: 10px; border-radius: 50%; background: #ffe397; box-shadow: 0 0 9px #ffe397; }
+.receipt-printer-slot { position: absolute; left: 11px; right: 11px; bottom: 5px; height: 7px; border-radius: 5px; background: #253c4f; }
+.receipt-printer-paper-window { position: absolute; z-index: 2; top: 67px; left: 34px; width: 140px; height: 90px; overflow: hidden; }
+.receipt-printer-paper { display: flex; flex-direction: column; gap: 5px; width: 140px; min-height: 88px; padding: 10px 11px; color: #293f52; background: #fffef9; box-shadow: inset 0 0 0 1px #e4e6df; transform: translateY(-100%); touch-action: none; user-select: none; }
+.receipt-printer-paper span { font-size: 11px; white-space: nowrap; }
+.receipt-printer-paper b { font-size: 21px; }
+.receipt-printer-paper i { border-top: 1px dashed #c9d8e1; padding-top: 4px; font-size: 10px; font-style: normal; }
+.receipt-printer--printing .receipt-printer-paper { animation: receipt-print 1.1s steps(10, end) forwards; }
+.receipt-printer--ready .receipt-printer-paper-window, .receipt-printer--tearing .receipt-printer-paper-window { overflow: visible; }
+.receipt-printer--ready .receipt-printer-paper { transform: translate(var(--tear-x), var(--tear-y)) rotate(var(--tear-angle)); transition: transform .28s cubic-bezier(.2,.8,.2,1); cursor: grab; }
+.receipt-printer--ready .receipt-printer-paper:focus-visible { outline: 2px solid #f1c55f; outline-offset: 2px; }
+.receipt-printer--dragging .receipt-printer-paper { transition: none; cursor: grabbing; }
+.receipt-printer--tearing .receipt-printer-paper { transform: translate(calc(var(--tear-x) + 85px), calc(var(--tear-y) + 55px)) rotate(19deg); opacity: 0; transition: transform .42s cubic-bezier(.19,.7,.27,1), opacity .42s ease-in; }
+.receipt-printer--success .receipt-printer-paper { opacity: 0; }
+.receipt-printer--error .receipt-printer-paper { transform: translateY(0); }
+@keyframes receipt-print { to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .receipt-printer--printing .receipt-printer-paper { animation-duration: .01ms; }
+  .receipt-printer--ready .receipt-printer-paper, .receipt-printer--tearing .receipt-printer-paper { transition-duration: .01ms; }
+}

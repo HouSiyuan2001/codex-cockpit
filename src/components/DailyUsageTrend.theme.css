@@ -1,0 +1,24 @@
+/* Tooltip foreground and opaque background form a pair; never mix the light
+   panel's ink with the legacy dark --glass-panel fallback. */
+.daily-usage-trend {
+  --trend-tooltip-bg: #162237;
+  --trend-tooltip-ink: #f1f7ff;
+  --trend-tooltip-muted: #c3d1e5;
+  --trend-tooltip-edge: #739ebc;
+  --trend-line: #72bcd5;
+  --trend-partial: #f7aa58;
+}
+.quota-card--theme-light .daily-usage-trend {
+  --trend-tooltip-bg: #f7f9ff;
+  --trend-tooltip-ink: #182b46;
+  --trend-tooltip-muted: #52617a;
+  --trend-tooltip-edge: #5b809d;
+  --trend-line: #367e9e;
+  --trend-partial: #a86416;
+}
+.daily-usage-trend .daily-trend-tooltip rect { fill: var(--trend-tooltip-bg); stroke: var(--trend-tooltip-edge); filter: drop-shadow(0 4px 8px rgba(10, 25, 45, .2)); }
+.daily-usage-trend svg .daily-trend-tooltip text { fill: var(--trend-tooltip-muted) !important; font-size: 14px !important; }
+.daily-usage-trend svg .daily-trend-tooltip .daily-trend-tooltip-value { fill: var(--trend-tooltip-ink) !important; font-size: 16px !important; font-weight: 750; }
+.daily-usage-trend .daily-trend-line { stroke: var(--trend-line); }
+.daily-usage-trend .daily-trend-point { fill: var(--trend-line); stroke: var(--trend-tooltip-bg); }
+.daily-usage-trend .daily-trend-point--partial { fill: var(--trend-tooltip-bg); stroke: var(--trend-partial); }

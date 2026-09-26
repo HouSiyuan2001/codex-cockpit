@@ -1,0 +1,80 @@
+.comfort-efficiency-panel .comfort-efficiency-chart {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 548 / 230;
+  margin: 5px 0 0;
+  overflow: visible;
+}
+
+.comfort-efficiency-chart .comfort-curve-axis {
+  stroke: var(--glass-muted, rgba(221, 241, 239, .58));
+  stroke-width: 1.4;
+}
+
+.comfort-efficiency-chart .comfort-curve-gridline {
+  stroke: var(--glass-faint, rgba(221, 241, 239, .36));
+  stroke-opacity: .42;
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.comfort-efficiency-chart .comfort-curve-tick {
+  fill: var(--glass-muted, rgba(221, 241, 239, .58));
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.comfort-efficiency-chart .comfort-curve-axis-label {
+  fill: var(--glass-ink, #eef4f6);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.comfort-efficiency-chart .comfort-curve-line {
+  stroke-width: 3;
+}
+
+.comfort-efficiency-chart .comfort-curve-fit-guide {
+  stroke: var(--glass-mint, #7b9fff);
+  stroke-opacity: .68;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.comfort-efficiency-chart .comfort-curve-fit-marker {
+  fill: var(--glass-mint, #7b9fff);
+  stroke: var(--glass-highlight, rgba(255, 255, 255, .14));
+  stroke-width: 2;
+}
+
+.comfort-efficiency-chart .comfort-curve-observation {
+  stroke-width: 1.6;
+}
+.comfort-efficiency-panel > header { gap: 8px; }
+.comfort-experience-panel .comfort-experience-chart { aspect-ratio: 548 / 322; }
+.comfort-experience-panel .comfort-compact-chart { aspect-ratio: 548 / 230; }
+.comfort-center-interval { fill: #69b6a4; opacity: .13; }
+.comfort-probability-line { fill: none; stroke-width: 2.6; }
+.comfort-probability-line--idle { stroke: #528cbd; }
+.comfort-probability-line--comfortable { stroke: #419b81; }
+.comfort-probability-line--overloaded { stroke: #da7364; }
+.comfort-probability-swatch { display: inline-block; width: 14px; height: 3px; margin-right: 5px; vertical-align: middle; }
+.comfort-probability-swatch--idle { background: #528cbd; }
+.comfort-probability-swatch--comfortable { background: #419b81; }
+.comfort-probability-swatch--overloaded { background: #da7364; }
+.comfort-experience-panel .comfort-curve-observation--idle { fill: #528cbd; }
+.comfort-experience-panel .comfort-curve-observation--comfortable { fill: #419b81; }
+.comfort-experience-panel .comfort-curve-observation--overloaded { fill: #da7364; }
+.comfort-experience-chart .comfort-category-label { font-size: 12px; }
+.comfort-raw-title { fill: var(--glass-ink); font-size: 12px; font-weight: 650; }
+.comfort-model-note, .comfort-model-details { margin: 7px 0 0; color: var(--glass-muted); font-size: clamp(10px, calc(9px * var(--ui-font-scale, 1)), 16px); line-height: 1.55; }
+.comfort-model-details summary { cursor: pointer; }
+.comfort-model-details p { margin: 5px 0 0; }
+.comfort-efficiency-panel > header > strong { margin-right: auto; white-space: nowrap; }
+.comfort-efficiency-panel > header > .comfort-person-toolbar { flex: 0 1 120px; min-width: 0; }
+.comfort-efficiency-panel > header .comfort-person-toolbar select {
+  width: 100%; max-width: 120px; min-width: 0; flex: none;
+  padding: 2px 5px; border-radius: 6px;
+  font-size: clamp(10px, calc(9px * var(--ui-font-scale, 1)), 16px);
+  text-overflow: ellipsis;
+}

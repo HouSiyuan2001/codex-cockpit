@@ -1,55 +1,48 @@
 # Codex Cockpit
 
-Codex Cockpit is a local-first macOS companion for viewing quota status and daily usage without turning a simple glance into a full dashboard.
+[中文说明](README.zh-CN.md)
 
-> Codex Cockpit is an independent, community-built project. It is not an official OpenAI product and is not affiliated with OpenAI.
+A local-first **macOS and Windows** companion for Codex quota, usage, estimated cost and personal planning. Independent community software, not an OpenAI product.
 
-## What it does
+## Features
 
-- Shows provider-reported quota snapshots, weekly remaining quota, daily usage, personal daily cap, and reset timing.
-- Keeps the most useful status inside a compact capsule and opens a larger cockpit only when clicked.
-- Expands inward from screen edges and corners so the expanded window stays close to the capsule.
-- Supports light, dark, and system appearance, English and Chinese, adjustable font scale, and a background mode without a Dock icon.
-- Provides a small local calendar for daily usage and comfort feedback when enough local history is available.
-- Offers a quick link to external reset forecasts without mixing that service into the local quota calculation.
+- Compact floating widget and control center with light/dark themes.
+- Token/cost charts, calendar heatmap, per-model/member/task breakdowns.
+- Select tasks and copy a receipt-style PNG using Smiley Sans.
+- Daily planning, reset-risk indicators and per-person comfort history.
+- Optional self-hosted Cloudflare Workers + D1 sync. Choose your own server, space, names, members and device assignments. Any joined device can edit shared member assignments; conflicting edits require a reload.
 
-## Privacy first
+Cost is an estimate, not a provider bill. Missing prices/partial history remain visible; unknown cost is not zero. Planning does not enforce provider limits. Reset forecasts are third-party estimates.
 
-Codex Cockpit is designed to keep personal usage data on the Mac:
+## Install
 
-- It does not read chat bodies, prompts, or conversation history.
-- It does not store raw provider tokens.
-- It does not operate accounts, redeem credits, or change provider settings.
-- Daily history is derived locally from available quota snapshots and reset boundaries. Missing, stale, or incompatible data is shown as unavailable instead of being silently invented.
-- The personal cap and planning slider are local display and planning preferences, not hard server-side limits.
-- No separate telemetry or account-data upload is part of the project's intended behavior.
+Download the macOS universal `.dmg` (Apple Silicon + Intel) or Windows x64 `-setup.exe` from this repository's **Releases**. Access is restricted while the repository remains private. Automation publishes only after both platform builds succeed.
 
-Provider response formats can change. Treat displayed values as snapshots with a visible data source and coverage boundary, not as a billing statement.
+The initial beta is **not Apple-notarized or Windows Authenticode-signed**. macOS uses ad-hoc signing. Verify the SHA-256 checksums and source before opening; security warnings are expected. Updates are manual. See [release limitations](docs/RELEASE.md).
 
-## Status
+## Use locally or self-host
 
-This repository is private while the project is being prepared for release. Source code, signed builds, and release notes will be published when the release is ready.
+Local usage needs no Cloudflare account. For sharing, follow [the self-hosting guide](skills/cloudflare-sync/references/self-hosting.md). A [deployment Skill](skills/cloudflare-sync/SKILL.md) is included: point your coding assistant at it, or copy the complete folder into its skill directory.
 
-## Build from source
+No author-owned sync endpoint, account, member list or credential is bundled. Joining is explicit. Task/project-name sharing is **off by default**. The server operator and invited members can read shared data; this is not end-to-end encrypted. Read [PRIVACY.md](PRIVACY.md).
 
-The public source tree will be included before the first public release. The expected development commands are:
+## Develop
 
-    cd apps/quota-float
-    npm install
-    npm test
-    npm run build
-    npm run tauri build
+Requires Node.js 24+, Rust stable and [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-A current Node.js release, Rust stable, and the platform dependencies required by Tauri 2 are needed for native builds.
+```sh
+npm ci
+npm test
+npm run build
+npm run tauri dev
+```
 
-## Contributing
+Native build: `npm run tauri build`. Worker tests: `npm --prefix cloud/usage-sync-worker test`. Publication audit: `npm run audit:public`.
 
-Issues, design feedback, and pull requests will be welcome after the repository is opened. Please keep screenshots and logs free of account identifiers, access tokens, chat content, and other private data.
+Browser previews use synthetic data, not native credentials. See [SOP](docs/DESKTOP-DEVELOPMENT-SOP.md) and [test matrix](docs/TEST-MATRIX.md).
 
-## Attribution and licensing
+## Status and license
 
-The first implementation builds on the open-source Quota Float project. The current product name, visual language, interaction model, and local features are independently redesigned for Codex Cockpit. Applicable upstream copyright notices and MIT license terms remain part of the source tree.
+**Private during open-source preparation.** No workflow changes repository visibility. This is a cleaned source import, not personal development history or runtime data.
 
-- Upstream project: [Quota Float](https://github.com/silverlion2/quota-float)
-- Project code: MIT License
-- Third-party assets: see their individual license files
+MIT, retaining the upstream [Quota Float](https://github.com/silverlion2/quota-float) license. Smiley Sans is OFL-1.1. See [notices](THIRD_PARTY_NOTICES.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).

@@ -1,0 +1,11 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="eyes">
+      <rect width="32" height="32" fill="#000"/>
+      <path d="M11.4 8.7c1.8-2.7 3.7-4.4 4.5-4.2.8.3 1.7 2.5 2.2 5.6 4 .6 7 4.1 7 8.3 0 4.7-3.9 8.6-8.7 8.6h-.8c-4.8 0-8.7-3.9-8.7-8.6 0-4.3 3.1-7.8 7.2-8.4l-2.7-1.3Z" fill="#fff"/>
+      <rect x="10.3" y="15" width="3.2" height="6.2" rx="1.6" fill="#000"/>
+      <rect x="18.5" y="15" width="3.2" height="6.2" rx="1.6" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="32" height="32" fill="#000" mask="url(#eyes)"/>
+</svg>

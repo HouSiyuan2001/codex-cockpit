@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Codex Cockpit",
+  "version": "0.3.0-beta.1",
+  "identifier": "app.codexcockpit.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "widget",
+        "title": "Codex 驾驶舱",
+        "width": 100,
+        "height": 100,
+        "minWidth": 80,
+        "minHeight": 32,
+        "maxWidth": 760,
+        "maxHeight": 1200,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "backgroundThrottling": "disabled",
+        "focus": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": "all",
+    "category": "Utility",
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
+    "shortDescription": "Codex quota at a glance",
+    "longDescription": "A compact local floating card for Codex quota and daily budget.",
+    "copyright": "Copyright Quota Float contributors",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {}
+}

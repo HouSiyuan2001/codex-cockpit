@@ -1,0 +1,97 @@
+.comfort-history-heading {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.comfort-history-heading > strong {
+  flex: none;
+  color: var(--glass-ink, #eef4f6);
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-weight: 720;
+}
+
+.comfort-history-view-toggle {
+  min-width: 0;
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--glass-edge, rgba(225, 249, 244, .15));
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.comfort-history-view-toggle button {
+  min-width: 0;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--glass-muted, rgba(221, 241, 239, .58));
+  background: transparent;
+  font-size: clamp(7px, calc(7px * var(--ui-font-scale, 1)), 12px);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.comfort-history-view-toggle button[aria-pressed="true"] {
+  color: var(--glass-ink, #eef4f6);
+  background: color-mix(in srgb, var(--glass-mint, #7b9fff) 20%, transparent);
+}
+
+.comfort-history-view-toggle button:focus-visible {
+  outline: 2px solid var(--glass-mint, #7b9fff);
+  outline-offset: 1px;
+}
+
+.comfort-history-header {
+  flex-wrap: wrap;
+}
+
+.comfort-history-header .comfort-history-nav {
+  flex: 1 1 210px;
+  justify-content: flex-end;
+}
+
+.comfort-history-header .comfort-history-nav > strong {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comfort-history-weekdays > span,
+.comfort-history-grid--week .comfort-history-day,
+.comfort-history-grid--week .comfort-history-day-detail,
+.comfort-history-grid--week .comfort-history-day-usage {
+  min-width: 0;
+}
+
+.comfort-history-grid--week .comfort-history-day {
+  min-height: calc(46px + 12px * var(--ui-font-scale, 1));
+  overflow: hidden;
+}
+
+.comfort-history-grid--week .comfort-history-day-detail {
+  display: grid;
+  justify-items: center;
+}
+
+.comfort-history-grid--week .comfort-history-day-usage {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 420px) {
+  .comfort-history-heading,
+  .comfort-history-header .comfort-history-nav {
+    flex-basis: 100%;
+  }
+
+  .comfort-history-header .comfort-history-nav {
+    justify-content: center;
+  }
+}

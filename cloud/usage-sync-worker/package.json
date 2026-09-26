@@ -1,0 +1,13 @@
+{
+  "name": "codex-cockpit-sync",
+  "private": true,
+  "version": "0.3.0-beta.1",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "wrangler dev --config wrangler.local.toml",
+    "deploy": "wrangler deploy --config wrangler.local.toml"
+  },
+  "devDependencies": { "wrangler": "4.137.0" }
+}
