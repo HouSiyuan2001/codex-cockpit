@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0-beta.2 - 2026-09-26
+
+- test: make release checks independent of runner timezone
+
 ## 0.3.0-beta.1
 
 - Clean source import, retaining upstream/font licenses.
