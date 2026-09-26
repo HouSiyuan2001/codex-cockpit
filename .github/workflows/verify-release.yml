@@ -71,11 +71,16 @@ jobs:
           $report = Join-Path $packages.FullName "WINDOWS-DEFENDER-$tag.json"
           ./scripts/verify-windows-defender.ps1 -Path @($installer.FullName, $executables[0].FullName) -PrepareGitHubRunner -EnableRealTimeProtection -UpdateSignatures -ReportPath $report
           # Add evidence, without rebuilding or replacing installers/checksums.
-          gh release upload $tag $report
-          if ($LASTEXITCODE -ne 0) { throw 'Could not attach scan report (existing reports are never overwritten)' }
-          if ($namesChanged) {
-            $manifest = Join-Path $packages.FullName 'SHA256SUMS-assets.txt'
-            $normalizedChecksums | Set-Content -LiteralPath $manifest -Encoding utf8
+          $release = gh release view $tag --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list existing release evidence' }
+          if ([IO.Path]::GetFileName($report) -notin $release.assets.name) {
+            gh release upload $tag $report
+            if ($LASTEXITCODE -ne 0) { throw 'Could not attach scan report' }
+          }
+          if ($namesChanged -and 'SHA256SUMS.txt' -notin $release.assets.name) {
+            $manifest = Join-Path $packages.FullName 'SHA256SUMS.txt'
+            # LF/no BOM works with macOS shasum and Linux sha256sum as well.
+            [IO.File]::WriteAllText($manifest, ($normalizedChecksums -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
             gh release upload $tag $manifest
             if ($LASTEXITCODE -ne 0) { throw 'Could not attach asset-name checksum manifest' }
           }
