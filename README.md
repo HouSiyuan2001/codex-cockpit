@@ -2,11 +2,13 @@
 
 还剩多少额度，今天用了多少，都放在一个小窗口里。
 
-[看看演示](https://codex-cockpit.pages.dev/) · [下载安装](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [English](README.en.md)
+[看看演示](https://codex-cockpit.pages.dev/) · [B 站视频](https://www.bilibili.com/video/BV1SXbv6REWz/) · [下载安装](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [English](README.en.md)
 
 Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬浮窗待在屏幕一旁，点开后就能看额度、查用量、安排今天的使用计划，不必来回翻记录。
 
 它是独立社区项目，不是 OpenAI 官方产品。
+
+想先看视频？这里是我的 B 站分享：[《我榨干了Codex》](https://www.bilibili.com/video/BV1SXbv6REWz/)。
 
 ## 让 Codex 帮你装、帮你查问题
 

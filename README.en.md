@@ -2,11 +2,13 @@
 
 Keep your remaining quota, daily usage and estimated costs in one small window.
 
-[Try the demo](https://codex-cockpit.pages.dev/) · [Download](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [中文](README.md)
+[Try the demo](https://codex-cockpit.pages.dev/) · [Bilibili video](https://www.bilibili.com/video/BV1SXbv6REWz/) · [Download](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [中文](README.md)
 
 Codex Cockpit is a companion app for Mac and Windows. A floating widget stays out of the way while you work. Open it to check your quota, explore usage and plan the rest of your day.
 
 This is an independent community project, not an OpenAI product.
+
+Prefer a video? Watch the creator's Bilibili video, [我榨干了Codex](https://www.bilibili.com/video/BV1SXbv6REWz/) (in Chinese).
 
 ## Let Codex help you
 
