@@ -297,7 +297,8 @@ describe("QuotaCard platform ledger", () => {
 
       expect(screen.getByText("Codex 驾驶舱")).toBeInTheDocument();
       expect(screen.getByText("本周剩余")).toBeInTheDocument();
-      expect(screen.getByText("已记录 6% · 14:24 起")).toBeInTheDocument();
+      const observedTime = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date("2026-07-20T14:24:00+08:00"));
+      expect(screen.getByText(`已记录 6% · ${observedTime} 起`)).toBeInTheDocument();
       const dailyRing = screen.getByRole("group", { name: "今日已用 42%" });
       expect(dailyRing).toHaveTextContent("上限余量 8.3%");
       expect(dailyRing.querySelector(".daily-usage-track")).not.toBeInTheDocument();

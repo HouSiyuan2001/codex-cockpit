@@ -53,7 +53,7 @@ function officialUsage(overrides: Partial<CodexDailyUsage> = {}): CodexDailyUsag
 describe("ComfortHistoryCalendar", () => {
   it("shows emoji entries, edits a selected day, and disables future dates", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T12:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T12:00:00"));
     const onChange = vi.fn();
 
     render(<ComfortHistoryCalendar records={[record()]} dailyUsage={[usage()]} language="en" onChange={onChange} />);
@@ -73,7 +73,7 @@ describe("ComfortHistoryCalendar", () => {
 
   it("prefers official history over stale refresh snapshots", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T12:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T12:00:00"));
 
     render(
       <ComfortHistoryCalendar
@@ -92,7 +92,7 @@ describe("ComfortHistoryCalendar", () => {
 
   it("defaults to the continuous seven days ending today with matching weekdays", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T12:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T12:00:00"));
 
     render(<ComfortHistoryCalendar records={[record()]} dailyUsage={[usage()]} language="en" onChange={vi.fn()} />);
 
@@ -108,7 +108,7 @@ describe("ComfortHistoryCalendar", () => {
 
   it("moves the week by seven days and Today restores the current range", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T12:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T12:00:00"));
     const onChange = vi.fn();
 
     render(<ComfortHistoryCalendar records={[record()]} language="en" onChange={onChange} />);
@@ -124,26 +124,26 @@ describe("ComfortHistoryCalendar", () => {
 
   it("follows a new day at midnight until the user navigates away", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T23:59:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T23:59:00"));
 
     const { rerender } = render(<ComfortHistoryCalendar records={[record()]} language="en" onChange={vi.fn()} />);
     expect(screen.getByRole("grid", { name: "Aug 8–Aug 14, 2026" })).toBeInTheDocument();
 
-    vi.setSystemTime(new Date("2026-08-15T00:01:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-15T00:01:00"));
     rerender(<ComfortHistoryCalendar records={[record()]} language="en" onChange={vi.fn()} />);
     expect(screen.getByRole("grid", { name: "Aug 9–Aug 15, 2026" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Previous 7 days" }));
     expect(screen.getByRole("grid", { name: "Aug 2–Aug 8, 2026" })).toBeInTheDocument();
 
-    vi.setSystemTime(new Date("2026-08-16T00:01:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-16T00:01:00"));
     rerender(<ComfortHistoryCalendar records={[record()]} language="en" onChange={vi.fn()} />);
     expect(screen.getByRole("grid", { name: "Aug 2–Aug 8, 2026" })).toBeInTheDocument();
   });
 
   it("keeps the original month calendar navigation behind the Month switch", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-14T12:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-08-14T12:00:00"));
     const onChange = vi.fn();
 
     render(<ComfortHistoryCalendar records={[record()]} language="en" onChange={onChange} />);

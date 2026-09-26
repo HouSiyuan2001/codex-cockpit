@@ -1,6 +1,6 @@
 # Release process
 
-`0.3.0-beta.1` is a private-repository preview, not a public launch.
+`0.3.0-beta.2` is a private-repository preview, not a public launch.
 
 Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE and SHA256SUMS. Both platform jobs must pass before publication. No workflow changes repository visibility.
 

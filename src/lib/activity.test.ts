@@ -45,7 +45,7 @@ describe("activity timeline and notification policy", () => {
       [snapshot(90)],
       null,
       15,
-      new Date(2026, 6, 19, 3, 59, 0),
+      new Date("2026-07-19T03:59:00+08:00"),
     );
     const atFour = recordSnapshotActivity(
       beforeFour.state,
@@ -53,7 +53,7 @@ describe("activity timeline and notification policy", () => {
       [snapshot(82)],
       null,
       15,
-      new Date(2026, 6, 19, 4, 0, 0),
+      new Date("2026-07-19T04:00:00+08:00"),
     );
 
     expect(atFour.state.dailyUsage).toEqual([
