@@ -1,48 +1,76 @@
-# Codex Cockpit
+# Codex 驾驶舱
 
-[中文说明](README.zh-CN.md)
+还剩多少额度，今天用了多少，都放在一个小窗口里。
 
-A local-first **macOS and Windows** companion for Codex quota, usage, estimated cost and personal planning. Independent community software, not an OpenAI product.
+[看看演示](https://codex-cockpit.pages.dev/) · [下载安装](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [English](README.en.md)
 
-## Features
+Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬浮窗待在屏幕一旁，点开后就能看额度、查用量、安排今天的使用计划，不必来回翻记录。
 
-- Compact floating widget and control center with light/dark themes.
-- Token/cost charts, calendar heatmap, per-model/member/task breakdowns.
-- Select tasks and copy a receipt-style PNG using Smiley Sans.
-- Daily planning, reset-risk indicators and per-person comfort history.
-- Optional self-hosted Cloudflare Workers + D1 sync. Choose your own server, space, names, members and device assignments. Any joined device can edit shared member assignments; conflicting edits require a reload.
+它是独立社区项目，不是 OpenAI 官方产品。
 
-Cost is an estimate, not a provider bill. Missing prices/partial history remain visible; unknown cost is not zero. Planning does not enforce provider limits. Reset forecasts are third-party estimates.
+## 可以用它做什么？
 
-## Install
+- **看还剩多少**：把本周剩余额度、重置时间和今日计划放在一起。
+- **看用在哪里**：按任务、模型或成员查看 Token 和估算金额，用曲线与日历热力图翻看历史。
+- **算几项任务的成本**：勾选想统计的任务，合计后复制成一张小票风格的 PNG。小票使用得意黑字体。
+- **把几台电脑放在一起看**：Mac、Windows 的用量可以汇总到同一个空间。成员叫什么、用什么颜色、设备归谁，都由你设置。
+- **找到自己的使用节奏**：记录每天用起来是紧张还是宽裕，配合计划和提醒调整用量。
 
-Download the macOS universal `.dmg` (Apple Silicon + Intel) or Windows x64 `-setup.exe` from this repository's **Releases**. Access is restricted while the repository remains private. Automation publishes only after both platform builds succeed.
+想先看看长什么样，可以打开[演示网站](https://codex-cockpit.pages.dev/)。网页里的数据是演示数据，不会显示你的真实用量；实际功能以桌面 App 为准。
 
-The initial beta is **not Apple-notarized or Windows Authenticode-signed**. macOS uses ad-hoc signing. Verify the SHA-256 checksums and source before opening; security warnings are expected. Updates are manual. See [release limitations](docs/RELEASE.md).
+## 怎么安装？
 
-## Use locally or self-host
+打开 [Releases](https://github.com/HouSiyuan2001/codex-cockpit/releases)，下载与你的电脑对应的安装包：
 
-Local usage needs no Cloudflare account. For sharing, follow [the self-hosting guide](skills/cloudflare-sync/references/self-hosting.md). A [deployment Skill](skills/cloudflare-sync/SKILL.md) is included: point your coding assistant at it, or copy the complete folder into its skill directory.
+| 电脑 | 下载哪个 |
+| --- | --- |
+| Mac，Apple Silicon 或 Intel | 文件名带 `universal.dmg` 的安装包 |
+| Windows，x64 | 文件名带 `x64-setup.exe` 的安装包 |
 
-No author-owned sync endpoint, account, member list or credential is bundled. Joining is explicit. Task/project-name sharing is **off by default**. The server operator and invited members can read shared data; this is not end-to-end encrypted. Read [PRIVACY.md](PRIVACY.md).
+安装后可以先使用本机统计，不需要先配置服务器。想共享数据时，再到设置里配置同步。
 
-## Develop
+目前仍是测试版，仓库暂时保持私有，需要有仓库访问权限才能下载。更新时手动下载新版即可。
 
-Requires Node.js 24+, Rust stable and [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+**安装提醒：** Mac 版还没有经过 Apple 公证，Windows 版还没有发布者签名，系统可能提示无法确认开发者。请先确认下载来源，并按 Release 里的说明核对文件；不要为了安装而关闭系统安全保护。
+
+## 自己用，还是一起用？
+
+**只在一台电脑上用：** 不需要 Cloudflare，也不需要部署服务器。
+
+**想在多台电脑之间同步，或和其他人一起看：** 由一个人在自己的 Cloudflare 账号下部署同步服务，再创建共享空间、邀请其他设备加入。不需要每个人都部署一份服务器。
+
+成员的作用很简单：决定一台设备产生的用量记在谁名下。一台设备归一个成员，一个成员可以有多台设备。成员名称、颜色和设备归属都可以自己改，已加入的设备也可以修改共享的成员设置。
+
+照着[自部署指南](skills/cloudflare-sync/references/self-hosting.md)操作即可。也可以把仓库里的 [Cloudflare 部署 Skill](skills/cloudflare-sync/SKILL.md)交给编程助手，让它按步骤协助你申请和部署。
+
+同步的是使用记录，不是 Codex 登录权限；加入空间不会自动获得别人的账号访问权。
+
+## 数据和金额说明
+
+- **金额是估算，不是官方账单。** 缺少价格或历史记录不完整时，会提示数据不完整，不把未知成本当成零。
+- **不配置同步，也能在本机使用。** App 不内置开发者的私人同步服务器或成员名单。任务和项目名称默认不共享，需要你主动开启。
+- **共享前确认谁能看到。** 同一空间的成员和服务器管理者可以查看共享数据；数据不是端到端加密的。不要把密钥放进聊天、截图或仓库。
+- **计划和预警只是参考。** 驾驶舱不能替你改变官方额度，也不能保证额度什么时候重置。
+
+更多信息见[隐私说明](PRIVACY.md)和[当前版本说明](docs/RELEASE.md)。
+
+## 想自己改代码？
+
+界面使用 React / TypeScript，桌面部分使用 Tauri / Rust，同步服务使用 Cloudflare Workers + D1。
+
+需要 Node.js 24+、Rust stable，以及 [Tauri 对应系统的开发依赖](https://v2.tauri.app/start/prerequisites/)。
 
 ```sh
 npm ci
-npm test
-npm run build
 npm run tauri dev
 ```
 
-Native build: `npm run tauri build`. Worker tests: `npm --prefix cloud/usage-sync-worker test`. Publication audit: `npm run audit:public`.
+运行测试：`npm test`。打包：`npm run tauri build`。
 
-Browser previews use synthetic data, not native credentials. See [SOP](docs/DESKTOP-DEVELOPMENT-SOP.md) and [test matrix](docs/TEST-MATRIX.md).
+继续开发前可以看[开发说明](docs/DESKTOP-DEVELOPMENT-SOP.md)、[测试清单](docs/TEST-MATRIX.md)和[发布流程](docs/RELEASING.md)。浏览器预览使用虚构数据，不能代替桌面 App 的实机测试。
 
-## Status and license
+## 感谢与许可
 
-**Private during open-source preparation.** No workflow changes repository visibility. This is a cleaned source import, not personal development history or runtime data.
+项目基于 [Quota Float](https://github.com/silverlion2/quota-float) 开发，源码采用 [MIT 许可证](LICENSE)。感谢上游项目和所有依赖的维护者。
 
-MIT, retaining the upstream [Quota Float](https://github.com/silverlion2/quota-float) license. Smiley Sans is OFL-1.1. See [notices](THIRD_PARTY_NOTICES.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
+[得意黑 / Smiley Sans](https://github.com/atelier-anchor/smiley-sans)采用 OFL-1.1 许可证。完整信息见[第三方声明](THIRD_PARTY_NOTICES.md)。

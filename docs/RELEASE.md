@@ -1,21 +1,38 @@
-# Release process
+# Codex 驾驶舱 · v0.3.0-beta.2
 
-`0.3.0-beta.2` is a private-repository preview, not a public launch.
+Mac 和 Windows 的安装包都准备好了。
 
-Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE and SHA256SUMS. Both platform jobs must pass before publication. No workflow changes repository visibility.
+驾驶舱把剩余额度、每日用量和估算成本放在一个小窗口里。你可以按任务、模型或成员查明细，翻看日历热力图，也可以选几项任务，把合计金额复制成一张小票。
 
-Mac uses ad-hoc signing, not Apple notarization; Windows is not Authenticode-signed. Defender does not establish publisher identity. No signed updater artifacts/automatic install. Verify source/checksums and follow OS security guidance, without disabling protection globally.
+[先看看演示](https://codex-cockpit.pages.dev/) · [使用说明](https://github.com/HouSiyuan2001/codex-cockpit#readme)
 
-Automated checks do not replace clean-machine install/launch/clipboard/uninstall/rollback tests. Until separately recorded, packages are evaluation builds. No certificate purchase or paid cloud plan is required.
+## 下载哪个？
 
-Use the release script's `--dry-run` for subsequent versions. It synchronizes npm/Cargo/Tauri versions. A matching `v*` tag triggers `.github/workflows/release.yml`, creating a pre-release only after checks/builds/scans. Do not silently replace existing assets.
+| 你的电脑 | 安装包 |
+| --- | --- |
+| Mac，Apple Silicon 或 Intel | `Codex.Cockpit_0.3.0-beta.2_universal.dmg` |
+| Windows，x64 | `Codex.Cockpit_0.3.0-beta.2_x64-setup.exe` |
 
-Fork builds inject their own release URL with `VITE_RELEASE_URL`; self-builds without it do not open the original author's release page. Desktop tags never deploy Cloudflare.
+下载区的 `SHA256SUMS.txt` 用来核对文件是否完整，其余校验和扫描文件可以先不管。
 
-Windows scan gates reject skipped/cancelled scans even if the scanner exits zero. Disposable GitHub-hosted runners have their built-in drive exclusions removed and archive scanning enabled before scanning; this mode refuses to run on personal or self-hosted machines. See [GitHub's image defaults](https://github.com/actions/runner-images/blob/main/images/windows/scripts/build/Configure-WindowsDefender.ps1). No exclusions are added and remediation remains enabled.
+## 装好后怎么用？
 
-The `Verify existing Windows release` workflow can recheck a published installer's SHA-256, extract and scan its native executable, then attach a `WINDOWS-DEFENDER-<tag>.json` report. It never replaces existing release files. This supplies the actual scan evidence for beta.2 after discovering the original build runner skipped excluded files; the initial green build alone is not scan evidence.
+先看本机用量就可以，不需要部署服务器。想把几台电脑或几个人的用量放在一起看，再按照 [Cloudflare 自部署指南](https://github.com/HouSiyuan2001/codex-cockpit/blob/main/skills/cloudflare-sync/references/self-hosting.md)配置同步。成员名称、颜色和设备归属都可以自己设置。
 
-For beta.2, use `SHA256SUMS.txt`: it preserves the original digests while matching GitHub's space-to-dot asset-name normalization, with LF line endings for macOS/Linux checksum tools. Earlier manifests remain for provenance. Future releases normalize names before checksumming.
+## 安装前知道这几件事
 
-References: [Tauri CI](https://v2.tauri.app/distribute/pipelines/github/), [Windows installers](https://v2.tauri.app/distribute/windows-installer/).
+- 这仍是测试版，仓库暂时保持私有。
+- Windows 已收到实机验收通过的反馈；Mac 安装包已完成构建和文件校验。
+- Mac 还没有 Apple 公证，Windows 还没有发布者签名，系统可能提示无法确认开发者。请核对来源与文件，不要关闭系统安全保护。
+- 金额是估算，不是官方账单；更新暂时需要手动下载新版。
+
+<details>
+<summary>查看构建和校验记录</summary>
+
+- [Mac / Windows 构建与三时区测试](https://github.com/HouSiyuan2001/codex-cockpit/actions/runs/36225030684)。
+- [Windows 安装包及程序扫描、下载校验表检查](https://github.com/HouSiyuan2001/codex-cockpit/actions/runs/36227341528)。扫描记录见 `WINDOWS-DEFENDER-v0.3.0-beta.2.json`。
+- 本次安装包对应源码 `46cc00d`，没有被后续文档或发布流程修改替换。
+- 早期校验表保留供追溯；下载核对请使用文件名匹配、兼容 Mac / Windows 的 `SHA256SUMS.txt`。
+- Windows 验收是使用者反馈；Mac 暂未单独记录完整实机验收。自动检查和病毒扫描不能保证所有功能都没有问题。
+
+</details>

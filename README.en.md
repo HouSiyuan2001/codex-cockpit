@@ -1,0 +1,76 @@
+# Codex Cockpit
+
+Keep your remaining quota, daily usage and estimated costs in one small window.
+
+[Try the demo](https://codex-cockpit.pages.dev/) · [Download](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [中文](README.md)
+
+Codex Cockpit is a companion app for Mac and Windows. A floating widget stays out of the way while you work. Open it to check your quota, explore usage and plan the rest of your day.
+
+This is an independent community project, not an OpenAI product.
+
+## What can I do with it?
+
+- **Check what's left.** See your remaining weekly quota, reset time and daily plan together.
+- **See where usage goes.** Explore tokens and estimated costs by task, model or member. Browse history with charts and a calendar heatmap.
+- **Add up a few tasks.** Select the tasks you want to include and copy a receipt-style PNG, set in Smiley Sans.
+- **Bring several computers together.** Combine Mac and Windows usage in a shared space. Choose your own member names, colors and device assignments.
+- **Find a comfortable pace.** Record how your daily usage feels and use plans and reminders to adjust it.
+
+The [website](https://codex-cockpit.pages.dev/) is an interactive demo with sample data, not a web view of your account. The desktop app may look different as it evolves.
+
+## Install
+
+Open [Releases](https://github.com/HouSiyuan2001/codex-cockpit/releases) and choose the package for your computer:
+
+| Computer | Package |
+| --- | --- |
+| Mac, Apple Silicon or Intel | The file ending in `universal.dmg` |
+| Windows, x64 | The file ending in `x64-setup.exe` |
+
+You can start with local usage tracking. You do not need a server before opening the app. Set up sync later if you want to share data.
+
+This is a beta, and the repository is still private. You need repository access to download it. Updates are installed manually.
+
+**Before installing:** the Mac build is not Apple-notarized, and the Windows installer has no publisher signature. Your system may warn that it cannot identify the developer. Check the download source and the release checksums; do not turn off system protection to install the app.
+
+## Use it alone or together
+
+**One computer:** no Cloudflare account or server is needed.
+
+**Several computers or people:** one person deploys the sync service in their own Cloudflare account, creates a shared space and invites the other devices. Each member does not need their own server.
+
+A member is simply the person whose usage a device counts toward. Each device belongs to one member, and a member can have several devices. Names, colors and assignments are yours to choose. Joined devices can edit the shared member settings.
+
+Follow the [self-hosting guide](skills/cloudflare-sync/references/self-hosting.md), or give the included [Cloudflare deployment Skill](skills/cloudflare-sync/SKILL.md) to your coding assistant.
+
+Sync shares usage records, not Codex login access. Joining a space does not give someone access to another person's account.
+
+## A few things to know
+
+- **Costs are estimates, not provider bills.** Missing prices or incomplete history stay visible rather than being counted as zero.
+- **Local use works without sync.** No developer-owned private sync server or member list is built in. Sharing task and project names is off by default.
+- **Check who can see shared data.** Space members and the server operator can read it; this is not end-to-end encrypted. Keep credentials out of chats, screenshots and repositories.
+- **Plans and reset warnings are guidance.** The app cannot change provider limits or guarantee a reset.
+
+See [privacy details](PRIVACY.md) and the [current release notes](docs/RELEASE.md).
+
+## Work on the code
+
+The UI uses React / TypeScript, the desktop layer uses Tauri / Rust, and the optional sync service uses Cloudflare Workers + D1.
+
+You will need Node.js 24+, Rust stable and the [Tauri prerequisites for your platform](https://v2.tauri.app/start/prerequisites/).
+
+```sh
+npm ci
+npm run tauri dev
+```
+
+Run tests with `npm test`; build an installer with `npm run tauri build`.
+
+See the [development guide](docs/DESKTOP-DEVELOPMENT-SOP.md), [test checklist](docs/TEST-MATRIX.md) and [release process](docs/RELEASING.md). Browser previews use fictional data and do not replace desktop testing.
+
+## Thanks and license
+
+Built on [Quota Float](https://github.com/silverlion2/quota-float), with source released under the [MIT license](LICENSE). Thanks to the upstream project and the maintainers of our dependencies.
+
+[Smiley Sans](https://github.com/atelier-anchor/smiley-sans) is licensed under OFL-1.1. See [third-party notices](THIRD_PARTY_NOTICES.md).
