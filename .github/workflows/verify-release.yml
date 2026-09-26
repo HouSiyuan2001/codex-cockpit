@@ -1,0 +1,60 @@
+name: Verify existing Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (empty selects the most recent release)'
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-release.yml'
+      - 'scripts/*defender*.ps1'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REQUESTED_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fail-closed scan parsing
+        shell: pwsh
+        run: ./scripts/test-defender-scan-output.ps1
+      - name: Verify and scan immutable release packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:REQUESTED_TAG
+          if (-not $tag) {
+            $releases = gh release list --limit 1 --json tagName | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $releases) { throw 'No release available to scan' }
+            $tag = $releases[0].tagName
+          }
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?$') { throw 'Invalid release tag' }
+          $packages = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString()))
+          gh release download $tag --dir $packages.FullName --pattern '*-setup.exe' --pattern SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
+          $checksums = Get-Content -LiteralPath (Join-Path $packages.FullName 'SHA256SUMS')
+          $installers = @(Get-ChildItem -LiteralPath $packages.FullName -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
+          $installer = $installers[0]
+          $expected = @($checksums | Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($installer.Name) + '$') })
+          if ($expected.Count -ne 1) { throw 'Missing or ambiguous installer checksum' }
+          if ((Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash -ne $expected[0].Substring(0, 64)) { throw 'Installer checksum mismatch' }
+          $unpacked = Join-Path $packages.FullName 'unpacked'
+          & 7z x '-y' "-o$unpacked" $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Installer extraction failed' }
+          $executables = @(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter quota-float.exe)
+          if ($executables.Count -ne 1) { throw 'Expected one application executable in the installer' }
+          $report = Join-Path $packages.FullName "WINDOWS-DEFENDER-$tag.json"
+          ./scripts/verify-windows-defender.ps1 -Path @($installer.FullName, $executables[0].FullName) -PrepareGitHubRunner -EnableRealTimeProtection -UpdateSignatures -ReportPath $report
+          # Add evidence, without rebuilding or replacing installers/checksums.
+          gh release upload $tag $report
+          if ($LASTEXITCODE -ne 0) { throw 'Could not attach scan report (existing reports are never overwritten)' }

@@ -12,4 +12,8 @@ Use the release script's `--dry-run` for subsequent versions. It synchronizes np
 
 Fork builds inject their own release URL with `VITE_RELEASE_URL`; self-builds without it do not open the original author's release page. Desktop tags never deploy Cloudflare.
 
+Windows scan gates reject skipped/cancelled scans even if the scanner exits zero. Disposable GitHub-hosted runners have their built-in drive exclusions removed and archive scanning enabled before scanning; this mode refuses to run on personal or self-hosted machines. See [GitHub's image defaults](https://github.com/actions/runner-images/blob/main/images/windows/scripts/build/Configure-WindowsDefender.ps1). No exclusions are added and remediation remains enabled.
+
+The `Verify existing Windows release` workflow can recheck a published installer's SHA-256, extract and scan its native executable, then attach a `WINDOWS-DEFENDER-<tag>.json` report. It never replaces existing release files. This supplies the actual scan evidence for beta.2 after discovering the original build runner skipped excluded files; the initial green build alone is not scan evidence.
+
 References: [Tauri CI](https://v2.tauri.app/distribute/pipelines/github/), [Windows installers](https://v2.tauri.app/distribute/windows-installer/).
