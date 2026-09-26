@@ -85,6 +85,12 @@ npm run tauri dev
 
 继续开发前可以看[开发说明](docs/DESKTOP-DEVELOPMENT-SOP.md)、[测试清单](docs/TEST-MATRIX.md)和[发布流程](docs/RELEASING.md)。浏览器预览使用虚构数据，不能代替桌面 App 的实机测试。
 
+## 欢迎投喂骰子一杯咖啡 ☕
+
+如果驾驶舱对你有帮助，欢迎请骰子喝杯咖啡。谢谢你的支持，量力而行就好，投喂完全自愿，不影响任何功能的使用。
+
+<a href="assets/support/dice-coffee.png"><img src="assets/support/dice-coffee.png" alt="支付宝收款码：投喂骰子一杯咖啡" width="640"></a>
+
 ## 感谢与许可
 
 项目基于 [Quota Float](https://github.com/silverlion2/quota-float) 开发，源码采用 [MIT 许可证](LICENSE)。感谢上游项目和所有依赖的维护者。

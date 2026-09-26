@@ -86,6 +86,12 @@ Run tests with `npm test`; build an installer with `npm run tauri build`.
 
 See the [development guide](docs/DESKTOP-DEVELOPMENT-SOP.md), [test checklist](docs/TEST-MATRIX.md) and [release process](docs/RELEASING.md). Browser previews use fictional data and do not replace desktop testing.
 
+## Buy Dice a coffee ☕
+
+If Cockpit has been helpful, you're welcome to buy Dice (骰子) a coffee. Thank you for your support! Donations are entirely optional and do not affect access to any features.
+
+<a href="assets/support/dice-coffee.png"><img src="assets/support/dice-coffee.png" alt="Alipay QR code to buy Dice a coffee" width="640"></a>
+
 ## Thanks and license
 
 Built on [Quota Float](https://github.com/silverlion2/quota-float), with source released under the [MIT license](LICENSE). Thanks to the upstream project and the maintainers of our dependencies.
