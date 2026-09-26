@@ -96,7 +96,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir packages
-          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} packages/ \;
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            asset="packages/${name// /.}"
+            test ! -e "$asset"
+            cp "$file" "$asset"
+          done < <(find artifacts -type f \( -name '*.dmg' -o -name '*.exe' \) -print0)
           test "$(find packages -name '*.dmg' | wc -l)" -ge 1
           test "$(find packages -name '*.exe' | wc -l)" -ge 1
           (cd packages && sha256sum *.dmg *.exe > SHA256SUMS)

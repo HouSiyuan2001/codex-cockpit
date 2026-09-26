@@ -16,4 +16,6 @@ Windows scan gates reject skipped/cancelled scans even if the scanner exits zero
 
 The `Verify existing Windows release` workflow can recheck a published installer's SHA-256, extract and scan its native executable, then attach a `WINDOWS-DEFENDER-<tag>.json` report. It never replaces existing release files. This supplies the actual scan evidence for beta.2 after discovering the original build runner skipped excluded files; the initial green build alone is not scan evidence.
 
+For beta.2, use `SHA256SUMS-assets.txt`: it preserves the original digests while matching GitHub's space-to-dot asset-name normalization. The original `SHA256SUMS` remains for provenance. Future releases normalize names before checksumming.
+
 References: [Tauri CI](https://v2.tauri.app/distribute/pipelines/github/), [Windows installers](https://v2.tauri.app/distribute/windows-installer/).

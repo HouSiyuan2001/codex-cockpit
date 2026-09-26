@@ -45,9 +45,24 @@ jobs:
           $installers = @(Get-ChildItem -LiteralPath $packages.FullName -Filter '*-setup.exe')
           if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
           $installer = $installers[0]
-          $expected = @($checksums | Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($installer.Name) + '$') })
+          $expected = @()
+          $normalizedChecksums = @()
+          $normalizedNames = @()
+          $namesChanged = $false
+          foreach ($line in $checksums) {
+            if ($line -notmatch '^([a-fA-F0-9]{64})  (.+)$') { throw 'Invalid checksum manifest' }
+            $digest = $Matches[1]
+            $originalName = $Matches[2]
+            # GitHub normalizes spaces in uploaded asset names to dots.
+            $assetName = $originalName.Replace(' ', '.')
+            if ($assetName -in $normalizedNames) { throw 'Ambiguous normalized asset name' }
+            $normalizedNames += $assetName
+            $normalizedChecksums += "$digest  $assetName"
+            if ($assetName -ne $originalName) { $namesChanged = $true }
+            if ($assetName -eq $installer.Name) { $expected += $digest }
+          }
           if ($expected.Count -ne 1) { throw 'Missing or ambiguous installer checksum' }
-          if ((Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash -ne $expected[0].Substring(0, 64)) { throw 'Installer checksum mismatch' }
+          if ((Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash -ne $expected[0]) { throw 'Installer checksum mismatch' }
           $unpacked = Join-Path $packages.FullName 'unpacked'
           & 7z x '-y' "-o$unpacked" $installer.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Installer extraction failed' }
@@ -58,3 +73,9 @@ jobs:
           # Add evidence, without rebuilding or replacing installers/checksums.
           gh release upload $tag $report
           if ($LASTEXITCODE -ne 0) { throw 'Could not attach scan report (existing reports are never overwritten)' }
+          if ($namesChanged) {
+            $manifest = Join-Path $packages.FullName 'SHA256SUMS-assets.txt'
+            $normalizedChecksums | Set-Content -LiteralPath $manifest -Encoding utf8
+            gh release upload $tag $manifest
+            if ($LASTEXITCODE -ne 0) { throw 'Could not attach asset-name checksum manifest' }
+          }
