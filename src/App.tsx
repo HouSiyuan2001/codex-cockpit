@@ -109,6 +109,7 @@ export default function App() {
   const refreshSequence = useRef(0);
   const runtimeStateRef = useRef<RuntimeState>(EMPTY_RUNTIME_STATE);
   const comfortPromptRef = useRef<ComfortPrompt | null>(null);
+  const autoExpandedComfortPrompt = useRef<string | null>(null);
   const preferencesRef = useRef<WidgetPreferences>(DEFAULT_PREFS);
   const confirmedPreferencesRef = useRef<WidgetPreferences>(DEFAULT_PREFS);
   const preferenceSaveSequence = useRef(0);
@@ -822,7 +823,7 @@ export default function App() {
       collapseTimer.current = null;
     }
     setHovered(value);
-    if (!value && (stayExpanded || controlOpen || controlOpenRef.current || diagnosticsOpen || updateOpen || comfortPrompt)) return;
+    if (!value && (stayExpanded || controlOpen || controlOpenRef.current || diagnosticsOpen || updateOpen)) return;
     // Re-centering the native control-center window can fire a fresh mouse
     // enter event. Keep that event from enqueueing a normal widget resize.
     if (value && (controlOpen || controlOpenRef.current)) return;
@@ -888,24 +889,22 @@ export default function App() {
           setOperationError("Widget collapse failed.");
         });
     }, 60);
-  }, [compact, compactCapsuleWidth, compactLayout, comfortPrompt, controlOpen, diagnosticsOpen, refresh, stayExpanded, updateOpen]);
+  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refresh, stayExpanded, updateOpen]);
 
+  const comfortPromptKey = comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
   useEffect(() => {
-    if (!comfortPrompt) return;
+    if (!comfortPromptKey) {
+      autoExpandedComfortPrompt.current = null;
+      return;
+    }
+    if (controlOpen || autoExpandedComfortPrompt.current === comfortPromptKey) return;
+    autoExpandedComfortPrompt.current = comfortPromptKey;
     if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current);
     hoverTargetExpanded.current = true;
     delete document.documentElement.dataset.widgetCollapsing;
     widgetTransitioning.current = true;
     setWidgetSurfaceSizing(true);
     setCompact(false);
-    // A late daily-usage refresh can update the prompt after the control
-    // center has already opened. Do not enqueue a normal widget expansion
-    // here, or it can resize the native window back over the control center.
-    if (controlOpen) {
-      widgetTransitioning.current = false;
-      setWidgetSurfaceSizing(false);
-      return;
-    }
     const sequence = ++hoverSequence.current;
     void waitForSurfacePaint()
       .then(() => hoverSequence.current === sequence ? setWidgetExpanded(true, compactLayout, measureExpandedContentHeight()) : undefined)
@@ -928,7 +927,7 @@ export default function App() {
       widgetTransitioning.current = false;
       setWidgetSurfaceSizing(false);
     };
-  }, [comfortPrompt, compactLayout, controlOpen]);
+  }, [comfortPromptKey, compactLayout, controlOpen]);
 
   const handleSliderInteraction = useCallback((active: boolean) => {
     sliderInteracting.current = active;
@@ -1038,7 +1037,7 @@ export default function App() {
 
   if (!current) return <div className="loading-card" aria-label={t.loadingQuota}><span /><span /><span /></div>;
 
-  if (compact && !comfortPrompt) {
+  if (compact) {
     const selectCompactProvider = (provider: ProviderId) => {
       const index = orderedSnapshots.findIndex((item) => item.provider === provider);
       if (index >= 0) setActiveIndex(index);

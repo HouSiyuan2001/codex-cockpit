@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   sendDesktopNotification: vi.fn(),
   recordSnapshotActivity: vi.fn(),
   getSyncedComfortFeedback: vi.fn(),
+  promptTarget: null as { localDate: string; isCatchUp: boolean } | null,
 }));
 
 vi.mock("./lib/usageSyncBridge", () => ({
@@ -40,8 +41,10 @@ vi.mock("./components/QuotaCard", () => ({
   capsuleLogicalWidth: () => 100,
   QuotaIsland: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
   QuotaOrb: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
-  QuotaCard: ({ onHover, onControlOpen, onRefresh, controlCenter, resetForecast, resetWatch, dailyRecommendation, onResetRiskChange }: { onHover: (value: boolean) => void; onControlOpen: () => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; dailyRecommendation: { resetRiskPercent: number } | null; onResetRiskChange: (value: number | null) => void }) => <div>
+  QuotaCard: ({ onHover, onControlOpen, onRefresh, controlCenter, resetForecast, resetWatch, dailyRecommendation, onResetRiskChange, comfortPrompt }: { onHover: (value: boolean) => void; onControlOpen: () => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; dailyRecommendation: { resetRiskPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null }) => <div>
     <button onClick={() => { onHover(false); onControlOpen(); }}>leave then open control</button>
+    <button onClick={() => onHover(false)}>leave widget</button>
+    <output data-testid="pending-comfort">{comfortPrompt?.localDate ?? "none"}</output>
     <button onClick={onRefresh}>quota refresh</button>
     <output data-testid="reset-sources">{JSON.stringify({ model: resetForecast?.tomorrowRiskPercent, website: resetWatch?.resetChancePercent, planning: dailyRecommendation?.resetRiskPercent })}</output>
     <button onClick={() => onResetRiskChange(70)}>manual risk</button>
@@ -82,7 +85,7 @@ vi.mock("./lib/comfortFeedback", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/comfortFeedback")>();
   return {
     ...actual,
-    getPersonComfortPromptTarget: () => null,
+    getPersonComfortPromptTarget: () => mocks.promptTarget,
     nextComfortReminderAt: () => new Date(Date.now() + 86_400_000),
   };
 });
@@ -190,6 +193,7 @@ beforeEach(() => {
   vi.mocked(fetchCodexResetForecast).mockReset().mockResolvedValue(null);
   vi.mocked(fetchWebsiteResetProbability).mockReset().mockResolvedValue(null);
   mocks.getSyncedComfortFeedback.mockReset().mockResolvedValue([]);
+  mocks.promptTarget = null;
   mocks.initialRuntime = { ...structuredClone(EMPTY_RUNTIME_STATE), comfortPersonId: "person-a", comfortFeedback: [feedback()] };
   mocks.comfortUsage = usage();
   mocks.fetchSnapshots.mockReset().mockResolvedValue([snapshot]);
@@ -214,6 +218,22 @@ async function expandApp(): Promise<void> {
 }
 
 describe("App comfort persistence regressions", () => {
+  it("collapses with an unanswered comfort check-in and shows it again on expand", async () => {
+    mocks.initialRuntime = { ...structuredClone(EMPTY_RUNTIME_STATE), comfortPersonId: "person-a" };
+    mocks.promptTarget = { localDate: LOCAL_DATE, isCatchUp: true };
+
+    render(<App />);
+    expect(await screen.findByTestId("pending-comfort")).toHaveTextContent(LOCAL_DATE);
+    await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "leave widget" }));
+    await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === false)).toBe(true));
+    expect(await screen.findByRole("button", { name: "expand" })).toBeInTheDocument();
+    expect(mocks.initialRuntime.comfortFeedback).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "expand" }));
+    expect(await screen.findByTestId("pending-comfort")).toHaveTextContent(LOCAL_DATE);
+  });
   it("cancels pending collapse when control center opens", async () => {
     await expandApp();
     await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
