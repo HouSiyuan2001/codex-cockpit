@@ -112,7 +112,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     setPage(next);
   };
 
-  const handleSurfacePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+  const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     event.stopPropagation();
     if (event.button !== 0 || (event.target as Element).closest("button, input, select, textarea, a, summary, label, [role='radio'], [role='checkbox'], [role='slider']")) return;
     event.preventDefault();
@@ -120,9 +120,10 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
   };
 
   return (
-    <section ref={dialogRef} className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="control-center-title" tabIndex={-1} onPointerDown={handleSurfacePointerDown} onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialogRef} className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="control-center-title" tabIndex={-1} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
       <header
         className="control-header control-header--draggable"
+        onPointerDown={handleHeaderPointerDown}
       >
         <div><h2 id="control-center-title">{labels.title}</h2></div>
         <button type="button" onClick={onClose} aria-label={zh ? "关闭" : "Close"} data-dialog-initial-focus><X /></button>

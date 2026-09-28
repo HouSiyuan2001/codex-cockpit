@@ -181,6 +181,19 @@ describe("ControlCenter essentials", () => {
     expect(onDrag).not.toHaveBeenCalled();
   });
 
+  it("does not drag the window from the control center content", () => {
+    installPointerEvent();
+    const onDrag = vi.fn();
+    renderControlCenter(vi.fn(), vi.fn(), vi.fn(), { ...DEFAULT_WIDGET_PREFERENCES, language: "en" }, vi.fn(), onDrag);
+
+    fireEvent.pointerDown(screen.getByRole("dialog"), { button: 0 });
+    fireEvent.pointerDown(screen.getByText("Codex Cockpit"), { button: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    fireEvent.pointerDown(screen.getByRole("status"), { button: 0 });
+
+    expect(onDrag).not.toHaveBeenCalled();
+  });
+
   it("opens the Codex Resets history from the status row", () => {
     const onOpenCodexResets = vi.fn();
     renderControlCenter(vi.fn(), vi.fn(), vi.fn(), { ...DEFAULT_WIDGET_PREFERENCES, language: "en" }, onOpenCodexResets);
