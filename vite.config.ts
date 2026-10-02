@@ -7,5 +7,5 @@ export default defineConfig({
   server: { port: 1420, strictPort: true },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   build: { rollupOptions: { input: "index.html" } },
-  test: { exclude: ["**/node_modules/**", "cloud/**", "dist/**", "release/**", "outputs/**", "src-tauri/target/**"] },
+  test: { maxWorkers: 2, exclude: ["**/node_modules/**", "cloud/**", "dist/**", "release/**", "outputs/**", "src-tauri/target/**"] },
 });

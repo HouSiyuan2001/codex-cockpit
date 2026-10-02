@@ -325,7 +325,8 @@ export default function App() {
   }, [t.updateFailed]);
 
   const checkUpdate = useCallback((manual = false) => {
-    if (["available", "downloading", "ready", "installing"].includes(updateState.phase)) {
+    if (["downloading", "installing"].includes(updateState.phase) ||
+        (["available", "ready"].includes(updateState.phase) && updateState.info?.channel === preferences.updateChannel)) {
       if (manual) {
         setDiagnosticsOpen(false);
         setUpdateOpen(true);
