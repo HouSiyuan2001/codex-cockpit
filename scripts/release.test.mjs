@@ -3,6 +3,14 @@ import { readFileSync } from "node:fs";
 import { assertVersionSync, buildChangelog, nextVersion, updateCargoManifest } from "./release.mjs";
 
 describe("release automation", () => {
+  it("does not save Rust caches during either platform's release job", () => {
+    const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+    const build = workflow.split("  build:")[1].split("  publish:")[0];
+    expect(build).toContain("os: macos-latest");
+    expect(build).toContain("os: windows-latest");
+    expect(build).toMatch(/uses: swatinem\/rust-cache@v2\s+with:[\s\S]*?save-if: 'false'/);
+    expect(build).not.toContain("continue-on-error");
+  });
   it("bumps stable semantic versions", () => {
     expect(nextVersion("1.2.3", "patch")).toBe("1.2.4");
     expect(nextVersion("1.2.3", "minor")).toBe("1.3.0");

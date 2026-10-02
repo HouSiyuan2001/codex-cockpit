@@ -57,6 +57,10 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # Release jobs may restore caches, but must not prune/compress/upload
+          # the large target tree after signed artifacts have been uploaded.
+          # A Windows runner lost communication during that post-job phase.
+          save-if: 'false'
       - run: npm ci
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml

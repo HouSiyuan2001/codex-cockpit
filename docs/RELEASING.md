@@ -6,6 +6,8 @@
 
 Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE and SHA256SUMS. Both platform jobs must pass before publication. No workflow changes repository visibility.
 
+Release builds restore Rust caches when available but do not save them (`save-if: 'false'`). This avoids expensive post-job cache cleanup/compression blocking publication after the signed packages have already been uploaded. Tests, signatures and Windows security scans remain mandatory; a cache miss simply rebuilds dependencies.
+
 Mac uses ad-hoc signing, not Apple notarization; Windows is not Authenticode-signed. Defender does not establish publisher identity. Updater archives/installers have a separate Tauri signature, checked before installation; this is not OS publisher signing. Verify source/checksums and follow OS security guidance, without disabling protection globally. See [automatic update setup](AUTO-UPDATE.md).
 
 Automated checks do not replace clean-machine install/launch/clipboard/uninstall/rollback tests. Until separately recorded, packages are evaluation builds. No certificate purchase or paid cloud plan is required.
