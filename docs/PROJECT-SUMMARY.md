@@ -6,4 +6,4 @@ React/TypeScript UI: `src`. Tauri/Rust native layer: `src-tauri/src`. The deskto
 
 The application identifier is `app.codexcockpit.desktop`; no automatic import of another app's private cloud configuration. Members start unconfigured. Synthetic fixtures are only for tests/browser preview.
 
-Calendar dates/shared plans use the existing UTC+8 convention. Arbitrary timezone selection is not implemented. Release packages are beta, without notarization/Authenticode (Mac ad-hoc signature only). No automatic updater. Build/deploy automation never changes repository visibility.
+Calendar dates/shared plans use the existing UTC+8 convention. Arbitrary timezone selection is not implemented. Release packages are beta, without notarization/Authenticode (Mac ad-hoc signature only). Signed updates use this repository's stable/beta Release feeds; users confirm before installation. Anonymous updates remain unavailable until the repository is public. Build/deploy automation never changes repository visibility. See AUTO-UPDATE.md.

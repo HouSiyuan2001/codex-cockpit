@@ -33,8 +33,8 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   quietHoursStart: 22,
   quietHoursEnd: 8,
   notificationCooldownMinutes: 120,
-  updateChannel: "stable",
-  automaticUpdates: false,
+  updateChannel: "beta",
+  automaticUpdates: true,
 };
 
 export function effectiveCompactLayout(preferences: WidgetPreferences, provider: ProviderId | null): WindowCompactLayout {
@@ -147,7 +147,7 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     quietHoursStart: boundedInteger(candidate.quietHoursStart, DEFAULT_WIDGET_PREFERENCES.quietHoursStart, 0, 23),
     quietHoursEnd: boundedInteger(candidate.quietHoursEnd, DEFAULT_WIDGET_PREFERENCES.quietHoursEnd, 0, 23),
     notificationCooldownMinutes: boundedInteger(candidate.notificationCooldownMinutes, DEFAULT_WIDGET_PREFERENCES.notificationCooldownMinutes, 5, 1440),
-    updateChannel: candidate.updateChannel === "beta" ? "beta" : "stable",
+    updateChannel: candidate.updateChannel === "stable" ? "stable" : candidate.updateChannel === "beta" ? "beta" : DEFAULT_WIDGET_PREFERENCES.updateChannel,
     automaticUpdates: booleanValue(candidate.automaticUpdates, DEFAULT_WIDGET_PREFERENCES.automaticUpdates),
   };
 }

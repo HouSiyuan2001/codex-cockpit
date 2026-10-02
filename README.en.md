@@ -46,7 +46,7 @@ Open [Releases](https://github.com/HouSiyuan2001/codex-cockpit/releases) and cho
 
 You can start with local usage tracking. You do not need a server before opening the app. Set up sync later if you want to share data.
 
-This is a beta, and the repository is still private. You need repository access to download it. Updates are installed manually.
+This is a beta, and the repository is still private. You need repository access to download it. New builds can check for signed updates in Settings and ask before restarting to install. While the repository is private, the app cannot access downloads anonymously; install manually. Older builds also need one manual upgrade first. See [update details](docs/AUTO-UPDATE.md).
 
 **Before installing:** the Mac build is not Apple-notarized, and the Windows installer has no publisher signature. Your system may warn that it cannot identify the developer. Check the download source and the release checksums; do not turn off system protection to install the app.
 

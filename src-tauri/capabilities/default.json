@@ -12,6 +12,8 @@
     "core:window:allow-set-size",
     "core:window:allow-set-always-on-top",
     "process:allow-restart",
+    "updater:allow-download",
+    "updater:allow-install",
     "dialog:allow-open",
     "dialog:allow-save",
     "notification:default",

@@ -314,6 +314,7 @@ export default function App() {
       });
       if (updateSequence.current === sequence) {
         setUpdateState({ phase: "ready", info, progress: { downloadedBytes: 0, totalBytes: 0, percent: 100 }, error: null });
+        setUpdateOpen(true);
       }
     } catch (error) {
       if (updateSequence.current !== sequence) return;
@@ -522,10 +523,20 @@ export default function App() {
     return () => { cancelled = true; cleanup(); };
   }, [checkUpdate, refresh]);
 
+  const checkUpdateRef = useRef(checkUpdate);
+  checkUpdateRef.current = checkUpdate;
   useEffect(() => {
-    const timer = window.setTimeout(() => checkUpdate(false), 12_000);
-    return () => window.clearTimeout(timer);
-  }, [checkUpdate]);
+    let lastCheck = Number.NEGATIVE_INFINITY;
+    const check = () => {
+      if (!navigator.onLine || Date.now() - lastCheck < 60_000) return;
+      lastCheck = Date.now();
+      checkUpdateRef.current(false);
+    };
+    const startup = window.setTimeout(check, 12_000);
+    const periodic = window.setInterval(check, 6 * 60 * 60_000);
+    window.addEventListener("online", check);
+    return () => { window.clearTimeout(startup); window.clearInterval(periodic); window.removeEventListener("online", check); };
+  }, []);
 
   useEffect(() => {
     const refreshWhenActive = () => { if (document.visibilityState === "visible") void refresh(true); };
@@ -1189,6 +1200,7 @@ export default function App() {
           onComfortPersonChange={handleComfortPersonChange}
           onComfortSnapshotRefresh={handleComfortSnapshotRefresh}
           onUsageGroupsChange={refreshComfortUsage}
+          onCheckUpdate={() => void handleUpdateOpen()}
           onClose={() => {
             void closeControlSurface().catch(() => setOperationError("Control center close failed."));
           }}

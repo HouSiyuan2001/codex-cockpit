@@ -32,6 +32,7 @@ interface Props {
   onComfortPersonChange?: (personId: string | null) => void;
   onComfortSnapshotRefresh?: (localDate: string) => void;
   onUsageGroupsChange?: () => Promise<unknown> | void;
+  onCheckUpdate?: () => void;
   onClose: () => void;
   onRefresh: () => void;
   onOpenCodexResets?: () => void;
@@ -42,7 +43,7 @@ interface Props {
   onAutostart: (enabled: boolean) => void;
 }
 
-export function ControlCenter({ preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart }: Props) {
+export function ControlCenter({ preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onCheckUpdate = () => undefined, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart }: Props) {
   const dialogRef = useModalDialog<HTMLElement>(onClose);
   const selectedPersonCurve = useMemo(() => personalizeComfortCurve(
     comfortFeedback.filter(record => (record.personId ?? null) === comfortPersonId)
@@ -194,6 +195,14 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
           </div>
         </section>
 
+        <section className="minimal-section">
+          <header className="minimal-section-header"><strong>{zh ? "应用更新" : "App updates"}</strong><button type="button" onClick={onCheckUpdate}>{zh ? "检查更新" : "Check for updates"}</button></header>
+          <label className="minimal-toggle-row"><span>{zh ? "版本通道" : "Release channel"}</span><select aria-label={zh ? "版本通道" : "Release channel"} value={preferences.updateChannel} onChange={event => updatePreferences({ updateChannel: event.target.value === "beta" ? "beta" : "stable", skippedUpdateVersion: null })}><option value="stable">{zh ? "正式版" : "Stable"}</option><option value="beta">{zh ? "测试版" : "Beta"}</option></select></label>
+          <label className="minimal-toggle-row">
+            <span><strong>{zh ? "自动下载更新" : "Download updates automatically"}</strong><small>{zh ? "后台检查并下载，准备好后提醒你重启安装。" : "Checks in the background and asks you to restart when ready."}</small></span>
+            <span className="switch"><input type="checkbox" aria-label={zh ? "自动下载更新" : "Download updates automatically"} checked={preferences.automaticUpdates} onChange={event => updatePreferences({ automaticUpdates: event.target.checked })} /><i /></span>
+          </label>
+        </section>
         <footer className="minimal-footer"><span>{labels.source}</span><button type="button" onClick={onClose}>{labels.done}</button></footer>
         </div> : <>
         <section className="minimal-status-card" aria-label={labels.status}>

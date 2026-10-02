@@ -1,4 +1,5 @@
 mod antigravity;
+mod app_updater;
 mod cloud_sync;
 mod codex;
 mod codex_project_usage;
@@ -3004,6 +3005,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("widget") {
                 let _ = window.show();
@@ -3075,6 +3077,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_updater::check_cockpit_update,
             tokei_usage::get_tokei_usage,
             usage_sync::get_usage_sync_status,
             cloud_sync::get_cloud_sync_status,
