@@ -23,7 +23,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm test -- --maxWorkers=2
       - run: npm run build
       - run: npm run audit:public
       - run: npm run version:check -- --tag "$GITHUB_REF_NAME"
@@ -62,7 +62,7 @@ jobs:
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: Build signed updater packages
-        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}' ${{ matrix.args }}
+        run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
         env:
           APPLE_SIGNING_IDENTITY: '-'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
