@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0-beta.4 - 2026-10-02
+
+- fix: keep release Rust caches restore-only
+
 ## 0.3.0-beta.3 - 2026-10-02
 
 - docs: teach Cockpit support skill signed update behavior
