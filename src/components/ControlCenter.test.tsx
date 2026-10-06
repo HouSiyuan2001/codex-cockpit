@@ -10,6 +10,12 @@ import { buildMidnightQuotaPlan } from "../lib/midnightQuotaPlan";
 import { COMFORT_CURVE_VERSION } from "../lib/comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
 
+it("puts Usage first in the control center navigation", () => {
+  render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
+  const nav = screen.getByRole("navigation", { name: "控制中心页面" });
+  expect(Array.from(nav.querySelectorAll("button")).map(button => button.textContent)).toEqual(["用量", "额度", "设置"]);
+});
+
 it("edits and resets a person's ring color through preferences", () => {
   const onPreferences = vi.fn();
   render(<ControlCenter preferences={{ ...DEFAULT_WIDGET_PREFERENCES, personRingColors: { alex: "#123456" } }} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={onPreferences} autostartEnabled={false} onAutostart={() => {}} comfortUsage={{ fetchedAt: new Date().toISOString(), status: "ready", warnings: [], projectBreakdownAvailable: false, defaultGroupId: "alex", groups: [{ id: "alex", name: "成员甲", deviceIds: [] }], devices: [] }} />);

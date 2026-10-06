@@ -132,8 +132,8 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
 
       <div className="control-body control-body--minimal">
         <nav className="usage-page-tabs" aria-label={zh ? "控制中心页面" : "Control center pages"}>
-          <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "额度" : "Quota"}</button>
           <button type="button" aria-pressed={page === "usage"} onClick={() => changePage("usage")}>{zh ? "用量" : "Usage"}</button>
+          <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "额度" : "Quota"}</button>
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
         </nav>
         {page === "usage" ? <CodexUsagePanel zh={zh} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} /> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
