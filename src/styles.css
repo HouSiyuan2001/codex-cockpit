@@ -3150,8 +3150,6 @@ textarea {
 .usage-group-name button, .usage-editor-actions button { padding: 6px 10px; border: 1px solid var(--glass-edge, rgba(225, 249, 244, .15)); border-radius: 8px; background: transparent; color: var(--glass-muted, #9babbc); font-size: calc(9px * var(--ui-font-scale, 1)); }
 .usage-setting-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(90px, 1fr); align-items: center; gap: 8px; padding: 7px 0; font-size: calc(9px * var(--ui-font-scale, 1)); }
 .usage-setting-row > span { min-width: 0; overflow-wrap: anywhere; }
-.usage-default-member { margin-top: 8px; }
-.usage-default-member small { display: block; margin-top: 3px; color: var(--glass-muted, #9babbc); font-size: .85em; font-weight: 400; }
 .usage-device-settings { margin-top: 12px; border-top: 1px solid var(--glass-edge, rgba(225, 249, 244, .15)); padding-top: 7px; }
 .usage-device-settings .usage-setting-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-editor-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

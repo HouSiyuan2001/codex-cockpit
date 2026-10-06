@@ -30,6 +30,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("quiet Codex usage view", () => {
+  it("opens this device's member rather than another device's shared default", async () => {
+    const data = createUsagePreview();
+    data.groups.push({ id: "other", name: "Other member", deviceIds: ["Other PC"] });
+    data.defaultGroupId = "other";
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    render(<CodexUsagePanel zh />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:demo"));
+    fireEvent.change(screen.getByRole("combobox", { name: "用量分组" }), { target: { value: "group:other" } });
+    expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:other");
+  });
   it("keeps an unavailable cost as a quiet hint rather than an oversized headline", async () => {
     const data = createUsagePreview();
     const day = Object.values(data.devices[0].daily)[0];
@@ -348,10 +358,10 @@ describe("quiet Codex usage view", () => {
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(saveTokeiGroups).not.toHaveBeenCalled();
   });
-  it("does not auto-select an arbitrary group when no default is configured", async () => {
-    vi.mocked(getTokeiUsage).mockResolvedValue({ ...createUsagePreview(), defaultGroupId: null });
+  it("shows global usage for an unassigned device instead of the shared default", async () => {
+    vi.mocked(getTokeiUsage).mockResolvedValue({ ...createUsagePreview(), localGroupId: null });
     render(<CodexUsagePanel zh />);
-    expect(await screen.findByText("选择一名组员，或到设置中分配设备。")).toBeInTheDocument();
-    expect(screen.queryByText("200万")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("global"));
+    expect(screen.queryByText("选择一名组员，或到设置中分配设备。")).not.toBeInTheDocument();
   });
 });

@@ -48,6 +48,7 @@ export function CodexUsagePanel({ zh, onOpenSettings = () => undefined, calendar
   const [projectError, setProjectError] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const mounted = useRef(false);
+  const scopeInitialized = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -60,7 +61,13 @@ export function CodexUsagePanel({ zh, onOpenSettings = () => undefined, calendar
         const next = await getTokeiUsage();
         if (active) {
           setData(next); setError(false);
-          setGroupId((current) => next.groups.some((group) => group.id === current) ? current : next.defaultGroupId);
+          if (!scopeInitialized.current) {
+            setGroupId(next.localGroupId ?? null);
+            setGlobal(!next.localGroupId);
+            scopeInitialized.current = true;
+          } else {
+            setGroupId((current) => next.groups.some((group) => group.id === current) ? current : next.localGroupId ?? null);
+          }
         }
       } catch { if (active) setError(true); } finally { busy = false; }
     }

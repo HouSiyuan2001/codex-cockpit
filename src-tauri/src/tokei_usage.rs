@@ -71,6 +71,7 @@ pub struct DeviceUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokeiUsage {
+    pub local_group_id: Option<String>,
     pub fetched_at: String,
     pub status: String,
     pub groups: Vec<UsageGroup>,
@@ -536,6 +537,7 @@ fn load_usage(home: &Path, settings: GroupSettings) -> TokeiUsage {
         "ready"
     };
     TokeiUsage {
+        local_group_id: None,
         fetched_at: Utc::now().to_rfc3339(),
         status: status.into(),
         groups: settings.groups,
@@ -556,16 +558,49 @@ pub async fn get_tokei_usage(app: tauri::AppHandle) -> Result<TokeiUsage, String
     tauri::async_runtime::spawn_blocking(move || {
         let mut usage = load_usage(&home, settings);
         crate::usage_sync::merge_managed_usage(&data_dir, &mut usage);
+        let device_id = crate::usage_sync::settings_at(&data_dir)
+            .ok()
+            .flatten()
+            .map(|settings| settings.device_id)
+            .or_else(|| config(&home)["device_id"].as_str().map(str::to_owned));
+        usage.local_group_id = local_group_id(&usage.groups, device_id.as_deref());
         usage
     })
     .await
     .map_err(|_| "source_unavailable".into())
 }
 
+fn local_group_id(groups: &[UsageGroup], device_id: Option<&str>) -> Option<String> {
+    let device_id = device_id?;
+    groups
+        .iter()
+        .find(|group| group.device_ids.iter().any(|id| id == device_id))
+        .map(|group| group.id.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn default_person_follows_this_device_not_shared_default() {
+        let groups = vec![
+            UsageGroup {
+                id: "a".into(),
+                name: "A".into(),
+                device_ids: vec!["mac".into()],
+            },
+            UsageGroup {
+                id: "b".into(),
+                name: "B".into(),
+                device_ids: vec!["windows".into()],
+            },
+        ];
+        assert_eq!(local_group_id(&groups, Some("mac")), Some("a".into()));
+        assert_eq!(local_group_id(&groups, Some("windows")), Some("b".into()));
+        assert_eq!(local_group_id(&groups, Some("unassigned")), None);
+        assert_eq!(local_group_id(&groups, None), None);
+    }
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {

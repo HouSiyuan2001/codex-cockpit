@@ -20,7 +20,11 @@ export async function getProjectUsage(): Promise<ProjectUsageSnapshot> {
 }
 
 export async function getTokeiUsage(): Promise<TokeiUsage> {
-  if (!isTauri()) return { ...createUsagePreview(), ...(previewSettings ?? {}) };
+  if (!isTauri()) {
+    const usage = { ...createUsagePreview(), ...(previewSettings ?? {}) };
+    usage.localGroupId = usage.groups.find(group => group.deviceIds.includes("Demo Mac"))?.id ?? null;
+    return usage;
+  }
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<TokeiUsage>("get_tokei_usage");
 }

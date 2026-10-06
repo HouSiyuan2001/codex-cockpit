@@ -185,6 +185,7 @@ function usage(): TokeiUsage {
     projectBreakdownAvailable: false,
     groups: [{ id: "person-a", name: "成员甲", deviceIds: ["device-local"] }],
     defaultGroupId: "person-a",
+    localGroupId: "person-a",
   };
 }
 

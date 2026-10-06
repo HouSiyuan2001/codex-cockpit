@@ -87,7 +87,7 @@ export default function App() {
   const [comfortSyncError, setComfortSyncError] = useState(false);
   const comfortSaveBusy = useRef(false);
   const { data: comfortUsage, error: comfortUsageError, refresh: refreshComfortUsage } = useComfortUsage(startupReady);
-  const comfortPersonId = runtimeState.comfortPersonId === undefined ? comfortUsage?.defaultGroupId ?? null : runtimeState.comfortPersonId;
+  const comfortPersonId = runtimeState.comfortPersonId === undefined ? comfortUsage?.localGroupId ?? null : runtimeState.comfortPersonId;
   const comfortPerson = comfortUsage?.groups.find(group => group.id === comfortPersonId);
   const [appDiagnostics, setAppDiagnostics] = useState<AppDiagnostics | null>(null);
   const [autostartEnabled, setAutostartState] = useState(false);
@@ -623,7 +623,7 @@ export default function App() {
       policyVersion: "shared-account-plan-v1", dayPlan: {...localRecommendation.dayPlan!,...sharedBasis} };
   })() : null;
   const planPeople = comfortUsage?.groups.filter(group => group.deviceIds.length > 0) ?? [];
-  const planPerson = sharedPlan.deviceId ? planPeople.find(group => group.deviceIds.includes(sharedPlan.deviceId!)) : planPeople.find(group => group.id === comfortUsage?.defaultGroupId);
+  const planPerson = sharedPlan.deviceId ? planPeople.find(group => group.deviceIds.includes(sharedPlan.deviceId!)) : planPeople.find(group => group.id === comfortUsage?.localGroupId);
   const localPlanOverrides = !sharedPlan.connected && planPerson && preferences.dailyBudgetLocalDate === usageDay ? {[planPerson.id]:{value:preferences.dailyBudgetPercent,revision:0}} : {};
   const allocation = allocateSharedPlan(dailyRecommendation?.targetPercent ?? 0, planPeople.map(group=>group.id), sharedPlan.plan?.people ?? localPlanOverrides);
   const personalPlanBudget = planPerson ? allocation.allocations[planPerson.id] : preferences.dailyBudgetPercent;

@@ -33,6 +33,8 @@ export interface TokeiDevice {
   ranges: Record<string, DailyModelUsage & { start: string | null; end: string | null }>;
 }
 export interface TokeiUsage extends TokeiGroupSettings {
+  /** Derived on this device; never part of shared member settings. */
+  localGroupId?: string | null;
   fetchedAt: string;
   status: "ready" | "partial" | "unavailable";
   devices: TokeiDevice[];
@@ -429,7 +431,7 @@ export function createUsagePreview(now = new Date()): TokeiUsage {
   const day = { ...ZERO, models: [first, second] };
   addMetrics(day, first); addMetrics(day, second);
   return {
-    fetchedAt: now.toISOString(), status: "ready", groups: [{ id: "demo", name: "示例分组", deviceIds: ["Demo Mac"] }], defaultGroupId: "demo",
+    fetchedAt: now.toISOString(), status: "ready", groups: [{ id: "demo", name: "示例分组", deviceIds: ["Demo Mac"] }], defaultGroupId: "demo", localGroupId: "demo",
     devices: [{ id: "Demo Mac", updatedAt: now.toISOString(), stale: false, ranges: {}, daily: { [localDateKey(now)]: day } }],
     warnings: [], projectBreakdownAvailable: false,
   };

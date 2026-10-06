@@ -52,12 +52,6 @@ export function UsageGroupEditor({ settings, deviceIds, zh, onSave, onCancel, ti
         const id = `group-${crypto.randomUUID()}`;
         setDraft((current) => ({ groups: [...current.groups, { id, name: "", deviceIds: [] }], defaultGroupId: current.defaultGroupId ?? id }));
       }}>{zh ? "+ 新增组员" : "+ Add member"}</button>
-      <label className="usage-setting-row usage-default-member"><span>{zh ? "默认打开的组员" : "Default member to show"}<small>{zh ? "所有设备通用；不改变下方设备归属" : "Shared by all devices; does not change assignments"}</small></span>
-        <select aria-label={zh ? "默认打开的组员" : "Default member to show"} value={draft.defaultGroupId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, defaultGroupId: event.target.value || null }))}>
-          <option value="">{zh ? "不预选" : "No preselection"}</option>
-          {draft.groups.map((group, index) => <option key={group.id} value={group.id}>{group.name || `${zh ? "新组员" : "New member"} ${index + 1}`}</option>)}
-        </select>
-      </label>
       <div className="usage-device-settings">
         <div className="usage-editor-subheading">{zh ? "设备用量算给谁" : "Whose usage each device counts toward"}</div>
         {devices.map((id) => <label key={id} className="usage-setting-row"><span title={id}>{id}</span>

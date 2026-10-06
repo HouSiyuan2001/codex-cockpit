@@ -746,6 +746,7 @@ mod tests {
         write_json(&dir.join("Spoof.json"), &payload("Mac", now + 1)).unwrap();
         write_json(&dir.join("Future.json"), &payload("Future", now + 3600)).unwrap();
         let mut usage = TokeiUsage {
+            local_group_id: None,
             fetched_at: Utc::now().to_rfc3339(),
             status: "unavailable".into(),
             groups: vec![],

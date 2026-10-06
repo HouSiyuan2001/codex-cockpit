@@ -24,7 +24,7 @@ it("lets a joined device change assignments and shows a clear sync action", asyn
   api.save.mockImplementation(async (next) => next);
   render(<TeamMemberSettings usage={usage} loadingError={false} preferences={DEFAULT_WIDGET_PREFERENCES} zh onPreferences={vi.fn()} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "保存并同步" })).toBeEnabled());
-  expect(screen.getByText("默认打开的组员")).toBeInTheDocument();
+  expect(screen.queryByText("默认打开的组员")).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "设备归属: windows" }), { target: { value: "alex" } });
   fireEvent.click(screen.getByRole("button", { name: "保存并同步" }));
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ groups: [
