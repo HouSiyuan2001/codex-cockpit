@@ -14,6 +14,13 @@ it("puts Usage first in the control center navigation", () => {
   render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
   const nav = screen.getByRole("navigation", { name: "控制中心页面" });
   expect(Array.from(nav.querySelectorAll("button")).map(button => button.textContent)).toEqual(["用量", "额度", "设置"]);
+  expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "额度" })).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(screen.getByRole("button", { name: "额度" }));
+  expect(screen.getByRole("button", { name: "额度" })).toHaveAttribute("aria-pressed", "true");
+  cleanup();
+  render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
+  expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
 });
 
 it("edits and resets a person's ring color through preferences", () => {
@@ -62,6 +69,7 @@ it("keeps the heatmap basis, marker, and curve on the selected person's fitted k
     onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false,
     onAutostart: vi.fn(), comfortUsage, comfortFeedback: records, dailyRecommendation: recommendation, weeklyRemainingPercent: 100 };
   const view = render(<ControlCenter {...props} comfortPersonId="person-a" />);
+  fireEvent.click(screen.getByRole("button", { name: "Quota" }));
   const legend = () => view.container.querySelector(".reset-risk-heatmap-legend")!.textContent;
   const badge = () => view.container.querySelector(".person-comfort-section header > span")!.textContent!.split(" = ")[1];
   const basis = () => view.container.querySelector(".reset-risk-heatmap > header > span")!.textContent;
@@ -115,6 +123,7 @@ function renderControlCenter(onRefresh = vi.fn(), onPreferences = vi.fn(), onSli
       onAutostart={vi.fn()}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: /^(Quota|额度)$/ }));
   return { onPreferences, onSliderInteraction };
 }
 
@@ -129,6 +138,7 @@ describe("ControlCenter essentials", () => {
     })!;
     const props = { preferences: DEFAULT_WIDGET_PREFERENCES, language: "zh-CN" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: true, onAutostart: vi.fn() };
     const view = render(<ControlCenter {...props} dailyRecommendation={recommendation} weeklyRemainingPercent={23} />);
+    fireEvent.click(screen.getByRole("button", { name: "额度" }));
     const label = `拟合建议 ${recommendation.targetPercent.toFixed(1)}%`;
     expect(screen.getByText(label)).toBeInTheDocument();
     expect(screen.getByText("未归属旧记录 · 默认基准 k 25.0% · 无有效反馈")).toBeInTheDocument();

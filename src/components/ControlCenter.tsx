@@ -49,7 +49,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     comfortFeedback.filter(record => (record.personId ?? null) === comfortPersonId)
       .map(record => personalFeedbackView(record, comfortUsage, dailyUsageHistory, dailyUsage)),
   ), [comfortFeedback, comfortPersonId, comfortUsage, dailyUsageHistory, dailyUsage]);
-  const [page, setPage] = useState<"quota" | "usage" | "settings">("quota");
+  const [page, setPage] = useState<"quota" | "usage" | "settings">("usage");
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarPortalTarget, setCalendarPortalTarget] = useState<HTMLElement | null>(null);
   const zh = language !== "en";
