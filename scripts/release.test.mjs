@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { assertVersionSync, buildChangelog, nextVersion, updateCargoManifest } from "./release.mjs";
 
 describe("release automation", () => {
+  it("keeps the changelog in docs for both reading and release staging", () => {
+    const script = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+    expect(script).toContain('resolve(ROOT, "docs", "CHANGELOG.md")');
+    expect(script).toContain('"docs/CHANGELOG.md"]');
+    expect(readFileSync(new URL("../docs/CHANGELOG.md", import.meta.url), "utf8")).toContain("# Changelog");
+  });
   it("does not save Rust caches during either platform's release job", () => {
     const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     const build = workflow.split("  build:")[1].split("  publish:")[0];

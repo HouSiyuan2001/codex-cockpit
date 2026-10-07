@@ -11,7 +11,7 @@ const PACKAGE_LOCK = resolve(ROOT, "package-lock.json");
 const CARGO_TOML = resolve(ROOT, "src-tauri", "Cargo.toml");
 const CARGO_LOCK = resolve(ROOT, "src-tauri", "Cargo.lock");
 const TAURI_CONFIG = resolve(ROOT, "src-tauri", "tauri.conf.json");
-const CHANGELOG = resolve(ROOT, "CHANGELOG.md");
+const CHANGELOG = resolve(ROOT, "docs", "CHANGELOG.md");
 
 function run(name, args, { capture = false } = {}) {
   const windowsNpm = process.platform === "win32" && name === "npm";
@@ -241,7 +241,7 @@ async function main() {
   run("cargo", ["check", "--manifest-path", "src-tauri/Cargo.toml"]);
   assertVersionSync(readVersionState());
   run("git", ["diff", "--check"]);
-  run("git", ["add", "package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "CHANGELOG.md"]);
+  run("git", ["add", "package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "docs/CHANGELOG.md"]);
   run("git", ["commit", "-m", `release: v${target}`]);
   run("git", ["tag", "-a", `v${target}`, "-m", `Quota Float v${target}`]);
 

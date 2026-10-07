@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import codexLogo from "../../codex.svg";
+import codexLogo from "../assets/providers/codex.svg";
 import antigravityLogo from "../assets/providers/antigravity.svg";
 import qoderLogo from "../assets/providers/qoder.svg";
 import traeLogo from "../assets/providers/trae.svg";
