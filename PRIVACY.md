@@ -12,7 +12,7 @@ Shared data includes chosen display names, device IDs, assignments, usage dates/
 
 Turning off task sharing removes details from the next successful snapshot upload, not from offline caches/backups. Disabling automatic sync stops subsequent scheduled transfers, not deletion. Receipt clipboard export intentionally includes selected titles/totals.
 
-Backend retains latest per-device snapshots plus settings/plans. Account/device deletion and token rotation lack a complete user UI: the operator must manage D1 deletion/revocation and backup retention. This beta suits small trusted groups, not an unreviewed public multi-tenant SaaS.
+Backend retains latest per-device snapshots plus settings/plans. Owners can explicitly revoke other devices in Settings; revoked credentials cannot make subsequent authorized requests, but historical snapshots, offline copies and backups are retained. Full deletion, owner credential rotation and re-enrollment still require the operator to manage D1 and backup retention. See the operator maintenance guide. This beta suits small trusted groups using their administrator's own Cloudflare account, not a developer-hosted public multi-tenant SaaS.
 
 ## Other network access
 

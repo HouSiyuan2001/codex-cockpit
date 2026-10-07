@@ -1,9 +1,8 @@
+import { readBody } from "./request-body.js";
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: {"content-type":"application/json","cache-control":"no-store"} });
 export async function dailyPlan(request, env, member) {
-  const text = await request.text();
-  if (text.length > 8192) return reply({ok:false,error:"plan_invalid"},400);
   let body;
-  try {body=JSON.parse(text);} catch {return reply({ok:false,error:"plan_invalid"},400);}
+  try {body=await readBody(request,8192);} catch {return reply({ok:false,error:"plan_invalid"},400);}
   const b = body?.basis;
   const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0,10);
   const percent = n => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 100;

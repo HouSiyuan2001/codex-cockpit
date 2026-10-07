@@ -6,11 +6,6 @@ on:
         description: 'Release tag (empty selects the most recent release)'
         required: false
         type: string
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/verify-release.yml'
-      - 'scripts/*defender*.ps1'
 permissions:
   contents: read
 jobs:
@@ -23,7 +18,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       REQUESTED_TAG: ${{ inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Test fail-closed scan parsing
         shell: pwsh
         run: ./scripts/test-defender-scan-output.ps1

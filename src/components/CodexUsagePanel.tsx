@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GearSix } from "@phosphor-icons/react";
 import { isTauri } from "../lib/bridge";
 import { getProjectUsage, getTokeiUsage } from "../lib/tokeiBridge";
-import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage, type UsagePeriod } from "../lib/tokeiUsage";
+import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, withLiveLocalUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage, type UsagePeriod } from "../lib/tokeiUsage";
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { modelUsageColors, UNRANKED_MODEL_COLOR } from "../lib/modelUsageColors";
 import { TaskUsageRow } from "./TaskUsageRow";
@@ -35,11 +35,11 @@ function ModelRow({ model, max, zh, color, metric, total }: { model: ModelUsage;
   </details>;
 }
 
-export function CodexUsagePanel({ zh, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget }: { zh: boolean; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null }) {
-  const [data, setData] = useState<TokeiUsage | null>(null);
+export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget }: { zh: boolean; initialUsage?: TokeiUsage | null; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null }) {
+  const [data, setData] = useState<TokeiUsage | null>(initialUsage);
   const [error, setError] = useState(false);
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const [global, setGlobal] = useState(false);
+  const [groupId, setGroupId] = useState<string | null>(initialUsage?.localGroupId ?? null);
+  const [global, setGlobal] = useState(!initialUsage?.localGroupId);
   const [metric, setMetric] = useState<UsageMetric>("tokens");
   const [period, setPeriod] = useState<UsagePeriod>("today");
   const [dateRange, setDateRange] = useState<UsageDateRange | null>(null);
@@ -76,18 +76,19 @@ export function CodexUsagePanel({ zh, onOpenSettings = () => undefined, calendar
     return () => { active = false; mounted.current = false; window.clearInterval(timer); };
   }, []);
 
-  const scopedData = useMemo(() => data && dateRange ? usageInRange(data, dateRange) : data, [data, dateRange]);
+  const liveData = useMemo(() => data && withLiveLocalUsage(data, projects), [data, projects]);
+  const scopedData = useMemo(() => liveData && dateRange ? usageInRange(liveData, dateRange) : liveData, [liveData, dateRange]);
   const scopedProjects = useMemo(() => projects && dateRange ? tasksInRange(projects, dateRange) : projects, [projects, dateRange]);
   const selectedPeriod = dateRange ? "all" : period;
   const all = useMemo(() => scopedData ? aggregateGlobalUsage(scopedData, selectedPeriod) : null, [scopedData, selectedPeriod]);
   const summary = useMemo(() => global ? all : scopedData ? aggregateGroupUsage(scopedData, groupId, selectedPeriod) : null, [scopedData, groupId, selectedPeriod, global, all]);
   const fullDevices = useMemo(() => {
-    if (!data) return [];
-    const ids = new Set(global ? [...data.devices.map(device => device.id), ...data.groups.flatMap(group => group.deviceIds)] : data.groups.find(group => group.id === groupId)?.deviceIds ?? []);
-    const available = new Map(newestDevices(data.devices).map(device => [device.id, device]));
+    if (!liveData) return [];
+    const ids = new Set(global ? [...liveData.devices.map(device => device.id), ...liveData.groups.flatMap(group => group.deviceIds)] : liveData.groups.find(group => group.id === groupId)?.deviceIds ?? []);
+    const available = new Map(newestDevices(liveData.devices).map(device => [device.id, device]));
     // A configured peer with no snapshot is unknown, not silently absent from historical coverage.
     return [...ids].map(id => available.get(id) ?? { id, updatedAt: null, stale: true, collectionPartial: true, daily: {}, ranges: {} });
-  }, [data, global, groupId]);
+  }, [liveData, global, groupId]);
   useEffect(() => {
     let active = true;
     let busy = false;

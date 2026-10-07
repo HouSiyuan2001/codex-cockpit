@@ -9,5 +9,6 @@
     "dev": "wrangler dev --config wrangler.local.toml",
     "deploy": "wrangler deploy --config wrangler.local.toml"
   },
-  "devDependencies": { "wrangler": "4.137.0" }
+  "devDependencies": { "wrangler": "4.148.0" },
+  "overrides": { "sharp": "0.35.5" }
 }

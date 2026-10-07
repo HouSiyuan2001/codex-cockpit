@@ -8,6 +8,7 @@ Codex Cockpit (Codex 驾驶舱) is a Tauri desktop app for macOS and Windows. So
 - Finding code, storage boundaries or regression tests: read [the repository map](skills/codex-cockpit/references/repository-map.md). Paths there are relative to this repository, not the installed skill directory.
 - Deploying or troubleshooting the optional server: read [the Cloudflare skill](skills/cloudflare-sync/SKILL.md). A local-only installation needs no server.
 - User-facing prompts and skill setup: [让 Codex 帮忙](docs/CODEX-HELP.md).
+- Product questions and usage: [产品说明书](docs/USER-GUIDE.md). Answer before taking actions; distinguish invited users from self-hosting administrators.
 
 Prefer the installed release for ordinary installation. Do not turn a support question into a source rebuild, cloud deployment or data reset. First establish the installed version, platform and symptom. Distinguish an explanation request from permission to change anything.
 

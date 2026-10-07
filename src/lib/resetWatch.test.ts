@@ -39,6 +39,7 @@ describe("active website Watch", () => {
     expect(activeResetWatch({ ...forecast, watchCheckedAt: "bad" }, now)).toBeNull();
     expect(activeResetWatch({ ...forecast, watchCheckedAt: "2026-09-11T00:00:00Z" }, now)).toBeNull();
     expect(resetWatchLabel(watch, "zh-CN")).toContain("第三方预测");
+    expect(resetWatchLabel({ ...watch, resetChancePercent: null }, "zh-CN")).toContain("较强信号");
     expect(resetWatchLabel({ ...watch, resetChancePercent: null }, "en")).not.toContain("%");
   });
 });

@@ -23,5 +23,6 @@ export function activeResetWatch(forecast: ResetForecast | null | undefined, now
 
 export function resetWatchLabel(watch: ResetWatch, language: Language): string {
   const chance = watch.resetChancePercent === null ? "" : ` · ${watch.resetChancePercent}%`;
-  return language === "en" ? `Reset Watch${chance} · third-party forecast` : `重置预警${chance} · 第三方预测`;
+  const strength = watch.level === "strong" ? (language === "en" ? "strong signal" : "较强信号") : (language === "en" ? "elevated signal" : "关注信号");
+  return language === "en" ? `Reset Watch · ${strength}${chance} · third-party forecast` : `重置预警 · ${strength}${chance} · 第三方预测`;
 }

@@ -37,7 +37,7 @@
 | 共享计划、个人手调 | `src/hooks/useSharedDailyPlan.ts`、`src/lib/sharedDailyPlan.ts`、`src/lib/personPlanSync.ts`、`cloud/usage-sync-worker/src/daily-plan.js` | 对应前端 `.test.ts`、`docs/SHARED-DAILY-PLAN.md` |
 | 舒适度拟合、建议额度、风险 | `src/lib/personComfort.ts`、`src/lib/comfortFeedback.ts`、`src/lib/quotaPace.ts`、`src/components/ResetRiskQuotaHeatmap.tsx` | 对应测试、`docs/COMFORT-RECENCY-WEIGHTING.md`、`docs/REMAINING-QUOTA-PLAN.md` |
 | 第三方重置观察 | `src-tauri/src/reset_forecast.rs`、`src/components/ResetWatchBell.tsx` | `src/components/ResetWatchBell.test.tsx`、`docs/RESET-WATCH-BELL.md`；不是官方保证 |
-| Worker 路由/权限与数据库 | `cloud/usage-sync-worker/src/index.js`、`cloud/usage-sync-worker/migrations/` | `cloud/usage-sync-worker/test/`、`docs/SYNC-CONTRACT-V2.md` |
+| Worker 路由/权限、限流与快照校验 | `cloud/usage-sync-worker/src/index.js`、`snapshot-schema.js`、`request-body.js`（同目录）、`cloud/usage-sync-worker/migrations/` | `cloud/usage-sync-worker/test/`、`docs/SYNC-CONTRACT-V2.md`；维护见 `skills/cloudflare-sync/references/maintenance.md` |
 | 下载更新、打包、扫描 | `src/lib/appUpdate.ts`、`scripts/release.mjs`、`.github/workflows/` | `src/lib/appUpdate.test.ts`、`docs/RELEASING.md`、`docs/RELEASE.md` |
 
 ## 本地状态和隐私边界

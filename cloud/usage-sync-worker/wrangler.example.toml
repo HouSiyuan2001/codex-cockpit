@@ -10,3 +10,15 @@ database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 migrations_dir = "migrations"
 
 # Set BOOTSTRAP_SECRET using `wrangler secret put`, never here.
+
+# Use namespace IDs unique within your own Cloudflare account. These are not secrets.
+# Local-to-edge, approximate limits; not a global billing cap or DDoS guarantee.
+[[ratelimits]]
+name = "AUTH_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "API_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 120, period = 60 }

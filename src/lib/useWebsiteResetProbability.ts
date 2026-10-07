@@ -12,7 +12,7 @@ export function currentWebsiteProbability(value: WebsiteResetProbability | null,
   return valid ? value : null;
 }
 
-/** Match the site's read-only ballot poll. No requests submit votes or user data. */
+/** Poll the site's public watch signal. No requests submit votes or user data. */
 export function useWebsiteResetProbability() {
   const [value, setValue] = useState<WebsiteResetProbability | null>(null);
   useEffect(() => {

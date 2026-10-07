@@ -1,9 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { aggregateGroupUsage, canonicalModelId, createUsagePreview, formatTokens, periodStart, validateGroupSettings } from "./tokeiUsage";
+import { aggregateGroupUsage, canonicalModelId, createUsagePreview, formatTokens, periodStart, validateGroupSettings, withLiveLocalUsage, type ProjectUsageSnapshot } from "./tokeiUsage";
 
 const now = new Date(2026, 8, 10, 12);
 
 describe("personal Codex usage", () => {
+  it("uses a newer live local scan for both model and task-era cost, without changing peers", () => {
+    const data = createUsagePreview(now);
+    const local = data.devices[0];
+    local.updatedAt = "2026-09-10T02:26:00Z";
+    data.devices.push({ ...structuredClone(local), id: "Peer PC" });
+    const oldDay = local.daily["2026-09-10"];
+    const freshDay = structuredClone(oldDay);
+    freshDay.estimatedCostUsd = 138.83;
+    freshDay.models[0].estimatedCostUsd = 100;
+    freshDay.models[1].estimatedCostUsd = 38.83;
+    local.ranges.all = { ...structuredClone(oldDay), start: null, end: null };
+    const projects: ProjectUsageSnapshot = {
+      deviceId: local.id, updatedAt: "2026-09-10T04:53:00Z", status: "ready", coverage: "local",
+      scannedFiles: 1, pricingSource: "app-catalog", pricingUpdatedAt: null, warnings: [],
+      projects: [{ id: "one", name: "One", daily: { "2026-09-10": freshDay } }],
+    };
+    const merged = withLiveLocalUsage(data, projects);
+    expect(aggregateGroupUsage(merged, "demo", "today", now).estimatedCostUsd).toBeCloseTo(138.83);
+    expect(aggregateGroupUsage(merged, "demo", "all", now).estimatedCostUsd).toBeCloseTo(138.83);
+    expect(merged.devices[1]).toBe(data.devices[1]);
+    expect(data.devices[0].daily["2026-09-10"].estimatedCostUsd).toBe(oldDay.estimatedCostUsd);
+    expect(withLiveLocalUsage(data, { ...projects, updatedAt: "2026-09-10T01:00:00Z" })).toBe(data);
+    expect(withLiveLocalUsage(data, { ...projects, warnings: ["scan_limit"] })).toBe(data);
+  });
   it("uses Chinese count units only in Chinese", () => {
     expect([999, 1200, 10000, 206710000, 1e9].map(value => formatTokens(value, true))).toEqual(["999", "1.2千", "1万", "2.07亿", "10亿"]);
     expect(formatTokens(206710000, false)).toBe("206.71M");
@@ -28,6 +52,8 @@ describe("personal Codex usage", () => {
     expect(canonicalModelId("other/gpt-6-astra")).toBe("other/gpt-6-astra");
     expect(canonicalModelId("tokei-name:GPT-6")).toBe("gpt-6");
     expect(canonicalModelId("openai/gpt-6-sol")).toBe("gpt-6-sol");
+    expect(canonicalModelId("tokei-name:openai/GPT-6.1-SOL")).toBe("gpt-6.1-sol");
+    expect(canonicalModelId("gpt-6.1-sol")).not.toBe(canonicalModelId("gpt-6-sol"));
     expect(canonicalModelId("tokei-name:openai/GPT-6-LUNA")).toBe("gpt-6-luna");
     expect(canonicalModelId("gpt-6-sol")).not.toBe(canonicalModelId("gpt-5.6-sol"));
   });

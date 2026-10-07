@@ -20,7 +20,7 @@ function database() {
 }
 
 test("space isolation, device binding, one-use invites, shared groups and stale replay", async () => {
-  const env = { DB: database(), BOOTSTRAP_SECRET: "test-only-bootstrap" };
+  const env = { DB: database(), BOOTSTRAP_SECRET: "test-only-bootstrap", AUTH_RATE_LIMITER: { limit: async () => ({ success: true }) }, API_RATE_LIMITER: { limit: async () => ({ success: true }) } };
   async function api(route, token, body, bootstrap = false) {
     const response = await worker.fetch(new Request(`https://test.invalid${route}`, {
       method: body ? "POST" : "GET",
@@ -85,10 +85,18 @@ test("space isolation, device binding, one-use invites, shared groups and stale 
   assert.equal(restored.plan.risk.value,null);
   assert.deepEqual((await api("/v2/daily-plan",outsider.token,{basis})).plan.people,{});
   assert.equal((await api("/v2/daily-plan",owner.token,{basis:{...basis,localDate:"2020-01-01"}})).status,400);
+  assert.equal((await api("/v1/devices/revoke",member.token,{deviceId:"mac"})).status,403);
+  assert.equal((await api("/v1/devices/revoke",outsider.token,{deviceId:"windows"})).status,404);
+  assert.equal((await api("/v1/devices/revoke",owner.token,{deviceId:"mac"})).status,400);
+  assert.equal((await api("/v1/devices/revoke",owner.token,{deviceId:"windows"})).status,200);
+  assert.equal((await api("/v1/snapshots",member.token)).status,401);
+  assert.equal((await api("/v1/sync",member.token,{deviceId:"windows",payload:{...payload,_device:"windows"}})).status,401);
+  assert.equal((await api("/v1/me",owner.token)).members.some(m=>m.deviceId==="windows"),false);
+  assert.equal((await api("/v1/devices/revoke",owner.token,{deviceId:"windows"})).status,404);
 });
 
 test("every joined device may edit groups without changing pricing or overwriting a newer edit", async () => {
-  const env = { DB: database(), BOOTSTRAP_SECRET: "test-only-bootstrap" };
+  const env = { DB: database(), BOOTSTRAP_SECRET: "test-only-bootstrap", AUTH_RATE_LIMITER: { limit: async () => ({ success: true }) }, API_RATE_LIMITER: { limit: async () => ({ success: true }) } };
   async function api(route, token, body, bootstrap = false) {
     const result = await worker.fetch(new Request(`https://test.invalid${route}`, {
       method: body ? "POST" : "GET",

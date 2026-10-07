@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createUsagePreview } from "../lib/tokeiUsage";
+import { aggregateGroupUsage, createUsagePreview } from "../lib/tokeiUsage";
 import { getProjectUsage, getTokeiUsage, saveTokeiGroups } from "../lib/tokeiBridge";
 import { CodexUsagePanel } from "./CodexUsagePanel";
 
@@ -39,6 +39,36 @@ describe("quiet Codex usage view", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:demo"));
     fireEvent.change(screen.getByRole("combobox", { name: "用量分组" }), { target: { value: "group:other" } });
     expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:other");
+  });
+  it("shows the previous aggregate immediately while a fresh read is still pending", () => {
+    const cached = createUsagePreview();
+    vi.mocked(getTokeiUsage).mockReturnValue(new Promise(() => undefined));
+    render(<CodexUsagePanel zh initialUsage={cached} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
+    fireEvent.click(screen.getByRole("button", { name: "看成本" }));
+    const expected = aggregateGroupUsage(cached, cached.defaultGroupId, "today").estimatedCostUsd;
+    expect(screen.getByRole("img", { name: "模型用量占比" }).parentElement).toHaveTextContent(`$${expected?.toFixed(2)}`);
+  });
+  it("shows the same fresh local cost by task and by model when sync is older", async () => {
+    const data = createUsagePreview();
+    data.devices[0].updatedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    const source = await getProjectUsage();
+    const date = Object.keys(data.devices[0].daily)[0];
+    const freshDay = structuredClone(data.devices[0].daily[date]);
+    freshDay.estimatedCostUsd = 138.83;
+    freshDay.models[0].estimatedCostUsd = 100;
+    freshDay.models[1].estimatedCostUsd = 38.83;
+    source.updatedAt = new Date().toISOString();
+    source.projects = [{ id: "p", name: "Project", daily: { [date]: freshDay } }];
+    source.tasks = [{ id: "task", name: "Fresh task", relation: "root", daily: { [date]: freshDay } }];
+    vi.mocked(getProjectUsage).mockResolvedValue(source);
+    render(<CodexUsagePanel zh />);
+    await screen.findByText("Fresh task");
+    fireEvent.click(screen.getByRole("button", { name: "看成本" }));
+    expect(screen.getByRole("img", { name: "任务用量占比" }).parentElement).toHaveTextContent("$138.83");
+    fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
+    expect(screen.getByRole("img", { name: "模型用量占比" }).parentElement).toHaveTextContent("$138.83");
   });
   it("keeps an unavailable cost as a quiet hint rather than an oversized headline", async () => {
     const data = createUsagePreview();
@@ -347,8 +377,8 @@ describe("quiet Codex usage view", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
     expect(screen.getByText("Model A")).toBeInTheDocument();
-    expect(screen.queryByText("成员甲")).not.toBeInTheDocument();
-    expect(screen.queryByText("成员乙")).not.toBeInTheDocument();
+    expect(screen.queryByText("思思")).not.toBeInTheDocument();
+    expect(screen.queryByText("果冻")).not.toBeInTheDocument();
   });
   it("routes member management to the control center settings page", async () => {
     const onOpenSettings = vi.fn();

@@ -376,6 +376,7 @@ impl Pricing {
         // Standard short-context text rates per 1M tokens. Existing catalog
         // entries and later local overrides take precedence over this fallback.
         for (id, input, cache_read, output) in [
+            ("openai/gpt-6.1-sol", 2.0, 0.10, 10.0),
             ("openai/gpt-6-sol", 2.0, 0.20, 10.0),
             ("openai/gpt-6-luna", 0.10, 0.01, 0.50),
         ] {
@@ -2451,6 +2452,9 @@ mod tests {
             reasoning_output_tokens: 10_000,
         };
         let official = Pricing::load(&temp, None);
+        for id in ["gpt-6.1-sol", "openai/gpt-6.1-sol"] {
+            assert!((official.estimate(id, counts, Some(counts)).unwrap() - 0.505).abs() < 1e-10);
+        }
         assert!(
             (official
                 .estimate("gpt-6-sol", counts, Some(counts))
@@ -2478,7 +2482,9 @@ mod tests {
             ..counts
         };
         assert!((pricing.estimate("gpt-6-luna", high, Some(high)).unwrap() - 0.066).abs() < 1e-10);
+        assert!((pricing.estimate("gpt-6.1-sol", high, Some(high)).unwrap() - 1.31).abs() < 1e-10);
         let exported = shared_pricing_export(&temp, &catalog).unwrap();
+        assert_eq!(exported["models"]["openai/gpt-6.1-sol"]["cache_read"], 0.1);
         assert_eq!(exported["models"]["openai/gpt-6-luna"]["out"], 0.5);
         fs::create_dir_all(temp.join(".tokei")).unwrap();
         fs::write(
@@ -2490,6 +2496,9 @@ mod tests {
         fs::write(&cloud_catalog, serde_json::to_vec(&exported).unwrap()).unwrap();
         let peer = Pricing::load(&temp, Some(&cloud_catalog));
         assert_eq!(peer.models["openai/gpt-6-luna"].output, Some(0.5));
+        assert!(
+            (peer.estimate("gpt-6.1-sol", counts, Some(counts)).unwrap() - 0.505).abs() < 1e-10
+        );
         fs::remove_dir_all(temp).unwrap();
     }
     #[test]

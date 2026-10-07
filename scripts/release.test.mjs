@@ -8,8 +8,16 @@ describe("release automation", () => {
     const build = workflow.split("  build:")[1].split("  publish:")[0];
     expect(build).toContain("os: macos-latest");
     expect(build).toContain("os: windows-latest");
-    expect(build).toMatch(/uses: swatinem\/rust-cache@v2\s+with:[\s\S]*?save-if: 'false'/);
+    expect(build).toMatch(/uses: swatinem\/rust-cache@[a-f0-9]{40} # v2\s+with:[\s\S]*?save-if: 'false'/);
     expect(build).not.toContain("continue-on-error");
+  });
+  it("pins every external release action to an immutable commit", () => {
+    for (const file of ["release.yml", "verify-release.yml"]) {
+      const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
+      const actions = [...workflow.matchAll(/uses:\s+([^\s#]+)/g)].map(match => match[1]);
+      expect(actions.length).toBeGreaterThan(0);
+      for (const action of actions) expect(action).toMatch(/^[\w-]+\/[\w-]+@[a-f0-9]{40}$/);
+    }
   });
   it("bumps stable semantic versions", () => {
     expect(nextVersion("1.2.3", "patch")).toBe("1.2.4");

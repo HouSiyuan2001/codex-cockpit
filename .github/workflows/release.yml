@@ -17,15 +17,20 @@ jobs:
     env:
       TZ: ${{ matrix.timezone }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm --prefix cloud/usage-sync-worker audit --audit-level=moderate
       - run: npm test -- --maxWorkers=2
       - run: npm run build
       - run: npm run audit:public
+      - run: npm run audit:history
       - run: npm run version:check -- --tag "$GITHUB_REF_NAME"
       - run: npm --prefix cloud/usage-sync-worker test
   build:
@@ -45,16 +50,16 @@ jobs:
       VITE_RELEASE_URL: https://github.com/${{ github.repository }}/releases
       COCKPIT_UPDATES_REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
           components: rustfmt, clippy
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri -> target
           # Release jobs may restore caches, but must not prune/compress/upload
@@ -63,6 +68,8 @@ jobs:
           save-if: 'false'
       - run: npm ci
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      - run: cargo audit --file src-tauri/Cargo.lock
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: Build signed updater packages
@@ -79,7 +86,7 @@ jobs:
           if ($installers.Count -eq 0) { throw 'No installer produced' }
           ./scripts/test-defender-scan-output.ps1
           ./scripts/verify-windows-defender.ps1 -Path (@('src-tauri/target/release/quota-float.exe') + $installers) -PrepareGitHubRunner -EnableRealTimeProtection -UpdateSignatures
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.label }}
           path: |
@@ -99,8 +106,8 @@ jobs:
       group: updater-feed
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
       - name: Assemble and publish pre-release

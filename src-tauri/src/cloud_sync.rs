@@ -280,6 +280,7 @@ async fn request_with_bootstrap(
             409 => "cloud_join_conflict",
             413 => "cloud_snapshot_too_large",
             429 => "cloud_rate_limited",
+            503 => "cloud_service_unavailable",
             _ => "cloud_request_failed",
         }
         .into());
@@ -516,6 +517,33 @@ pub async fn create_cloud_invite(app: tauri::AppHandle) -> Result<Value, String>
         Some(json!({"maxUses": 1, "expiresHours": 24})),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn revoke_cloud_device(
+    app: tauri::AppHandle,
+    device_id: String,
+) -> Result<Value, String> {
+    let data = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "sync_storage_unavailable")?;
+    let cfg = config(&data)?.ok_or("cloud_not_connected")?;
+    if cfg.role != "owner" || device_id == cfg.device_id || !usage_sync::safe_id(&device_id) {
+        return Err("cloud_device_revoke_denied".into());
+    }
+    let token = entry(&cfg.endpoint, &cfg.device_id)?
+        .get_password()
+        .map_err(|_| "cloud_keychain_unavailable")?;
+    request(
+        &cfg.endpoint,
+        "/v1/devices/revoke",
+        Some(&token),
+        Some(json!({"deviceId":device_id})),
+    )
+    .await?;
+    refresh_members(&data, &cfg, &token).await?;
+    get_cloud_sync_status(app)
 }
 
 #[tauri::command]

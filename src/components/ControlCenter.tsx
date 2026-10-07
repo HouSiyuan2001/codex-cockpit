@@ -136,7 +136,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
           <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "额度" : "Quota"}</button>
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
         </nav>
-        {page === "usage" ? <CodexUsagePanel zh={zh} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} /> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
+        {page === "usage" ? <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} /> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <TeamMemberSettings usage={comfortUsage} loadingError={comfortUsageError} preferences={preferences} zh={zh} onPreferences={onPreferences} onSaved={onUsageGroupsChange} />
         <CloudSyncSettings usage={comfortUsage} zh={zh} onSynced={onUsageGroupsChange} />
 

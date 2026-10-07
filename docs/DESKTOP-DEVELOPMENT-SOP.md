@@ -33,6 +33,7 @@ git diff --check
 ## Release gate
 
 1. Run the fast gate.
+   Also run `npm audit --audit-level=moderate`, the Worker lockfile audit, `cargo audit --file src-tauri/Cargo.lock`, and `npm run audit:history`. Audit findings require explicit review; do not downgrade tools or suppress advisories just to pass.
 2. Run `npm run version:check`.
 3. Build the exact platform packages.
 4. Scan the Windows executable and installer with `scripts/verify-windows-defender.ps1`.

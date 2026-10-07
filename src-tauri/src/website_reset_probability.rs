@@ -1,13 +1,11 @@
-//! Read the same public community ballot used by codex-resets.com's heading.
-//! This is not the v1 API's `reset_chance_percent` or a calibrated 24h hazard.
+//! Read codex-resets.com's public watch signal, independently of its vote API.
+//! This is a third-party forecast, not an official reset or calibrated hazard.
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::time::Duration;
 
 const WATCH_URL: &str = "https://codex-resets.com/api/resets";
-const VOTES_URL: &str = "https://codex-resets.com/api/watch/votes";
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,43 +26,35 @@ struct WebsiteResponse {
 #[derive(Deserialize)]
 struct WebsiteWatch {
     level: String,
-    episode_id: String,
+    episode_id: Option<String>,
+    tweet_id: Option<String>,
     observed_at: String,
     expires_at: String,
 }
 
-#[derive(Deserialize)]
-struct Votes {
-    episode_id: String,
-    yes: u64,
-    no: u64,
-}
-
-fn normalize(
-    response: WebsiteResponse,
-    votes: Votes,
-    now: DateTime<Utc>,
-) -> Option<WebsiteResetProbability> {
+fn normalize(response: WebsiteResponse, now: DateTime<Utc>) -> Option<WebsiteResetProbability> {
     let watch = response.watch?;
     let observed = DateTime::parse_from_rfc3339(&watch.observed_at).ok()?;
     let expires = DateTime::parse_from_rfc3339(&watch.expires_at).ok()?;
     if !matches!(watch.level.as_str(), "elevated" | "strong")
-        || watch.episode_id.is_empty()
-        || watch.episode_id != votes.episode_id
         || observed > now + ChronoDuration::minutes(5)
         || expires <= now
         || expires <= observed
-        || votes.yes > MAX_SAFE_INTEGER
-        || votes.no > MAX_SAFE_INTEGER
     {
         return None;
     }
-    let total = votes.yes.checked_add(votes.no)?;
-    // Exactly the site's Math.round(yes / (yes + no) * 100), including 0 and 100.
-    let percent = (total > 0).then(|| (votes.yes as f64 / total as f64 * 100.0).round() as u8);
+    // The public watch can omit episode_id. Keep a stable, bounded identity for
+    // the frontend's freshness check without forwarding the watch text or URL.
+    let episode_id = [watch.episode_id.as_deref(), watch.tweet_id.as_deref()]
+        .into_iter()
+        .flatten()
+        .find(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .map(str::to_owned)
+        .unwrap_or_else(|| observed.to_rfc3339());
     Some(WebsiteResetProbability {
         level: watch.level,
-        reset_chance_percent: percent,
+        // reset_chance is a different signal; do not present it as vote percent.
+        reset_chance_percent: None,
         observed_at: observed
             .with_timezone(&Utc)
             .to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -72,7 +62,7 @@ fn normalize(
             .with_timezone(&Utc)
             .to_rfc3339_opts(SecondsFormat::Millis, true),
         checked_at: now.to_rfc3339_opts(SecondsFormat::Millis, true),
-        episode_id: watch.episode_id,
+        episode_id,
     })
 }
 
@@ -104,11 +94,8 @@ async fn read_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> 
 
 pub async fn fetch(client: &reqwest::Client) -> Option<WebsiteResetProbability> {
     tokio::time::timeout(Duration::from_secs(4), async {
-        let (watch, votes) = tokio::join!(
-            read_json::<WebsiteResponse>(client, WATCH_URL),
-            read_json::<Votes>(client, VOTES_URL)
-        );
-        normalize(watch?, votes?, Utc::now())
+        let watch = read_json::<WebsiteResponse>(client, WATCH_URL).await?;
+        normalize(watch, Utc::now())
     })
     .await
     .ok()
@@ -120,79 +107,45 @@ mod tests {
     use super::*;
 
     fn watch() -> WebsiteResponse {
-        serde_json::from_str(r#"{"watch":{"episode_id":"episode-a","level":"elevated","observed_at":"2026-09-11T06:39:40Z","expires_at":"2026-09-14T07:00:00Z","reset_chance":60}}"#).unwrap()
+        serde_json::from_str(r#"{"watch":{"tweet_id":"manual-event-a","level":"strong","observed_at":"2026-09-11T06:39:40Z","expires_at":"2026-09-14T07:00:00Z","reset_chance":null}}"#).unwrap()
     }
     fn now() -> DateTime<Utc> {
         "2026-09-11T07:00:00Z".parse().unwrap()
     }
-    fn votes(yes: u64, no: u64) -> Votes {
-        Votes {
-            episode_id: "episode-a".into(),
-            yes,
-            no,
-        }
+    #[test]
+    fn accepts_current_watch_without_votes_or_episode_id() {
+        let result = normalize(watch(), now()).unwrap();
+        assert_eq!(result.level, "strong");
+        assert_eq!(result.episode_id, "manual-event-a");
+        assert_eq!(result.reset_chance_percent, None);
     }
 
     #[test]
-    fn matches_the_website_ballot_instead_of_the_sixty_percent_api_hint() {
-        for (yes, no, percent) in [
-            (83, 17, 83),
-            (269, 50, 84),
-            (360, 63, 85),
-            (1, 7, 13),
-            (0, 5, 0),
-            (5, 0, 100),
-        ] {
-            assert_eq!(
-                normalize(watch(), votes(yes, no), now())
-                    .unwrap()
-                    .reset_chance_percent,
-                Some(percent)
-            );
-        }
-    }
-
-    #[test]
-    fn zero_votes_remain_unknown() {
+    fn accepts_legacy_episode_and_falls_back_to_observed_time() {
+        let mut legacy = watch();
+        legacy.watch.as_mut().unwrap().episode_id = Some("episode-a".into());
+        assert_eq!(normalize(legacy, now()).unwrap().episode_id, "episode-a");
+        let mut no_id = watch();
+        no_id.watch.as_mut().unwrap().tweet_id = None;
         assert_eq!(
-            normalize(watch(), votes(0, 0), now())
-                .unwrap()
-                .reset_chance_percent,
-            None
+            normalize(no_id, now()).unwrap().episode_id,
+            "2026-09-11T06:39:40+00:00"
         );
     }
 
     #[test]
-    fn rejects_cross_episode_expired_future_and_unsafe_counts() {
-        let mut other = votes(83, 17);
-        other.episode_id = "episode-b".into();
-        assert!(normalize(watch(), other, now()).is_none());
-        assert!(normalize(
-            watch(),
-            votes(83, 17),
-            "2026-09-14T07:00:00Z".parse().unwrap()
-        )
-        .is_none());
-        assert!(normalize(
-            watch(),
-            votes(83, 17),
-            "2026-09-10T07:00:00Z".parse().unwrap()
-        )
-        .is_none());
-        assert!(normalize(watch(), votes(u64::MAX, 1), now()).is_none());
-        assert!(normalize(WebsiteResponse { watch: None }, votes(83, 17), now()).is_none());
-        assert!(
-            serde_json::from_str::<Votes>(r#"{"episode_id":"episode-a","yes":-1,"no":2}"#).is_err()
-        );
-        assert!(
-            serde_json::from_str::<Votes>(r#"{"episode_id":"episode-a","yes":1.5,"no":2}"#)
-                .is_err()
-        );
+    fn rejects_expired_future_and_unrecognized_levels() {
+        assert!(normalize(watch(), "2026-09-14T07:00:00Z".parse().unwrap()).is_none());
+        assert!(normalize(watch(), "2026-09-10T07:00:00Z".parse().unwrap()).is_none());
+        assert!(normalize(WebsiteResponse { watch: None }, now()).is_none());
+        let mut unknown = watch();
+        unknown.watch.as_mut().unwrap().level = "none".into();
+        assert!(normalize(unknown, now()).is_none());
     }
 
     #[tokio::test]
-    #[ignore = "read-only public website network check; requires an active ballot"]
-    async fn live_website_ballot_smoke() {
+    #[ignore = "read-only public website network check; requires an active watch"]
+    async fn live_website_watch_smoke() {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent("QuotaFloat/0.1")
@@ -200,8 +153,8 @@ mod tests {
             .unwrap();
         let result = fetch(&client)
             .await
-            .expect("active website ballot should be readable");
+            .expect("active website watch should be readable");
         println!("{}", serde_json::to_string(&result).unwrap());
-        assert!(result.reset_chance_percent.is_some());
+        assert!(matches!(result.level.as_str(), "elevated" | "strong"));
     }
 }

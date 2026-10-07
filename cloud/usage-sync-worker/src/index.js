@@ -1,5 +1,6 @@
 import { dailyPlan } from "./daily-plan.js";
-const MAX_BODY_BYTES = 1024 * 1024;
+import { validAggregates, validFeedback } from "./snapshot-schema.js";
+import { readBody } from "./request-body.js";
 const MAX_MEMBERS = 32;
 const ALLOWED_PAYLOAD_KEYS = new Set([
   "_cockpit", "_device", "_ledger", "_range_bounds", "_ts", "codex",
@@ -121,8 +122,8 @@ export function validateSnapshot(payload, deviceId, nowSeconds = Math.floor(Date
   if (Object.keys(payload).some(key => !ALLOWED_PAYLOAD_KEYS.has(key))) return "snapshot_fields_rejected";
   if (payload._device !== deviceId || !safeId(payload._device)) return "snapshot_identity_mismatch";
   if (!Number.isInteger(payload._ts) || payload._ts <= 0 || payload._ts > nowSeconds + 300) return "snapshot_timestamp_invalid";
-  if (!payload._ledger || typeof payload._ledger !== "object" || !payload.codex || typeof payload.codex !== "object") return "snapshot_schema_invalid";
-  if (payload.comfortFeedback !== undefined && (!Array.isArray(payload.comfortFeedback) || payload.comfortFeedback.length > 4096)) return "snapshot_feedback_invalid";
+  if (!validAggregates(payload)) return "snapshot_schema_invalid";
+  if (!validFeedback(payload)) return "snapshot_feedback_invalid";
   if (payload.taskUsage !== undefined && !validTaskUsage(payload.taskUsage)) return "snapshot_tasks_invalid";
   return null;
 }
@@ -141,18 +142,10 @@ async function hash(value) {
   return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
 }
 
-async function readBody(request) {
-  const length = Number(request.headers.get("content-length") || 0);
-  if (length > MAX_BODY_BYTES) throw new Error("body_too_large");
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) throw new Error("body_too_large");
-  try { return JSON.parse(text); } catch { throw new Error("invalid_json"); }
-}
-
 async function memberFor(request, env) {
   const authorization = request.headers.get("authorization") || "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  if (!token.startsWith("ccs_")) return null;
+  if (!/^ccs_[A-Za-z0-9_-]{43}$/.test(token)) return null;
   return env.DB.prepare("SELECT id, space_id, display_name, device_id, role FROM members WHERE token_hash = ? AND revoked_at IS NULL")
     .bind(await hash(token)).first();
 }
@@ -165,7 +158,7 @@ async function snapshots(env, spaceId) {
     displayName: row.display_name,
     updatedAt: row.updated_at,
     payload: JSON.parse(row.payload_json),
-  }));
+  })).filter(row => validateSnapshot(row.payload, row.deviceId) === null);
 }
 
 async function createSpace(request, env) {
@@ -182,9 +175,9 @@ async function createSpace(request, env) {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO spaces(id, name, created_at) VALUES (?, ?, ?)").bind(spaceId, name, now),
     env.DB.prepare("INSERT INTO members(id, space_id, display_name, device_id, role, token_hash, created_at) VALUES (?, ?, ?, ?, 'owner', ?, ?)").bind(memberId, spaceId, displayName, body.deviceId, await hash(token), now),
-    env.DB.prepare("INSERT INTO invites(id, space_id, code_hash, expires_at, max_uses, uses, created_by, created_at) VALUES (?, ?, ?, ?, 5, 0, ?, ?)").bind(crypto.randomUUID(), spaceId, await hash(inviteCode), now + 7 * 86400, memberId, now),
+    env.DB.prepare("INSERT INTO invites(id, space_id, code_hash, expires_at, max_uses, uses, created_by, created_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)").bind(crypto.randomUUID(), spaceId, await hash(inviteCode), now + 86400, memberId, now),
   ]);
-  return response({ ok: true, spaceId, token, inviteCode, inviteExpiresAt: now + 7 * 86400 }, 201);
+  return response({ ok: true, spaceId, token, inviteCode, inviteExpiresAt: now + 86400 }, 201);
 }
 
 async function joinSpace(request, env) {
@@ -211,8 +204,8 @@ async function joinSpace(request, env) {
 async function createInvite(request, env, member) {
   if (member.role !== "owner") return fail("forbidden", 403);
   const body = await readBody(request);
-  const maxUses = Number.isInteger(body.maxUses) ? body.maxUses : 5;
-  const expiresHours = Number.isInteger(body.expiresHours) ? body.expiresHours : 168;
+  const maxUses = Number.isInteger(body.maxUses) ? body.maxUses : 1;
+  const expiresHours = Number.isInteger(body.expiresHours) ? body.expiresHours : 24;
   if (maxUses < 1 || maxUses > 20 || expiresHours < 1 || expiresHours > 720) return fail("invalid_invite_request");
   const now = Math.floor(Date.now() / 1000);
   const inviteCode = `CCI-${randomToken(12)}`;
@@ -245,15 +238,42 @@ async function sync(request, env, member) {
   return response({ ok: true, snapshots: await snapshots(env, member.space_id) });
 }
 
+async function revokeDevice(request, env, member) {
+  if (member.role !== "owner") return fail("forbidden", 403);
+  const body = await readBody(request);
+  if (!safeId(body?.deviceId) || body.deviceId === member.device_id) return fail("device_revoke_invalid");
+  const result = await env.DB.prepare("UPDATE members SET revoked_at = ? WHERE space_id = ? AND device_id = ? AND role = 'member' AND revoked_at IS NULL")
+    .bind(Math.floor(Date.now() / 1000), member.space_id, body.deviceId).run();
+  if (result.meta.changes !== 1) return fail("device_not_active", 404);
+  // Preserve snapshots for operator-approved recovery. Revocation is not erasure.
+  return response({ ok: true });
+}
+
 export default {
   async fetch(request, env) {
     try {
       const { pathname } = new URL(request.url);
       if (request.method === "GET" && pathname === "/health") return response({ ok: true, service: "codex-cockpit-sync", version: 1 });
-      if (request.method === "POST" && pathname === "/v1/spaces") return createSpace(request, env);
-      if (request.method === "POST" && pathname === "/v1/join") return joinSpace(request, env);
+      // Fail closed on old configs: do not silently deploy an unprotected service.
+      if (!env.AUTH_RATE_LIMITER?.limit || !env.API_RATE_LIMITER?.limit) return fail("rate_limit_unconfigured", 503);
+      const ip = request.headers.get("cf-connecting-ip") || "local";
+      const authRoute = request.method === "POST" && ["/v1/spaces", "/v1/join"].includes(pathname);
+      const authLimit = await env.AUTH_RATE_LIMITER.limit({ key: authRoute ? `enroll:${ip}` : `access:${ip}` });
+      if (!authLimit.success) {
+        const limited = fail("rate_limited", 429);
+        limited.headers.set("retry-after", "60");
+        return limited;
+      }
+      if (request.method === "POST" && pathname === "/v1/spaces") return await createSpace(request, env);
+      if (request.method === "POST" && pathname === "/v1/join") return await joinSpace(request, env);
       const member = await memberFor(request, env);
       if (!member) return fail("unauthorized", 401);
+      const apiLimit = await env.API_RATE_LIMITER.limit({ key: `${member.space_id}:${member.id}` });
+      if (!apiLimit.success) {
+        const limited = fail("rate_limited", 429);
+        limited.headers.set("retry-after", "60");
+        return limited;
+      }
       if (request.method === "POST" && pathname === "/v2/daily-plan") return await dailyPlan(request, env, member);
       if (request.method === "GET" && pathname === "/v1/me") {
         const space = await env.DB.prepare("SELECT id, name, group_settings FROM spaces WHERE id = ?").bind(member.space_id).first();
@@ -261,15 +281,16 @@ export default {
         return response({ ok: true, space: { id: space.id, name: space.name }, sharedSettings: await sharedSettings(env, member.space_id), groupSettings: space.group_settings ? JSON.parse(space.group_settings) : null, deviceId: member.device_id, role: member.role, members: members.results.map(m => ({...m, syncInfo: m.syncInfo ? JSON.parse(m.syncInfo) : null})) });
       }
       if (request.method === "GET" && pathname === "/v2/settings") return response({ ok: true, sharedSettings: await sharedSettings(env, member.space_id) });
-      if (request.method === "POST" && pathname === "/v2/settings") return updateSettings(request, env, member);
-      if (request.method === "POST" && pathname === "/v2/groups") return updateGroups(request, env, member);
-      if (request.method === "POST" && pathname === "/v1/invites") return createInvite(request, env, member);
-      if (request.method === "POST" && pathname === "/v1/sync") return sync(request, env, member);
+      if (request.method === "POST" && pathname === "/v2/settings") return await updateSettings(request, env, member);
+      if (request.method === "POST" && pathname === "/v2/groups") return await updateGroups(request, env, member);
+      if (request.method === "POST" && pathname === "/v1/invites") return await createInvite(request, env, member);
+      if (request.method === "POST" && pathname === "/v1/devices/revoke") return await revokeDevice(request, env, member);
+      if (request.method === "POST" && pathname === "/v1/sync") return await sync(request, env, member);
       if (request.method === "GET" && pathname === "/v1/snapshots") return response({ ok: true, snapshots: await snapshots(env, member.space_id) });
       return fail("not_found", 404);
     } catch (error) {
       const code = error instanceof Error && ["body_too_large", "invalid_json"].includes(error.message) ? error.message : "internal_error";
-      return fail(code, code === "internal_error" ? 500 : 400);
+      return fail(code, code === "internal_error" ? 500 : code === "body_too_large" ? 413 : 400);
     }
   },
 };

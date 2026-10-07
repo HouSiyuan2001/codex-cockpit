@@ -2,6 +2,8 @@
 
 ## 准备自己的账号与源码
 
+先确认角色：普通使用者接收管理员的服务地址与邀请即可，不需要 Cloudflare 账号或另建空间。只有团队管理员才执行下面的部署；所有资源都建在管理员自己的账号里。作者不提供公共同步托管服务，适用互相信任的小团队。
+
 注册 [Cloudflare](https://dash.cloudflare.com/sign-up)，使用 Node.js 24+、本仓库源码及 Mac/Windows 客户端。此服务同步用量、成员、计划与体验，不是聊天服务器。无需购买域名，可用 Cloudflare 分配的 workers.dev 地址。
 
 在仓库根目录运行：
@@ -16,6 +18,8 @@ npx wrangler whoami
 
 浏览器登录由用户确认正确账号。不要读取浏览器凭据或把访问 token 复制到源码。
 
+Wrangler 自身可能收集匿名工具遥测，这与驾驶舱的共享快照不同。如需禁用，按 Wrangler 的 telemetry 说明由管理员选择；AI 的本地测试应设置 WRANGLER_SEND_METRICS=false，不为此修改用户全局配置。
+
 ## 创建数据库与部署
 
 ```sh
@@ -25,6 +29,8 @@ npx wrangler d1 create codex-cockpit-sync
 将 `wrangler.example.toml` 复制为同目录的 **wrangler.local.toml**（Git 已忽略）。macOS 可用 `cp wrangler.example.toml wrangler.local.toml`；PowerShell 用 `Copy-Item wrangler.example.toml wrangler.local.toml`；也可在编辑器复制。
 
 只在本地配置中填写返回的 `database_id`、`database_name`，保留 `binding = "DB"`。Worker `name` 可自定义。已有服务先核对环境并备份，不重复创建或删除数据库。
+
+保留模板的 AUTH_RATE_LIMITER / API_RATE_LIMITER 绑定，选择账户内各自唯一的 namespace_id。已有配置升级时只合并这两段，不覆盖 DB 配置；缺少绑定会使实际 API 返回 503。限流是区域性近似保护，不保证全局费用上限，见[维护指南](maintenance.md)。
 
 ```sh
 npx wrangler d1 migrations list codex-cockpit-sync --remote --config wrangler.local.toml
@@ -56,7 +62,7 @@ npm run deploy
 ## 隐私与维护
 
 - D1 保存最新设备快照和共享设置/计划；成员/服务器操作员可读，不是端到端加密。不开任务共享仍共享用量、模型、显示名称和设备标识等。
-- 关闭任务共享在下次成功上传移除任务明细，不撤回离线缓存/备份。删除数据、撤销设备当前需操作员管理 D1，尚无完整自助界面。
+- 关闭任务共享在下次成功上传移除任务明细，不撤回离线缓存/备份。owner 可在云同步的“设备访问权限”确认停用其他设备；完整删除、凭据轮换与恢复仍需操作员管理，见[维护指南](maintenance.md)。
 - 应用层每空间最多 32 台设备，单请求不超过 1 MiB。不是免费额度保证：查看 [Workers 限额](https://developers.cloudflare.com/workers/platform/limits/) 与 [D1 定价](https://developers.cloudflare.com/d1/platform/pricing/)，监控读写/请求/存储并配置限流。勿直接用于开放注册的公共 SaaS。
 - 所需空间创建完后，可选 `npx wrangler secret delete BOOTSTRAP_SECRET --config wrangler.local.toml` 禁用继续建空间；原有邀请/同步不受影响。以后要建新空间再设置新密钥。
 - 备份 D1、测试恢复，升级前审查迁移。桌面发版不自动部署后端。

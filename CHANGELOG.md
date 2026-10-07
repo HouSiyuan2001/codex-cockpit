@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0-beta.5 - Unreleased
+
+- Adapt Gitee main through 6f4fbba: GPT-6.1 Sol pricing, live local usage reconciliation, stable incremental totals, current reset-watch API and collapse after opening it.
+- Keep GitHub self-hosting, opt-in task sharing and signed updater channels.
+- Reject unknown nested snapshot/feedback fields; bound streaming JSON; require Cloudflare rate-limit bindings; use single-use 24-hour invite defaults.
+- Add owner-confirmed device revocation without deleting recovery data.
+- Update desktop/deployment tooling dependencies and add publication history/dependency checks.
+- Add a user product manual, AI installation/Q&A routing and administrator maintenance guidance. Keep voluntary coffee support.
+
+This is a source candidate, not a published installer or deployed backend.
+
 ## 0.3.0-beta.4 - 2026-10-02
 
 - fix: keep release Rust caches restore-only

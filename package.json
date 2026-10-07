@@ -1,7 +1,7 @@
 {
   "name": "quota-float",
   "private": true,
-  "version": "0.3.0-beta.4",
+  "version": "0.3.0-beta.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,7 @@
     "version:check": "node scripts/release.mjs --check",
     "release": "node scripts/release.mjs",
     "audit:public": "node scripts/audit-public.mjs",
+    "audit:history": "node scripts/audit-public.mjs --history",
     "test": "vitest run",
     "tauri": "tauri"
   },
@@ -33,6 +34,6 @@
     "jsdom": "^26.1.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.3"
   }
 }

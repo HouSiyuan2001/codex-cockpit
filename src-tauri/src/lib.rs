@@ -3083,6 +3083,7 @@ pub fn run() {
             cloud_sync::get_cloud_sync_status,
             cloud_sync::connect_cloud_sync,
             cloud_sync::create_cloud_invite,
+            cloud_sync::revoke_cloud_device,
             cloud_sync::set_cloud_sync_enabled,
             cloud_sync::set_cloud_task_sharing,
             usage_sync::save_usage_sync_settings,

@@ -9,6 +9,18 @@ vi.mock('@tauri-apps/api/core',()=>({invoke:api.invoke}));
 vi.mock('../lib/usageSyncBridge',()=>({getUsageSyncStatus:api.status,syncUsageNow:api.sync}));
 beforeEach(()=>{api.invoke.mockReset().mockResolvedValue({config:null,members:[]});api.status.mockReset().mockResolvedValue({settings:{deviceId:'Windows-Test'},phase:'idle'});api.sync.mockReset().mockResolvedValue({phase:'idle',lastError:null});});
 afterEach(cleanup);
+it('only the owner can revoke another device, with explicit confirmation',async()=>{
+ const config={endpoint:'https://example.workers.dev',shareTaskDetails:false,deviceId:'owner-mac',spaceId:'space-1',spaceName:'Team',role:'owner',enabled:true,intervalSeconds:300};
+ api.invoke.mockResolvedValue({config,members:[{deviceId:'owner-mac',displayName:'Owner',role:'owner',updatedAt:null},{deviceId:'peer-pc',displayName:'Example',role:'member',updatedAt:null}]});
+ render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'停用设备'}));
+ expect(api.invoke.mock.calls.some(([command])=>command==='revoke_cloud_device')).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'取消'}));
+ expect(screen.queryByRole('button',{name:'确认停用'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'停用设备'}));
+ fireEvent.click(screen.getByRole('button',{name:'确认停用'}));
+ await waitFor(()=>expect(api.invoke).toHaveBeenCalledWith('revoke_cloud_device',{deviceId:'peer-pc'}));
+});
 it('Windows enrollment retains the existing ID without auto-joining or displaying the Mac keychain action',async()=>{
  render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
  await waitFor(()=>expect(screen.getByLabelText('本机设备标识')).toHaveValue('Windows-Test'));
@@ -16,6 +28,13 @@ it('Windows enrollment retains the existing ID without auto-joining or displayin
  expect(api.invoke.mock.calls.every(([command])=>command==='get_cloud_sync_status')).toBe(true);
  expect(api.sync).not.toHaveBeenCalled();
  expect(screen.getByText(/加入后，这台电脑的用量会同步给其他设备/)).toBeInTheDocument();
+});
+it('members have no owner device-revocation controls',async()=>{
+ api.invoke.mockResolvedValue({config:{endpoint:'https://example.workers.dev',deviceId:'peer-pc',spaceName:'Team',role:'member',enabled:true,shareTaskDetails:false},members:[{deviceId:'other-pc',displayName:'Example',role:'member',updatedAt:null}]});
+ render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
+ await screen.findByText('https://example.workers.dev');
+ expect(screen.queryByRole('button',{name:'停用设备'})).not.toBeInTheDocument();
+ expect(screen.queryByText('设备访问权限')).not.toBeInTheDocument();
 });
 it('reports device mismatch safely and does not call sync after rejected enrollment',async()=>{
  api.invoke.mockImplementation(async(command:string)=>{if(command==='connect_cloud_sync')throw 'cloud_identity_mismatch private-detail';return {config:null,members:[],canConnectExisting:false};});

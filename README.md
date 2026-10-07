@@ -20,9 +20,9 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 核对文件后协助安装。保留已有设置，不部署服务器、不关闭安全保护。
 ```
 
-仓库附有[安装与排障 Skill](skills/codex-cockpit/SKILL.md)、[Cloudflare 部署 Skill](skills/cloudflare-sync/SKILL.md)，以及让 Codex 知道“问题该去哪里查”的[仓库地图](skills/codex-cockpit/references/repository-map.md)。
+仓库附有[安装与答疑 Skill](skills/codex-cockpit/SKILL.md)、[产品说明书](docs/USER-GUIDE.md)、[Cloudflare 管理员部署 Skill](skills/cloudflare-sync/SKILL.md)，以及让 AI 知道“问题该去哪里查”的[仓库地图](skills/codex-cockpit/references/repository-map.md)。
 
-经常使用的话，可以把 Skill 安装到自己的 Codex。具体方法和排障提示词见[让 Codex 帮忙](docs/CODEX-HELP.md)。目前仓库私有，Codex 也需要你自己的仓库访问权限。
+经常使用的话，可以把 Skill 安装到自己的 Codex。具体方法和安装、答疑、排障提示词见[让 Codex 帮忙](docs/CODEX-HELP.md)。仓库尚未公开时需要自己的访问权限；是否已公开以实际页面为准，不需要把密码或 token 给 AI。
 
 ## 可以用它做什么？
 
@@ -45,7 +45,7 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 
 安装后可以先使用本机统计，不需要先配置服务器。想共享数据时，再到设置里配置同步。
 
-目前仍是测试版，仓库暂时保持私有，需要有仓库访问权限才能下载。从新版开始，设置里可以检查更新，下载后由你确认重启安装。仓库公开前，App 无法直接读取私有下载地址，仍需手动下载；旧版也需要先手动安装一次。[自动更新说明](docs/AUTO-UPDATE.md)
+目前仍是测试版。从新版开始，设置里可以检查更新，下载后由你确认重启安装。仓库或 Release 尚未公开时，App 无法匿名读取私有下载地址，需使用自己的访问权限手动下载；旧版也需要先手动安装一次。最新源码不等于已经发布的安装包。[自动更新说明](docs/AUTO-UPDATE.md)
 
 **安装提醒：** Mac 版还没有经过 Apple 公证，Windows 版还没有发布者签名，系统可能提示无法确认开发者。请先确认下载来源，并按 Release 里的说明核对文件；不要为了安装而关闭系统安全保护。
 
@@ -54,6 +54,8 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 **只在一台电脑上用：** 不需要 Cloudflare，也不需要部署服务器。
 
 **想在多台电脑之间同步，或和其他人一起看：** 由一个人在自己的 Cloudflare 账号下部署同步服务，再创建共享空间、邀请其他设备加入。不需要每个人都部署一份服务器。
+
+普通成员只接收管理员的服务地址和邀请，不需要注册 Cloudflare、另建服务器或空间。服务器资源、权限、备份和费用由各团队自己的管理员负责；项目作者不提供公共托管服务。同步面向互相信任的小团队，不适用于开放注册的公共 SaaS。
 
 成员的作用很简单：决定一台设备产生的用量记在谁名下。一台设备归一个成员，一个成员可以有多台设备。成员名称、颜色和设备归属都可以自己改，已加入的设备也可以修改共享的成员设置。
 
@@ -69,6 +71,8 @@ Codex 驾驶舱是一个运行在 Mac 和 Windows 上的小工具。平时以悬
 - **计划和预警只是参考。** 驾驶舱不能替你改变官方额度，也不能保证额度什么时候重置。
 
 更多信息见[隐私说明](PRIVACY.md)和[当前版本说明](docs/RELEASE.md)。
+
+从首次安装到日常使用、分享、更新和排障，见[产品说明书](docs/USER-GUIDE.md)。
 
 ## 想自己改代码？
 

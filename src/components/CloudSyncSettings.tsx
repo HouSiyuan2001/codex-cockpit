@@ -31,6 +31,7 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
   const [spaceName, setSpaceName] = useState("");
   const [secret, setSecret] = useState("");
   const [shareTasks, setShareTasks] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -51,7 +52,7 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
       await onSynced();
     } catch (e) {
       const code = String(e);
-      setError(/endpoint_invalid/.test(code) ? (zh ? "服务地址须为 HTTPS 域名，不带路径或参数。" : "Use an HTTPS origin without a path or query.") : /identity_mismatch|identity_locked/.test(code) ? (zh ? "设备身份与本机原有记录不一致，请沿用本机设备标识。" : "Keep this computer's existing device ID.") : /invite_required/.test(code) ? (zh ? "请输入邀请码加入共享空间。" : "Enter an invitation to join.") : /denied|conflict/.test(code) ? (zh ? "请检查邀请码或建站密钥，以及设备标识是否已被使用。" : "Check the invitation or setup secret and whether the device ID is already used.") : (zh ? "云同步未完成，请检查网络或系统凭据存储后重试。" : "Cloud sync failed. Check networking or the system credential store and retry."));
+      setError(/rate_limited/.test(code) ? (zh ? "请求过于频繁，请至少等待一分钟再试，不要连续点击。" : "Too many requests. Wait at least a minute before retrying.") : /service_unavailable/.test(code) ? (zh ? "服务暂不可用，请管理员检查限流绑定和服务器状态。" : "Service unavailable. Ask the operator to check rate-limit bindings and server status.") : /endpoint_invalid/.test(code) ? (zh ? "服务地址须为 HTTPS 域名，不带路径或参数。" : "Use an HTTPS origin without a path or query.") : /identity_mismatch|identity_locked/.test(code) ? (zh ? "设备身份与本机原有记录不一致，请沿用本机设备标识。" : "Keep this computer's existing device ID.") : /invite_required/.test(code) ? (zh ? "请输入邀请码加入共享空间。" : "Enter an invitation to join.") : /denied|conflict/.test(code) ? (zh ? "请检查权限、邀请码或建站密钥，以及设备标识是否已被使用。" : "Check permissions, the invitation or setup secret and whether the device ID is already used.") : (zh ? "云同步未完成，请检查网络或系统凭据存储后重试。" : "Cloud sync failed. Check networking or the system credential store and retry."));
     } finally { setBusy(false); }
   }
   const connected = cloud?.config;
@@ -68,6 +69,19 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
         {connected.role === "owner" && <button disabled={busy} onClick={() => void action(async () => { const result = await call<{ inviteCode: string }>("create_cloud_invite"); setInvite(result.inviteCode); })}>{zh ? "邀请组员 / 新设备" : "Invite member / device"}</button>}
       </div>
       {invite && <label className="cloud-invite">{zh ? "邀请码（24小时有效，仅可使用一次）" : "Invitation (24 hours, single use)"}<input readOnly value={invite} aria-label={zh ? "新邀请码" : "New invitation"} /></label>}
+      {connected.role === "owner" && <details>
+        <summary>{zh ? "设备访问权限" : "Device access"}</summary>
+        <p className="usage-note">{zh ? "停用会立即阻止该设备后续访问；不会删除历史快照、其他设备的缓存或备份。恢复接入由管理员处理，不要复制身份令牌。" : "Revocation blocks future access, but does not erase snapshots, peer caches or backups. Contact the operator to restore access; never copy credentials."}</p>
+        {cloud?.members.filter(member => member.role !== "owner" && member.deviceId !== connected.deviceId).map(member => <div key={member.deviceId}>
+          <span>{member.displayName} · {member.deviceId}</span>
+          <button type="button" disabled={busy} onClick={() => setRevokeTarget(member.deviceId)}>{zh ? "停用设备" : "Revoke device"}</button>
+        </div>)}
+        {revokeTarget && <div role="alert">
+          <p>{zh ? "确认停用这台设备？" : "Revoke access for this device?"} {revokeTarget}</p>
+          <button type="button" disabled={busy} onClick={() => void action(async () => { await call("revoke_cloud_device", { deviceId: revokeTarget }); setRevokeTarget(null); })}>{zh ? "确认停用" : "Confirm revocation"}</button>
+          <button type="button" disabled={busy} onClick={() => setRevokeTarget(null)}>{zh ? "取消" : "Cancel"}</button>
+        </div>}
+      </details>}
       <p className="usage-note">{zh ? "最近同步" : "Last synced"}: {when(runtime?.lastSuccessAt, zh)}</p>
       {/collector_(timeout|busy)/.test(runtime?.lastError ?? "") && <p role="status" className="usage-note">{zh ? "本机用量采集繁忙或超时，稍后自动重试；云端已接收的数据仍保留。" : "Local collection is busy or timed out and will retry; downloaded cloud data is retained."}</p>}
     </> : <>
