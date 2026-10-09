@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES, effectiveCompactLayout, effectiveStayExpanded, normalizeWidgetPreferences, syncDailyBudgetToSuggestion } from "./preferences";
 
 describe("widget preference migration", () => {
+  it("migrates the UI font without changing existing settings and retains a saved selection", () => {
+    const existing = { ...DEFAULT_WIDGET_PREFERENCES, fontScale: 1.3, automaticUpdates: false, appearanceMode: "dark" as const };
+    const { fontFamily: _legacyMissingField, ...legacy } = existing;
+    expect(normalizeWidgetPreferences(legacy)).toEqual(expect.objectContaining({
+      fontFamily: "smiley", fontScale: 1.3, automaticUpdates: false, appearanceMode: "dark",
+    }));
+    for (const fontFamily of ["codex", "yahei", "smiley"] as const) {
+      const saved = JSON.parse(JSON.stringify({ ...existing, fontFamily }));
+      expect(normalizeWidgetPreferences(saved).fontFamily).toBe(fontFamily);
+    }
+    expect(normalizeWidgetPreferences({ fontFamily: 'url("https://example.invalid")' as never }).fontFamily).toBe("smiley");
+  });
   it("preserves only valid personal ring colors", () => {
     expect(normalizeWidgetPreferences({ personRingColors: { alex: "#123456", bad: "red;url(x)" } }).personRingColors).toEqual({ alex: "#123456" });
     expect(normalizeWidgetPreferences({}).personRingColors).toEqual({});

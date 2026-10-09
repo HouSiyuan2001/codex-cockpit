@@ -28,6 +28,7 @@ import { mergeSnapshots } from "./lib/snapshots";
 import { canSendNotification, EMPTY_RUNTIME_STATE, isQuietHour, normalizeRuntimeState, recordSnapshotActivity } from "./lib/activity";
 import { DEFAULT_WIDGET_PREFERENCES, effectiveCompactLayout, effectiveStayExpanded, normalizeWidgetPreferences } from "./lib/preferences";
 import { resolveAppearanceMode, systemPrefersDark } from "./lib/appearance";
+import { UI_FONT_STACKS } from "./lib/uiFonts";
 import { appendComfortFeedback, appendComfortPromptedDate, buildComfortPrompt, createComfortFeedbackRecord, getPersonComfortPromptTarget, nextComfortReminderAt, personalizeComfortCurve } from "./lib/comfortFeedback";
 import { buildPersonQuotaAllocation } from "./lib/personQuotaAllocation";
 import { allocationForFeedback, backfillPersonAllocations } from "./lib/personComfort";
@@ -142,6 +143,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-font-scale", String(preferences.fontScale));
   }, [preferences.fontScale]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--ui-font-family", UI_FONT_STACKS[preferences.fontFamily]);
+  }, [preferences.fontFamily]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
