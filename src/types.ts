@@ -221,6 +221,8 @@ export interface ResetForecast {
   }>;
 }
 
+export type WidgetFontFamily = "codex" | "yahei" | "smiley";
+
 export interface WidgetPreferences {
   codexFocusMode: boolean;
   dailyBudgetPercent: number;
@@ -243,6 +245,7 @@ export interface WidgetPreferences {
   colorTheme: ColorTheme;
   appearanceMode: AppearanceMode;
   fontScale: number;
+  fontFamily: WidgetFontFamily;
   personRingColors?: Record<string, string>;
   riskFirst: boolean;
   showHistorySparklines: boolean;

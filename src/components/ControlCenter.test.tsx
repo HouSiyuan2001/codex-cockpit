@@ -23,6 +23,20 @@ it("puts Usage first in the control center navigation", () => {
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
 });
 
+it("changes the UI font from Display while preserving the other preferences", () => {
+  const onPreferences = vi.fn();
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, fontScale: 1.3, automaticUpdates: false };
+  const props = { language: "zh-CN" as const, onClose: () => {}, onRefresh: () => {}, onPreferences, autostartEnabled: false, onAutostart: () => {} };
+  const { rerender } = render(<ControlCenter {...props} preferences={preferences} />);
+  fireEvent.click(screen.getByRole("button", { name: "设置" }));
+  const font = screen.getByRole("combobox", { name: "界面字体" });
+  expect(font).toHaveValue("smiley");
+  fireEvent.change(font, { target: { value: "yahei" } });
+  expect(onPreferences).toHaveBeenLastCalledWith({ ...preferences, fontFamily: "yahei" });
+  rerender(<ControlCenter {...props} preferences={onPreferences.mock.lastCall![0]} />);
+  expect(screen.getByRole("combobox", { name: "界面字体" })).toHaveValue("yahei");
+});
+
 it("edits and resets a person's ring color through preferences", () => {
   const onPreferences = vi.fn();
   render(<ControlCenter preferences={{ ...DEFAULT_WIDGET_PREFERENCES, personRingColors: { alex: "#123456" } }} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={onPreferences} autostartEnabled={false} onAutostart={() => {}} comfortUsage={{ fetchedAt: new Date().toISOString(), status: "ready", warnings: [], projectBreakdownAvailable: false, defaultGroupId: "alex", groups: [{ id: "alex", name: "成员甲", deviceIds: [] }], devices: [] }} />);

@@ -2,7 +2,7 @@
 @font-face { font-family: "Quota Sans"; src: local("SF Pro Display"), local("Segoe UI Variable Display"); font-display: swap; }
 
 :root {
-  font-family: "Smiley Sans", "得意黑", "Quota Sans", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--ui-font-family, "Smiley Sans", "得意黑", "Quota Sans", "Segoe UI", system-ui, sans-serif);
   color: rgba(255, 255, 255, 0.96);
   background: transparent;
   font-synthesis: none;
@@ -1735,7 +1735,7 @@ button.usage-stat-card:hover { border-color: color-mix(in srgb, var(--accent-col
 html,
 body,
 #root {
-  font-family: "Smiley Sans", "得意黑", "Quota Sans", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--ui-font-family, "Smiley Sans", "得意黑", "Quota Sans", "Segoe UI", system-ui, sans-serif);
 }
 
 button,
@@ -2971,6 +2971,29 @@ textarea {
   font-size: calc(8px * var(--ui-font-scale, 1));
   font-variant-numeric: tabular-nums;
 }
+.minimal-font-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  color: var(--glass-ink, #eef4f6);
+  font-size: calc(9px * var(--ui-font-scale, 1));
+}
+.minimal-font-field select {
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--glass-edge, rgba(225, 249, 244, .15));
+  border-radius: 8px;
+  color: inherit;
+  background: var(--glass-surface, rgba(255, 255, 255, .055));
+  font: inherit;
+}
+.minimal-font-field select:focus-visible {
+  outline: 2px solid var(--accent-color, #397ae0);
+  outline-offset: 2px;
+}
 .minimal-slider-field {
   display: grid;
   gap: 8px;
@@ -3092,7 +3115,7 @@ textarea {
 .usage-toolbar > * { min-width: 0; }
 .usage-toolbar > select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .codex-usage-panel select, .usage-group-editor input, .usage-group-editor select { min-width: 0; width: 100%; min-height: 32px; border: 1px solid var(--glass-edge, rgba(225, 249, 244, .15)); border-radius: 8px; color: var(--glass-ink, #eef4f6); background: var(--glass-surface, rgba(255, 255, 255, .055)); padding: 6px 8px; font-size: calc(9px * var(--ui-font-scale, 1)); }
-.codex-usage-panel select option, .usage-group-editor select option { color: #27314a; background: #fff; }
+.codex-usage-panel select option, .usage-group-editor select option, .minimal-font-field select option { color: #27314a; background: #fff; }
 .codex-usage-panel button { cursor: pointer; }
 .codex-usage-panel button:disabled { cursor: default; opacity: .5; }
 .usage-settings-button { width: 32px; height: 32px; padding: 7px; border: 0; border-radius: 8px; color: var(--glass-muted, #9babbc); background: transparent; }

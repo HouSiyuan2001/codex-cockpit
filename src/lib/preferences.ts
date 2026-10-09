@@ -1,4 +1,5 @@
 import { DEFAULT_PROVIDER_ORDER, normalizeProviderOrder } from "./providers";
+import { normalizeFontFamily } from "./uiFonts";
 import type { ProviderId, WidgetPreferences, WindowCompactLayout } from "../types";
 
 export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
@@ -23,6 +24,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   colorTheme: "aurora",
   appearanceMode: "light",
   fontScale: 1.15,
+  fontFamily: "smiley",
   riskFirst: false,
   showHistorySparklines: true,
   accentColor: "#397ae0",
@@ -136,6 +138,7 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     colorTheme,
     appearanceMode,
     fontScale: boundedFontScale(candidate.fontScale),
+    fontFamily: normalizeFontFamily(candidate.fontFamily),
     personRingColors: Object.fromEntries(Object.entries(candidate.personRingColors && typeof candidate.personRingColors === "object" && !Array.isArray(candidate.personRingColors) ? candidate.personRingColors : {}).filter(([id, color]) => id.length > 0 && id.length <= 128 && typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)).slice(0, 128)),
     riskFirst: booleanValue(candidate.riskFirst, DEFAULT_WIDGET_PREFERENCES.riskFirst),
     showHistorySparklines: booleanValue(candidate.showHistorySparklines, DEFAULT_WIDGET_PREFERENCES.showHistorySparklines),

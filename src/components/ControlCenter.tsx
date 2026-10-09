@@ -13,6 +13,7 @@ import { ResetRiskQuotaHeatmap } from "./ResetRiskQuotaHeatmap";
 import { CodexUsagePanel } from "./CodexUsagePanel";
 import { TeamMemberSettings } from "./TeamMemberSettings";
 import { CloudSyncSettings } from "./CloudSyncSettings";
+import { normalizeFontFamily } from "../lib/uiFonts";
 
 interface Props {
   preferences: WidgetPreferences;
@@ -65,6 +66,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     settings: "设置",
     display: "显示",
     fontSize: "字大小",
+    fontFamily: "界面字体",
     language: "语言",
     appearance: "主题",
     system: "跟随系统",
@@ -87,6 +89,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     settings: "Settings",
     display: "Display",
     fontSize: "Text size",
+    fontFamily: "UI font",
     language: "Language",
     appearance: "Theme",
     system: "System",
@@ -142,6 +145,14 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
 
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>
+          <label className="minimal-font-field">
+            <span>{labels.fontFamily}</span>
+            <select value={preferences.fontFamily} onChange={(event) => updatePreferences({ fontFamily: normalizeFontFamily(event.target.value) })}>
+              <option value="smiley">{zh ? "得意黑（默认）" : "Smiley Sans (default)"}</option>
+              <option value="codex">{zh ? "系统字体（Codex）" : "System font (Codex)"}</option>
+              <option value="yahei">{zh ? "微软雅黑" : "Microsoft YaHei"}</option>
+            </select>
+          </label>
           <label className="minimal-slider-field">
             <span>{labels.fontSize}<output>{Math.round(preferences.fontScale * 100)}%</output></span>
             <RangeSlider min="1" max="2" step="0.05" value={preferences.fontScale} onChange={(event) => updatePreferences({ fontScale: Number(event.target.value) })} onInteractionChange={onSliderInteraction} aria-label={labels.fontSize} />
