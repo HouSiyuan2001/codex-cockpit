@@ -3046,9 +3046,16 @@ pub fn run() {
             usage_sync::start(app.handle().clone());
             if setup_tray(app).is_err() {
                 eprintln!("tray setup failed; enabling taskbar fallback");
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Regular);
                 if let Some(window) = app.get_webview_window("widget") {
                     let _ = window.set_skip_taskbar(false);
                 }
+            } else {
+                // LSUIElement covers bundle launch; set the runtime policy as well
+                // so Tauri keeps the menu-bar utility out of the macOS Dock.
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
             if preferences.locked {
                 let _ = apply_lock(app.handle(), true);

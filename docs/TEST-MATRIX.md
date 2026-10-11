@@ -14,3 +14,5 @@ Sync regressions: space isolation, single-use/expired invitations, device bindin
 Hardened Worker: nested aggregate/feedback allowlists, chunked UTF-8 request size bounds, rate-limit 429/Retry-After, fail-closed missing bindings, owner-only device revocation and cross-space denial. Existing operators must merge rate bindings before deployment; automated tests do not deploy or verify their actual edge configuration.
 
 CI passing is not evidence all GUI smoke tests passed. Pre-releases identify outstanding manual checks and signing limits.
+
+macOS Dock presence: launch the packaged app from Applications and confirm no Dock icon appears. Open/close the control center through the widget and menu bar, then relaunch and repeat. If tray creation fails, the app must retain its Dock/taskbar fallback so the window remains reachable. Also verify normal Windows tray behavior.
