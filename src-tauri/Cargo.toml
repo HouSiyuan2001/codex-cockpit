@@ -40,6 +40,10 @@ tauri-plugin-notification = "2.3.3"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+keyring = { version = "3.6", features = ["sync-secret-service"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSApplication", "NSImage"] }

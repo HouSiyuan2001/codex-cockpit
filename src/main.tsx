@@ -6,7 +6,7 @@ import "./styles.css";
 
 document.documentElement.dataset.platform = /Windows/i.test(navigator.userAgent)
   ? "windows"
-  : /Macintosh|Mac OS X/i.test(navigator.userAgent) ? "macos" : "other";
+  : /Macintosh|Mac OS X/i.test(navigator.userAgent) ? "macos" : /Linux/i.test(navigator.userAgent) ? "linux" : "other";
 
 function BrowserPreview() {
   return (

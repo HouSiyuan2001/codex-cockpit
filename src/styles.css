@@ -2775,15 +2775,21 @@ textarea {
 /* Minimal control center: keep only settings that change everyday use. */
 .control-center--minimal {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: 22px;
 }
 .codex-focus-card.quota-card--overlay-open .control-center--minimal {
   inset: 0;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: inherit;
 }
+:root[data-platform="linux"] .codex-focus-card.quota-card--overlay-open .control-center--minimal {
+  animation: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.control-center--minimal > .usage-page-tabs { margin: 16px 22px 0; }
 .codex-focus-card.quota-card--overlay-open .control-center--minimal.control-center--calendar-open {
   grid-template-columns: minmax(0, 560fr) minmax(300px, 380fr);
 }
@@ -2792,7 +2798,7 @@ textarea {
 .control-center--calendar-open .control-calendar-side {
   display: block;
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 2 / span 2;
   padding: 16px 18px 16px 0;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -2857,7 +2863,7 @@ textarea {
   display: grid;
   align-content: start;
   gap: 12px;
-  padding: 16px 22px 20px;
+  padding: 12px 22px 20px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(123, 159, 255, .28) transparent;
@@ -3729,6 +3735,17 @@ textarea {
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  /* Text fields scroll the dialog body, never the outer rounded surface.
+     overflow:hidden would still allow focus to scroll this native clip. */
+  overflow: clip;
+}
+:root[data-platform="linux"] .codex-focus-card.quota-card--overlay-open {
+  /* The dialog owns its rounded clipping. A clip-path or retained transform
+     on its ancestor can leave GTK WebKit's editable/scroll layers stale. */
+  clip-path: none;
+  animation: none;
+  transform: none;
+  isolation: auto;
 }
 
 /* One perimeter on both native platforms. This must follow all theme rules:

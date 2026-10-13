@@ -40,7 +40,13 @@ use objc2_app_kit::{
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-#[cfg(any(debug_assertions, target_os = "macos", target_os = "windows", test))]
+#[cfg(any(
+    debug_assertions,
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux",
+    test
+))]
 use models::UsageWindow;
 use models::{ProviderSnapshot, WidgetPreferences};
 use serde::{Deserialize, Serialize};
@@ -1012,6 +1018,22 @@ fn apply_widget_window_presence(
         .map_err(|error| format!("failed to toggle always-on-top: {error}"))?;
     #[cfg(target_os = "macos")]
     apply_macos_window_presence(window, always_on_top)?;
+    #[cfg(target_os = "linux")]
+    {
+        let native_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                use gtk::prelude::*;
+                if let Ok(gtk_window) = native_window.gtk_window() {
+                    // Reassert the native hint even when GTK's cached setting
+                    // already matches: XWayland may lose it when mapping.
+                    if let Some(surface) = gtk_window.window() {
+                        surface.set_keep_above(always_on_top);
+                    }
+                }
+            })
+            .map_err(|error| format!("failed to apply Linux window presence: {error}"))?;
+    }
     Ok(())
 }
 
@@ -1640,7 +1662,15 @@ fn open_control_center(
     )?;
     window
         .set_focus()
-        .map_err(|_| "failed to focus control center".to_string())
+        .map_err(|_| "failed to focus control center".to_string())?;
+    // On GTK, presenting the top-level window does not grab focus for its
+    // WebKit child. Explicitly focus both so text fields can receive input.
+    #[cfg(target_os = "linux")]
+    window
+        .as_ref()
+        .set_focus()
+        .map_err(|_| "failed to focus control center webview".to_string())?;
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -2728,8 +2758,8 @@ fn set_widget_always_on_top(
     Ok(next)
 }
 
-// macOS uses a template foreground; Windows needs a visible color on both taskbar themes.
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+// macOS uses a template foreground; Windows and Linux need a visible color on taskbar/panel themes.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 fn quota_tray_ring(
     remaining: Option<f64>,
     short: Option<Option<f64>>,
@@ -2755,7 +2785,7 @@ fn quota_tray_ring(
                 };
                 alpha = alpha.max(coverage * opacity);
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             rgba[(y * size + x) * 4..(y * size + x) * 4 + 3].copy_from_slice(&[57, 122, 224]);
             rgba[(y * size + x) * 4 + 3] = alpha as u8;
         }
@@ -2763,7 +2793,7 @@ fn quota_tray_ring(
     tauri::image::Image::new_owned(rgba, size as u32, size as u32)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 fn quota_tray_values(
     snapshot: &ProviderSnapshot,
 ) -> (Option<f64>, Option<Option<f64>>, Option<f64>) {
@@ -2798,7 +2828,7 @@ fn quota_tray_values(
 }
 
 fn update_quota_tray(app: &AppHandle, values: &[ProviderSnapshot]) {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     if let Some(tray) = app.tray_by_id("main") {
         let (remaining, short, primary) = values
             .iter()
@@ -2814,6 +2844,10 @@ fn update_quota_tray(app: &AppHandle, values: &[ProviderSnapshot]) {
             let _ = tray.set_icon_as_template(true);
             let _ = tray.set_title(Some(&title));
         }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = tray.set_title(Some(&title));
+        }
         let tooltip = if short.is_some() {
             let weekly = remaining
                 .map(|value| format!("{value:.0}%"))
@@ -2824,7 +2858,7 @@ fn update_quota_tray(app: &AppHandle, values: &[ProviderSnapshot]) {
         };
         let _ = tray.set_tooltip(Some(&tooltip));
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let _ = (app, values);
 }
 
@@ -2915,6 +2949,10 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder.title("—");
     }
     let autostart_menu = autostart.clone();
     let show_menu = show.clone();
@@ -3116,6 +3154,22 @@ pub fn run() {
                 let _ = apply_lock(app.handle(), true);
             }
             if let Some(window) = app.get_webview_window("widget") {
+                #[cfg(target_os = "linux")]
+                {
+                    use gtk::prelude::*;
+                    let presence_handle = app.handle().clone();
+                    window.gtk_window()?.connect_map(move |gtk_window| {
+                        let always_on_top = presence_handle
+                            .state::<AppState>()
+                            .preferences
+                            .lock()
+                            .map(|preferences| preferences.always_on_top)
+                            .unwrap_or(true);
+                        if let Some(surface) = gtk_window.window() {
+                            surface.set_keep_above(always_on_top);
+                        }
+                    });
+                }
                 if let Err(error) = apply_widget_window_presence(&window, preferences.always_on_top)
                 {
                     eprintln!("widget presence policy failed: {error}");

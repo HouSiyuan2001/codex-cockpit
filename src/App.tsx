@@ -464,10 +464,12 @@ export default function App() {
     }
   }, [t.errorUnavailable]);
 
-  const closeControlSurface = useCallback(async () => {
+  const closeControlSurface = useCallback(async (collapse = false) => {
     if (controlOpenRef.current) await closeControlCenterWindow();
     controlOpenRef.current = false;
     setControlOpen(false);
+    // Panel switches keep the widget expanded; explicit close uses the layout effect.
+    if (collapse && !effectiveStayExpanded(preferencesRef.current)) setCompact(true);
   }, []);
 
   const openVolcengineDiagnostics = useCallback(async () => {
@@ -1028,7 +1030,7 @@ export default function App() {
   }, [compactLayout, controlOpen, stayExpanded]);
 
   useEffect(() => {
-    if (!compact || stayExpanded || controlOpen || widgetTransitioning.current) return;
+    if (!compact || stayExpanded || controlOpen || controlOpenRef.current || widgetTransitioning.current) return;
     void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth).catch(() => setOperationError("Widget layout resize failed."));
   }, [compact, compactCapsuleWidth, compactLayout, controlOpen, stayExpanded]);
 
@@ -1225,7 +1227,7 @@ export default function App() {
           onUsageGroupsChange={refreshComfortUsage}
           onCheckUpdate={() => void handleUpdateOpen()}
           onClose={() => {
-            void closeControlSurface().catch(() => setOperationError("Control center close failed."));
+            void closeControlSurface(true).catch(() => setOperationError("Control center close failed."));
           }}
           onRefresh={() => { void refresh(true); }}
           onOpenCodexResets={() => void openExternalUrl(CODEX_RESETS_URL).catch(() => setOperationError(language === "en" ? "Codex Resets could not be opened." : "无法打开 Codex Resets。"))}

@@ -133,8 +133,19 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     onDrag();
   };
 
+  const handleInputPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    const target = event.target;
+    if (document.documentElement.dataset.platform !== "linux") return;
+    if (event.button > 0 || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) || target.disabled) return;
+    if (target instanceof HTMLInputElement && !["text", "url", "password", "search", "email", "tel", "number"].includes(target.type)) return;
+    // GTK WebKit reveals inputs by scrolling their ancestors on mouse focus.
+    // Focus before its default mousedown path so the visible field and its
+    // hit region stay aligned. Default caret/selection handling remains intact.
+    target.focus({ preventScroll: true });
+  };
+
   return (
-    <section ref={dialogRef} className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="control-center-title" tabIndex={-1} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialogRef} className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="control-center-title" tabIndex={-1} onPointerDownCapture={handleInputPointerDown} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
       <header
         className="control-header control-header--draggable"
         onPointerDown={handleHeaderPointerDown}
@@ -143,12 +154,12 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
         <button type="button" onClick={onClose} aria-label={zh ? "关闭" : "Close"} data-dialog-initial-focus><X /></button>
       </header>
 
-      <div className="control-body control-body--minimal">
-        <nav className="usage-page-tabs" aria-label={zh ? "控制中心页面" : "Control center pages"}>
+      <nav className="usage-page-tabs" aria-label={zh ? "控制中心页面" : "Control center pages"}>
           <button type="button" aria-pressed={page === "usage"} onClick={() => changePage("usage")}>{zh ? "用量" : "Usage"}</button>
           <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "额度" : "Quota"}</button>
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
-        </nav>
+      </nav>
+      <div className="control-body control-body--minimal">
         {page === "usage" ? <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} /> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>

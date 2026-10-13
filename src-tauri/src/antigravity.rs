@@ -3,7 +3,9 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 #[cfg(windows)]
 use serde_json::Value;
-use std::{collections::BTreeSet, io::ErrorKind, path::PathBuf, process::Stdio, time::Duration};
+#[cfg(any(windows, target_os = "macos"))]
+use std::path::PathBuf;
+use std::{collections::BTreeSet, io::ErrorKind, process::Stdio, time::Duration};
 use tokio::{process::Command, time::timeout};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(4);
