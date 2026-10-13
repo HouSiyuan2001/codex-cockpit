@@ -16,7 +16,24 @@ This project is a Tauri desktop application. Website-only gates such as SEO, mob
 - Treat each provider as an isolated failure domain and preserve last-known-good data.
 - Cover loading, healthy, stale, signed-out, unavailable, and partial multi-provider states.
 - Keep browser preview data synthetic; validate real provider access only in Tauri.
-- Use platform-specific behavior only behind explicit Windows/macOS boundaries.
+- Use platform-specific behavior only behind explicit platform boundaries (Windows/macOS/Linux).
+
+## Platform prerequisites
+
+- **Linux (Debian/Ubuntu)**:
+  ```bash
+  sudo apt install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev
+  ```
+
+Linux builds also need a running Secret Service provider (for example, GNOME Keyring
+or KWallet with Secret Service enabled) for optional cloud credentials. The app does
+not install or configure a provider. The provider may prompt to unlock its store;
+failed access reports the existing credential-store error, without a plaintext
+file fallback.
+
+Linux uses X11/XWayland when `DISPLAY` is present and `GDK_BACKEND` is unset.
+Explicit backend, input-method and WebKit launcher settings take precedence.
+Native Wayland without XWayland keeps GTK defaults; it is not yet GUI-validated.
 
 ## Fast handoff gate
 

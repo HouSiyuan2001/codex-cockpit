@@ -229,7 +229,11 @@ pub async fn exchange_daily_plan(app: tauri::AppHandle, body: Value) -> Result<V
 }
 
 fn entry(endpoint: &str, device: &str) -> Result<keyring::Entry, String> {
-    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+    if !cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux"
+    )) {
         return Err("cloud_secure_store_unsupported".into());
     }
     keyring::Entry::new(SERVICE, &credential_key(endpoint, device))

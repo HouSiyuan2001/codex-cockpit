@@ -38,7 +38,9 @@ export function useModalDialog<T extends HTMLElement>(
     const initialFocus = dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]:not([disabled])")
       ?? focusableElements(dialog)[0]
       ?? dialog;
-    initialFocus.focus();
+    // The native window may still be growing when the dialog mounts. Avoid
+    // scrolling the outer clipping surface to the initially focused button.
+    initialFocus.focus({ preventScroll: true });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -72,7 +74,7 @@ export function useModalDialog<T extends HTMLElement>(
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (previousFocus?.isConnected) previousFocus.focus();
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
   }, []);
 

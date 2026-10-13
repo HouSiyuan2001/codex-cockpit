@@ -7,7 +7,7 @@ import App from "./App";
 import { EMPTY_RUNTIME_STATE } from "./lib/activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./lib/preferences";
 import type { ComfortFeedbackRecord, ProviderSnapshot, ResetForecast, ResetWatch, RuntimeState } from "./types";
-import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpanded, openControlCenterWindow, openExternalUrl } from "./lib/bridge";
+import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpanded, openControlCenterWindow, openExternalUrl, closeControlCenterWindow } from "./lib/bridge";
 import type { TokeiUsage } from "./lib/tokeiUsage";
 import { savePersonPlan, planDateKey } from "./lib/personPlanSync";
 
@@ -41,10 +41,12 @@ vi.mock("./components/QuotaCard", () => ({
   capsuleLogicalWidth: () => 100,
   QuotaIsland: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
   QuotaOrb: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
-  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, dailyRecommendation, onResetRiskChange, comfortPrompt }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; dailyRecommendation: { resetRiskPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null }) => <div>
+  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, dailyRecommendation, onResetRiskChange, comfortPrompt, onDiagnostics, updateOpen, diagnosticsOpen }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; dailyRecommendation: { resetRiskPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null; onDiagnostics: () => void; updateOpen: boolean; diagnosticsOpen: boolean }) => <div>
     <button onClick={() => { onHover(false); onControlOpen(); }}>leave then open control</button>
     <button onClick={() => onOpenResetForecast("https://codex-resets.com/")}>open reset watch</button>
     <button onClick={() => onHover(false)}>leave widget</button>
+    <button onClick={onDiagnostics}>open diagnostics</button>
+    <output data-testid="panel-state">{updateOpen ? "update" : diagnosticsOpen ? "diagnostics" : "none"}</output>
     <output data-testid="pending-comfort">{comfortPrompt?.localDate ?? "none"}</output>
     <button onClick={onRefresh}>quota refresh</button>
     <output data-testid="reset-sources">{JSON.stringify({ model: resetForecast?.tomorrowRiskPercent, website: resetWatch?.resetChancePercent, signalKind: resetWatch?.signalKind, planning: dailyRecommendation?.resetRiskPercent })}</output>
@@ -60,7 +62,11 @@ vi.mock("./components/ControlCenter", () => ({
     comfortSaveError: string | null;
     onComfortFeedback: (date: string, comfort: "comfortable") => void;
     onComfortSnapshotRefresh: (date: string) => void;
+    onCheckUpdate: () => void;
+    onClose: () => void;
   }) => <section>
+    <button onClick={props.onCheckUpdate}>check update</button>
+    <button onClick={props.onClose}>close control</button>
     <button onClick={() => props.onComfortFeedback(LOCAL_DATE, "comfortable")}>save comfort</button>
     <button onClick={() => props.onComfortSnapshotRefresh(LOCAL_DATE)}>refresh token snapshot</button>
     <output data-testid="comfort-state">{JSON.stringify(props.comfortFeedback)}</output>
@@ -191,6 +197,9 @@ function usage(): TokeiUsage {
 }
 
 beforeEach(() => {
+  vi.mocked(closeControlCenterWindow).mockReset().mockResolvedValue(undefined);
+  vi.mocked(setWidgetExpanded).mockClear();
+  vi.mocked(openControlCenterWindow).mockClear();
   vi.mocked(savePersonPlan).mockReset().mockResolvedValue(undefined);
   vi.mocked(fetchCodexResetForecast).mockReset().mockResolvedValue(null);
   vi.mocked(fetchWebsiteResetProbability).mockReset().mockResolvedValue(null);
@@ -278,6 +287,7 @@ describe("App comfort persistence regressions", () => {
     await expandApp();
     await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
     vi.mocked(setWidgetExpanded).mockClear();
+    vi.mocked(openControlCenterWindow).mockClear();
     fireEvent.click(screen.getByRole("button", { name: "leave then open control" }));
     await waitFor(() => expect(openControlCenterWindow).toHaveBeenCalled());
     await new Promise(resolve => setTimeout(resolve, 150));
@@ -356,5 +366,40 @@ describe("App comfort persistence regressions", () => {
     expect(screen.getByTestId("comfort-state")).toHaveTextContent('"coverage":"complete"');
     expect(screen.getByTestId("comfort-state")).toHaveTextContent('"totalTokens":6000000');
     expect(mocks.updateRuntimeState).not.toHaveBeenCalled();
+  });
+});
+
+describe("App control surface regressions", () => {
+  it.each(["update", "diagnostics"])("keeps the %s panel visible when leaving control center", async (panel) => {
+    await expandApp();
+    await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "leave then open control" }));
+    await waitFor(() => expect(openControlCenterWindow).toHaveBeenCalledOnce());
+    vi.mocked(setWidgetExpanded).mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: panel === "update" ? "check update" : "open diagnostics" }));
+
+    await waitFor(() => expect(closeControlCenterWindow).toHaveBeenCalledOnce());
+    expect(await screen.findByTestId("panel-state")).toHaveTextContent(panel);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(screen.queryByRole("button", { name: "expand" })).not.toBeInTheDocument();
+    expect(vi.mocked(setWidgetExpanded).mock.calls.filter(call => call[0] === false)).toHaveLength(0);
+  });
+
+  it.each([false, true])("honors stayExpanded=%s on explicit close and collapses at most once", async (stayExpanded) => {
+    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, stayExpanded, codexFocusMode: false });
+    await expandApp();
+    await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "leave then open control" }));
+    await waitFor(() => expect(openControlCenterWindow).toHaveBeenCalledOnce());
+    vi.mocked(setWidgetExpanded).mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "close control" }));
+
+    await waitFor(() => expect(closeControlCenterWindow).toHaveBeenCalledOnce());
+    if (!stayExpanded) expect(await screen.findByRole("button", { name: "expand" })).toBeInTheDocument();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(vi.mocked(setWidgetExpanded).mock.calls.filter(call => call[0] === false)).toHaveLength(stayExpanded ? 0 : 1);
+    if (stayExpanded) expect(screen.queryByRole("button", { name: "expand" })).not.toBeInTheDocument();
   });
 });
