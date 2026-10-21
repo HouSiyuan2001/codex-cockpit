@@ -8,7 +8,8 @@ permissions:
   contents: read
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # Superseded validation runs can stop; versioned publication never does.
+  cancel-in-progress: ${{ github.ref == 'refs/heads/codex/release-validation' }}
 jobs:
   verify:
     runs-on: ubuntu-latest

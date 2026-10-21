@@ -104,6 +104,7 @@ describe("release automation", () => {
     expect(releaseWorkflow).toMatch(/build:\s+needs: verify/);
     expect(releaseWorkflow).toMatch(/publish:\s+needs: build/);
     expect(releaseWorkflow).toContain("if: startsWith(github.ref, 'refs/tags/v')");
+    expect(releaseWorkflow).toContain("cancel-in-progress: ${{ github.ref == 'refs/heads/codex/release-validation' }}");
     expect(releaseWorkflow).toContain("verify-windows-defender.ps1 -Path");
     expect(releaseWorkflow).not.toContain("continue-on-error");
     expect(releaseWorkflow).not.toContain("if: always()");
