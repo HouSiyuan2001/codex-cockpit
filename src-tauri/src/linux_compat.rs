@@ -2,7 +2,27 @@
 
 use std::{env, fs};
 
-pub fn configure() {
+#[link(name = "X11")]
+unsafe extern "C" {
+    fn XInitThreads() -> std::ffi::c_int;
+}
+
+fn initialize_xlib_threads_with(
+    initialize: impl FnOnce() -> std::ffi::c_int,
+) -> Result<(), &'static str> {
+    if initialize() == 0 {
+        Err("Unable to initialize X11 thread support; the application cannot start safely.")
+    } else {
+        Ok(())
+    }
+}
+
+pub fn configure() -> Result<(), &'static str> {
+    // Xlib requires this before any GTK/WebKit display access. In particular,
+    // the software-rendered X11 path can access Xlib from more than one thread.
+    // SAFETY: main calls configure before starting Tauri/GTK or worker threads;
+    // XInitThreads has no arguments and does not open a display connection.
+    initialize_xlib_threads_with(|| unsafe { XInitThreads() })?;
     if should_default_to_x11(
         env::var_os("GDK_BACKEND").as_deref(),
         env::var_os("DISPLAY").as_deref(),
@@ -10,7 +30,7 @@ pub fn configure() {
         env::set_var("GDK_BACKEND", "x11");
     }
     if env::var("GDK_BACKEND").as_deref() != Ok("x11") {
-        return;
+        return Ok(());
     }
     configure_x11_input_method();
     // Apply only to our X11 process, before GTK/WebKit initialize. Keep
@@ -23,6 +43,7 @@ pub fn configure() {
             env::set_var(name, "1");
         }
     }
+    Ok(())
 }
 
 fn should_default_to_x11(
@@ -110,6 +131,26 @@ fn has_explicit_gtk_module(settings: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::gtk_input_method_fallback as fallback;
+
+    #[test]
+    fn xlib_thread_initialization_checks_success_and_fails_closed() {
+        use super::initialize_xlib_threads_with;
+        let calls = std::cell::Cell::new(0);
+        assert!(initialize_xlib_threads_with(|| {
+            calls.set(calls.get() + 1);
+            1
+        })
+        .is_ok());
+        assert_eq!(calls.get(), 1);
+        assert!(initialize_xlib_threads_with(|| 0).is_err());
+    }
+
+    #[test]
+    fn xlib_thread_support_is_available_without_a_display_connection() {
+        // SAFETY: this test binary makes no other Xlib/GTK calls; all remaining
+        // compatibility tests exercise pure parsing and selection functions.
+        assert!(super::initialize_xlib_threads_with(|| unsafe { super::XInitThreads() }).is_ok());
+    }
 
     #[test]
     fn only_defaults_to_x11_when_a_display_is_available() {

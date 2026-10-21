@@ -1,6 +1,6 @@
 # Codex 驾驶舱 · v0.3.2
 
-- **新增 Linux x64 安装包**：整合 [PR #6](https://github.com/HouSiyuan2001/codex-cockpit/pull/6)，修复输入焦点、窗口置顶与胶囊点击。感谢 @dailiuyi！
+- **新增 Linux x64 安装包**：整合 [PR #6](https://github.com/HouSiyuan2001/codex-cockpit/pull/6)，修复启动、输入焦点、窗口置顶与胶囊点击。感谢 @dailiuyi！
 - **设置与更新更顺手**：精简设置，下载进度和失败重试集中显示。
 - **跨设备任务更清楚**：折叠提示、历史筛选，缺失明细不再显示为零；同时更新安全依赖。
 

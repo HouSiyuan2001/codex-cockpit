@@ -42,11 +42,15 @@ smoke_launch() {
     exit 1
   fi
 }
-smoke_launch deb "$binary"
+for attempt in 1 2 3; do
+  smoke_launch "deb-$attempt" "$binary"
+done
 image="$(realpath "${images[0]}")"
 chmod +x "$image"
 mkdir -p "$stage/appimage"
 (cd "$stage/appimage" && "$image" --appimage-extract >/dev/null)
-smoke_launch appimage "$stage/appimage/squashfs-root/AppRun"
+for attempt in 1 2 3; do
+  smoke_launch "appimage-$attempt" "$stage/appimage/squashfs-root/AppRun"
+done
 sudo dpkg --remove "$(dpkg-deb --field "${debs[0]}" Package)"
 echo 'Linux package install/startup/uninstall smoke passed; this is not interactive desktop acceptance.'

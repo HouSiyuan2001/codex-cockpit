@@ -5,7 +5,10 @@ mod linux_compat;
 
 fn main() {
     #[cfg(target_os = "linux")]
-    linux_compat::configure();
+    if let Err(error) = linux_compat::configure() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
 
     quota_float_lib::run();
 }

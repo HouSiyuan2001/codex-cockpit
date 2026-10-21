@@ -5,6 +5,7 @@
 Includes the changes prepared for v0.3.1, whose two-platform workflow was cancelled before publication. The v0.3.1 tag is retained unchanged.
 
 - Add Linux x64 AppImage/Debian packages, signed AppImage update metadata and isolated package install/startup/uninstall smoke gates. All three platforms must pass before publication.
+- Initialize Xlib thread support before GTK/WebKit starts, fixing the X11 startup abort caught by packaged Linux smoke tests; repeat each package's startup check three times.
 - Prevent Debian or unpackaged Linux installations from downloading an incompatible AppImage update; direct those users to manual package-manager updates.
 - Update Vite and TLS/certificate dependencies for published security fixes; remove unused legacy ZIP updater support while retaining signed NSIS EXE/macOS archive updates.
 - Preserve stationary capsule clicks on Linux and apply a rounded X11 window shape without animated resizing when no compositor is available. Linux end-to-end GUI/sync acceptance is still pending.

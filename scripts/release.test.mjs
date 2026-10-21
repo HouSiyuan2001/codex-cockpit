@@ -92,8 +92,9 @@ describe("release automation", () => {
     expect(smoke).toContain('RUNNER_ENVIRONMENT:-');
     expect(smoke).toContain('XDG_CONFIG_HOME="$stage/$label/config"');
     expect(smoke).toContain('[[ $result -eq 124 ]]');
-    expect(smoke).toContain('smoke_launch deb "$binary"');
-    expect(smoke).toContain('smoke_launch appimage');
+    expect(smoke).toContain('for attempt in 1 2 3');
+    expect(smoke).toContain('smoke_launch "deb-$attempt" "$binary"');
+    expect(smoke).toContain('smoke_launch "appimage-$attempt"');
     expect(smoke).toContain('sudo dpkg --remove');
   });
 
