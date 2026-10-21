@@ -12,6 +12,18 @@ beforeEach(() => {
   api.save.mockReset().mockResolvedValue({ deviceId: "local-test", directory: "/synthetic/custom-codex", selection: "manual", state: "ready" });
 });
 afterEach(cleanup);
+it("keeps healthy local data concise and details collapsed", async () => {
+  api.get.mockResolvedValue({ directory: "/synthetic/.codex", selection: "manual", state: "ready" });
+  render(<LocalUsageSourceSettings zh />);
+  expect(await screen.findByText("/synthetic/.codex")).toBeVisible();
+  expect(screen.getByText("只读统计，不上传聊天正文。")).toBeVisible();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  const details = screen.getByText("读取详情").closest("details")!;
+  expect(details).not.toHaveAttribute("open");
+  expect(screen.getByText("恢复自动查找")).not.toBeVisible();
+  details.open = true;
+  expect(screen.getByText("恢复自动查找")).toBeVisible();
+});
 it("explains missing data without reporting zero or requesting cloud enrollment", async () => {
   render(<LocalUsageSourceSettings zh compact />);
   expect(await screen.findByText(/没有找到 Codex 数据目录，这不是用量为 0/)).toBeInTheDocument();
@@ -22,7 +34,7 @@ it("does not save or start reading until the user explicitly confirms", async ()
   const onSaved = vi.fn();
   render(<LocalUsageSourceSettings zh onSaved={onSaved} />);
   await screen.findByText("/synthetic/.codex");
-  fireEvent.click(screen.getByRole("button", { name: "选择 Codex 数据目录" }));
+  fireEvent.click(screen.getByRole("button", { name: "更改目录" }));
   await screen.findByRole("button", { name: "允许读取并开始统计" });
   expect(api.save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "允许读取并开始统计" }));
@@ -31,7 +43,7 @@ it("does not save or start reading until the user explicitly confirms", async ()
 });
 it("canceling the confirmation does not change the source", async () => {
   render(<LocalUsageSourceSettings zh />);
-  fireEvent.click(screen.getByRole("button", { name: "选择 Codex 数据目录" }));
+  fireEvent.click(screen.getByRole("button", { name: "更改目录" }));
   fireEvent.click(await screen.findByRole("button", { name: "取消" }));
   expect(api.save).not.toHaveBeenCalled();
 });
@@ -43,7 +55,7 @@ it("shows an empty readable folder separately from a missing folder", async () =
 it("uses a safe actionable error instead of exposing native details", async () => {
   api.save.mockRejectedValue("permission denied private token example");
   render(<LocalUsageSourceSettings zh />);
-  fireEvent.click(screen.getByRole("button", { name: "选择 Codex 数据目录" }));
+  fireEvent.click(screen.getByRole("button", { name: "更改目录" }));
   fireEvent.click(await screen.findByRole("button", { name: "允许读取并开始统计" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("请检查系统权限");
   expect(screen.queryByText(/private token/)).not.toBeInTheDocument();

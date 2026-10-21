@@ -654,6 +654,19 @@ export const QuotaCard = memo(function QuotaCard({
   const cockpitName = language === "en" ? "Codex Cockpit" : "Codex 驾驶舱";
   const cockpitKicker = language === "en" ? "CODEX COCKPIT" : "CODEX 驾驶舱";
   const overlayOpen = diagnosticsOpen || updateOpen || controlOpen;
+  const updatePanel = updateOpen ? (
+    <UpdatePanel
+      state={updateState}
+      language={language}
+      onClose={onUpdateClose}
+      onDownload={onUpdateDownload}
+      onInstall={onUpdateInstall}
+      onRetry={onUpdateRetry}
+      onLater={onUpdateLater}
+      onSkip={onUpdateSkip}
+      onOpenRelease={onUpdateRelease}
+    />
+  ) : null;
   const quotaTabLabel = language === "en" ? "Quota" : "\u989d\u5ea6";
   const insightsTabLabel = language === "en" ? "Insights" : "\u6d1e\u5bdf";
   const updateAttention = !["idle", "current"].includes(updateState.phase);
@@ -750,7 +763,7 @@ export const QuotaCard = memo(function QuotaCard({
     const dailySuggested = todayAdvice.todaySuggestedPercent;
     const dailyBudget = preferences.dailyBudgetPercent;
     const accountBudget = sharedBudgetPercent ?? dailyBudget;
-    const budgetLeftLabel = sharedBudgetPercent === undefined ? (language === "en" ? "Cap left" : "上限余量") : (language === "en" ? "Shared plan left" : "共享计划余量");
+    const budgetLeftLabel = sharedBudgetPercent === undefined ? (language === "en" ? "Budget left today" : "今天还可用") : (language === "en" ? "Shared budget left today" : "今天合计还可用");
     const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
     const dailyBudgetUsageRatio = dailyUsageRatio(dailyUsed, accountBudget);
     const dailyBudgetExhausted = dailyBudgetUsageRatio !== null && dailyBudgetUsageRatio >= 100;
@@ -777,7 +790,7 @@ export const QuotaCard = memo(function QuotaCard({
 
     return (
       <main
-        className={`quota-card codex-focus-card quota-card--${snapshot.status} quota-card--${tier} quota-card--style-${preferences.colorTheme} quota-card--theme-${resolvedAppearance}${controlOpen ? " quota-card--overlay-open" : ""}`}
+        className={`quota-card codex-focus-card quota-card--${snapshot.status} quota-card--${tier} quota-card--style-${preferences.colorTheme} quota-card--theme-${resolvedAppearance}${controlOpen || updateOpen ? " quota-card--overlay-open" : ""}`}
         style={{ "--accent-color": preferences.accentColor } as CSSProperties}
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
@@ -786,7 +799,8 @@ export const QuotaCard = memo(function QuotaCard({
         <div className="aurora" aria-hidden="true" />
         {notice ? <div className="operation-notice" role="status">{notice}</div> : null}
         {controlOpen ? controlCenter : null}
-        <div className="codex-focus-content" aria-hidden={controlOpen || undefined} inert={controlOpen || undefined}>
+        {updatePanel}
+        <div className="codex-focus-content" aria-hidden={controlOpen || updateOpen || undefined} inert={controlOpen || updateOpen || undefined}>
           <header className="codex-focus-header">
             <div className="codex-focus-brand"><ProviderMark provider="codex" label="Codex" /><span className="codex-focus-brand-copy"><span className="codex-focus-title-row"><strong>{cockpitName}</strong>{resetWatch ? <ResetWatchBell watch={resetWatch} language={language} onOpen={onOpenResetForecast} /> : null}</span></span></div>
             <span className="codex-focus-live"><i aria-hidden="true" />{language === "en" ? "LIVE" : "实时"}</span>
@@ -827,13 +841,17 @@ export const QuotaCard = memo(function QuotaCard({
                   overPace={dailyBudgetExhausted}
                   caption={dailyUsed === null || dailySuggested === null
                     ? (language === "en" ? "Waiting for today's guide" : "等待今日建议")
-                    : `${language === "en" ? "Used" : "已用"} ${number.format(dailyUsed)}% / ${language === "en" ? "day total" : "总建议"} ${number.format(dailySuggested)}%`}
+                    : codexDailyUsage?.coverage === "partial" && !dailyRecommendation?.dayPlan
+                      ? usedLabel
+                      : `${language === "en" ? "Used today" : "今天已用"} ${number.format(dailyUsed)}%`}
                   detail={dailyBudgetDetail}
                   footer={(
-                    <div className="daily-budget-control" onMouseDown={(event) => event.stopPropagation()}>
-                      {planningNote && <small>{planningNote}</small>}
+                    <div className="daily-budget-control" title={[planningNote, usedLabel, dailySuggested !== null ? `${language === "en" ? "Suggested today" : "今日建议"} ${number.format(dailySuggested)}%` : null, todayAdvice.safetyCapPercent !== null ? `${language === "en" ? "Cycle cap" : "周期上限"} ${number.format(todayAdvice.safetyCapPercent)}%` : null].filter(Boolean).join(" · ")} onMouseDown={(event) => event.stopPropagation()}>
+                      <small className="daily-budget-recommendation">
+                        <span>{language === "en" ? "Total daily budget" : "今日总额度"} {dailySuggested === null ? "—" : `${number.format(dailySuggested)}%`}</span>
+                      </small>
                       <div className="daily-budget-heading">
-                        <label htmlFor="daily-budget-range"><span>{language === "en" ? "Personal cap" : "个人上限"}</span><output>{number.format(dailyBudget)}%</output></label>
+                        <label htmlFor="daily-budget-range"><span>{language === "en" ? "My daily budget" : "我的今日额度"}</span><output>{number.format(dailyBudget)}%</output></label>
                         <button
                           type="button"
                           className="daily-budget-refresh"
@@ -845,23 +863,17 @@ export const QuotaCard = memo(function QuotaCard({
                           <ArrowClockwise weight="bold" />
                         </button>
                       </div>
-                      {dailySuggested !== null ? (
-                        <small className="daily-budget-recommendation">
-                          <span>{language === "en" ? "Day total" : "今日总建议"} {number.format(dailySuggested)}%</span>
-                          {todayAdvice.safetyCapPercent !== null ? <span>{language === "en" ? "Cycle cap" : "周期上限"} {number.format(todayAdvice.safetyCapPercent)}%</span> : null}
-                        </small>
-                      ) : null}
                       <RangeSlider
                         id="daily-budget-range"
                         min="1"
                         max="100"
                         step="0.1"
                         value={dailyBudget}
-                        aria-label={language === "en" ? "Personal cap" : "个人上限"}
+                        aria-label={language === "en" ? "My daily budget" : "我的今日额度"}
                         onChange={(event) => onDailyBudgetChange(Number(event.target.value))}
                         onInteractionChange={onSliderInteraction}
                       />
-                      <p><span>{usedLabel}</span><span>{budgetLeftLabel} {dailyUsed === null ? "—" : `${number.format(Math.max(0, accountBudget - dailyUsed))}%`}</span></p>
+                      <small>{language === "en" ? "Planned share of weekly quota" : "计划额度，占每周额度的比例"}</small>
                     </div>
                   )}
                 />
@@ -909,19 +921,7 @@ export const QuotaCard = memo(function QuotaCard({
           onReconnect={onReconnect}
         />
       ) : null}
-      {updateOpen ? (
-        <UpdatePanel
-          state={updateState}
-          language={language}
-          onClose={onUpdateClose}
-          onDownload={onUpdateDownload}
-          onInstall={onUpdateInstall}
-          onRetry={onUpdateRetry}
-          onLater={onUpdateLater}
-          onSkip={onUpdateSkip}
-          onOpenRelease={onUpdateRelease}
-        />
-      ) : null}
+      {updatePanel}
       <header className="quota-panel-header" aria-hidden={overlayOpen || undefined} inert={overlayOpen || undefined}>
         <div className="quota-panel-navigation">
           <p className="quota-panel-brand">{cockpitKicker} <span>· LOCAL FIRST</span></p>

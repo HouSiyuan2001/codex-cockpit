@@ -9,8 +9,18 @@ export function prepareSurfaceCrossfade(): { start: () => void; cancel: () => vo
 
 export function waitForSurfacePaint(scheduleFrame: FrameScheduler = window.requestAnimationFrame.bind(window)): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    // A small/occluded GTK WebView may stop producing frames. The native
+    // resize is needed to make it paint again, so never wait indefinitely.
+    const timeout = window.setTimeout(finish, 120);
     // The first frame commits the React surface; the second guarantees WebKit
-    // has painted it before the native Tauri frame starts growing.
-    scheduleFrame(() => scheduleFrame(() => resolve()));
+    // has had a paint opportunity before the native Tauri frame starts growing.
+    scheduleFrame(() => { if (!settled) scheduleFrame(finish); });
   });
 }

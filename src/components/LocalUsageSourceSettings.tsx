@@ -29,19 +29,24 @@ export function LocalUsageSourceSettings({ zh, compact = false, noRecords = fals
     : source && ["unreadable", "unsafe", "invalid"].includes(source.state)
       ? (zh ? "无法读取 Codex 数据目录，这不是用量为 0。请检查权限或重新选择。" : "The Codex folder is unreadable, not zero usage. Check permissions or choose another folder.")
       : noRecords ? (zh ? "目录可读取，但还没有可统计的用量记录。请先在 Codex 中运行一个任务，再刷新。" : "The folder is readable, but has no usage records yet. Run a Codex task, then refresh.")
-        : (zh ? "首次安装会自动统计本机用量，不需要加入云空间。" : "Local usage starts automatically. Cloud sync is optional.");
+        : null;
   return <section className={`local-usage-source${compact ? " local-usage-source--compact" : ""}`} aria-label={zh ? "本机 Codex 数据" : "Local Codex data"}>
-    <h3>{zh ? "本机 Codex 数据" : "Local Codex data"}</h3>
-    <p role="status">{source ? hint : zh ? "正在检查数据目录…" : "Checking the data folder…"}</p>
-    {source && <p className="local-usage-path"><span>{source.selection === "manual" ? (zh ? "已选择目录" : "Selected folder") : (zh ? "自动查找目录" : "Automatic folder")}</span><code>{source.directory}</code></p>}
-    <p>{zh ? "这里只读取用量和任务信息，不修改 Codex 文件。选择目录不会开启云同步，也不会上传聊天正文。" : "Reads usage and task metadata without changing Codex files. Choosing a folder does not enable cloud sync or upload chats."}</p>
+    <h3>{zh ? "本机数据" : "Local data"}</h3>
+    {(!source || hint) && <p role="status">{source ? hint : zh ? "正在检查数据目录…" : "Checking the data folder…"}</p>}
+    {source && <p className="local-usage-path"><code>{source.directory}</code></p>}
+    <p>{zh ? "只读统计，不上传聊天正文。" : "Read-only usage collection. No chat uploads."}</p>
     {chosen ? <div className="local-usage-consent">
       <p>{zh ? "确认允许驾驶舱读取这个 Codex 目录？" : "Allow Cockpit to read this Codex folder?"}</p><code>{chosen}</code>
       <div className="local-usage-actions"><button type="button" disabled={busy} onClick={() => { void save(chosen); }}>{zh ? "允许读取并开始统计" : "Allow read and start collection"}</button><button type="button" disabled={busy} onClick={() => setChosen(null)}>{zh ? "取消" : "Cancel"}</button></div>
     </div> : <div className="local-usage-actions">
-      <button type="button" disabled={busy || !isTauri()} onClick={() => { void choose(); }}>{zh ? "选择 Codex 数据目录" : "Choose Codex data folder"}</button>
-      {source?.selection === "manual" && <button type="button" disabled={busy} onClick={() => { void save(null); }}>{zh ? "恢复自动查找" : "Use automatic discovery"}</button>}
+      <button type="button" disabled={busy || !isTauri()} onClick={() => { void choose(); }}>{zh ? "更改目录" : "Change folder"}</button>
     </div>}
+    <details>
+      <summary>{zh ? "读取详情" : "Collection details"}</summary>
+      {source && <p>{source.selection === "manual" ? (zh ? "已手动选择目录" : "Manually selected folder") : (zh ? "自动查找目录" : "Automatic folder discovery")}</p>}
+      <p>{zh ? "仅读取用量和任务信息，不修改 Codex 文件。选择目录不会开启云同步。" : "Reads usage and task metadata without changing Codex files. Choosing a folder does not enable cloud sync."}</p>
+      {source?.selection === "manual" && <button type="button" disabled={busy} onClick={() => { void save(null); }}>{zh ? "恢复自动查找" : "Use automatic discovery"}</button>}
+    </details>
     {source?.state === "preview" && <p>{zh ? "浏览器仅预览界面，请在已安装的 App 中选择目录。" : "Browser preview only. Choose a folder in the installed app."}</p>}
     {error && <p className="usage-error" role="alert">{error}</p>}
   </section>;

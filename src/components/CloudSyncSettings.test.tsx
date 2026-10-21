@@ -13,6 +13,14 @@ it('only the owner can revoke another device, with explicit confirmation',async(
  const config={endpoint:'https://example.workers.dev',shareTaskDetails:false,deviceId:'owner-mac',spaceId:'space-1',spaceName:'Team',role:'owner',enabled:true,intervalSeconds:300};
  api.invoke.mockResolvedValue({config,members:[{deviceId:'owner-mac',displayName:'Owner',role:'owner',updatedAt:null},{deviceId:'peer-pc',displayName:'Example',role:'member',updatedAt:null}]});
  render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
+ await screen.findByText('Team · 已连接');
+ const advanced = screen.getByText('高级设置与设备详情').closest('details')!;
+ expect(advanced).not.toHaveAttribute('open');
+ expect(screen.getByText(/Cloudflare · https/)).not.toBeVisible();
+ expect(screen.getByText('自动同步')).toBeVisible();
+ expect(screen.getByText('共享任务与项目名')).toBeVisible();
+ advanced.open = true;
+ screen.getByText('设备访问权限').closest('details')!.open = true;
  fireEvent.click(await screen.findByRole('button',{name:'停用设备'}));
  expect(api.invoke.mock.calls.some(([command])=>command==='revoke_cloud_device')).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'取消'}));
@@ -27,12 +35,12 @@ it('Windows enrollment retains the existing ID without auto-joining or displayin
  expect(screen.queryByText('接入已有云空间')).not.toBeInTheDocument();
  expect(api.invoke.mock.calls.every(([command])=>command==='get_cloud_sync_status')).toBe(true);
  expect(api.sync).not.toHaveBeenCalled();
- expect(screen.getByText(/加入后，这台电脑的用量会同步给其他设备/)).toBeInTheDocument();
+ expect(screen.getByText(/连接后默认自动同步用量和任务明细/)).toBeInTheDocument();
 });
 it('members have no owner device-revocation controls',async()=>{
  api.invoke.mockResolvedValue({config:{endpoint:'https://example.workers.dev',deviceId:'peer-pc',spaceName:'Team',role:'member',enabled:true,shareTaskDetails:false},members:[{deviceId:'other-pc',displayName:'Example',role:'member',updatedAt:null}]});
  render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
- await screen.findByText('https://example.workers.dev');
+ await screen.findByText('Cloudflare · https://example.workers.dev');
  expect(screen.queryByRole('button',{name:'停用设备'})).not.toBeInTheDocument();
  expect(screen.queryByText('设备访问权限')).not.toBeInTheDocument();
 });
@@ -47,11 +55,12 @@ it('reports device mismatch safely and does not call sync after rejected enrollm
  expect(screen.queryByText(/private-detail/)).not.toBeInTheDocument();
  expect(api.sync).not.toHaveBeenCalled();
 });
-it('requires a chosen endpoint and keeps task details private by default',async()=>{
+it('requires an explicit connection and defaults new spaces to task sharing and a first sync',async()=>{
  render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
  await waitFor(()=>expect(screen.getByLabelText('本机设备标识')).toHaveValue('Windows-Test'));
  expect(screen.getByLabelText('服务地址')).toHaveValue('');
- expect(screen.getByLabelText('共享任务名称和项目名称（可选）')).not.toBeChecked();
+ expect(screen.getByLabelText('共享任务名称和项目名称（可选）')).toBeChecked();
+ expect(api.sync).not.toHaveBeenCalled();
  fireEvent.change(screen.getByLabelText('服务地址'),{target:{value:'https://example.workers.dev'}});
  fireEvent.change(screen.getByLabelText('显示名称'),{target:{value:'Example'}});
  fireEvent.click(screen.getByRole('button',{name:'创建共享空间'}));
@@ -59,7 +68,28 @@ it('requires a chosen endpoint and keeps task details private by default',async(
  fireEvent.change(screen.getByLabelText('建站密钥'),{target:{value:'synthetic-setup-secret'}});
  expect(screen.getByLabelText('建站密钥')).toHaveAttribute('type','password');
  fireEvent.submit(screen.getByLabelText('建站密钥').closest('form')!);
- await waitFor(()=>expect(api.invoke).toHaveBeenCalledWith('connect_cloud_sync',{setup:{endpoint:'https://example.workers.dev',displayName:'Example',deviceId:'Windows-Test',spaceName:'My team',bootstrapSecret:'synthetic-setup-secret',inviteCode:null,shareTaskDetails:false}}));
+ await waitFor(()=>expect(api.invoke).toHaveBeenCalledWith('connect_cloud_sync',{setup:{endpoint:'https://example.workers.dev',displayName:'Example',deviceId:'Windows-Test',spaceName:'My team',bootstrapSecret:'synthetic-setup-secret',inviteCode:null,shareTaskDetails:true}}));
  await waitFor(()=>expect(api.sync).toHaveBeenCalledTimes(1));
  expect(screen.getByLabelText('建站密钥')).toHaveValue('');
+});
+it.each([true,false])('joining respects the task sharing choice (%s) and syncs after connecting',async(shareTaskDetails)=>{
+ render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
+ await waitFor(()=>expect(screen.getByLabelText('本机设备标识')).toHaveValue('Windows-Test'));
+ fireEvent.change(screen.getByLabelText('服务地址'),{target:{value:'https://example.workers.dev'}});
+ fireEvent.change(screen.getByLabelText('邀请码'),{target:{value:'synthetic-invite'}});
+ fireEvent.change(screen.getByLabelText('显示名称'),{target:{value:'Example'}});
+ if(!shareTaskDetails)fireEvent.click(screen.getByLabelText('共享任务名称和项目名称（可选）'));
+ expect(api.sync).not.toHaveBeenCalled();
+ fireEvent.submit(screen.getByLabelText('邀请码').closest('form')!);
+ await waitFor(()=>expect(api.invoke).toHaveBeenCalledWith('connect_cloud_sync',{setup:{endpoint:'https://example.workers.dev',displayName:'Example',deviceId:'Windows-Test',spaceName:null,bootstrapSecret:null,inviteCode:'synthetic-invite',shareTaskDetails}}));
+ await waitFor(()=>expect(api.sync).toHaveBeenCalledTimes(1));
+});
+it('retains an existing connection with automatic sync and task sharing explicitly off',async()=>{
+ api.invoke.mockResolvedValue({config:{endpoint:'https://example.workers.dev',deviceId:'Windows-Test',spaceName:'Team',role:'member',enabled:false,shareTaskDetails:false,intervalSeconds:600},members:[]});
+ render(<CloudSyncSettings usage={null} zh onSynced={vi.fn()}/>);
+ await screen.findByText('Team · 已连接');
+ expect(screen.getByLabelText('自动同步')).not.toBeChecked();
+ expect(screen.getByLabelText('共享任务与项目名')).not.toBeChecked();
+ expect(api.invoke.mock.calls.every(([command])=>command==='get_cloud_sync_status')).toBe(true);
+ expect(api.sync).not.toHaveBeenCalled();
 });

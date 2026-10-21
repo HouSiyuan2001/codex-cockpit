@@ -19,6 +19,24 @@ const codex: ProviderSnapshot = {
   message: null,
 };
 
+it.each(["checking", "current", "error", "available", "downloading", "ready", "installing"] as const)("renders the real update dialog in focus mode: %s", (phase) => {
+  const onClose = vi.fn();
+  const { container, rerender } = render(<QuotaCard snapshot={codex} snapshots={[codex]}
+    preferences={{ ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true }}
+    updateOpen updateState={{ phase, info: null, progress: null, error: null }} onUpdateClose={onClose}
+    onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
+  expect(screen.getByRole("dialog")).toHaveClass("update-panel");
+  expect(container.querySelector(".codex-focus-card")).toHaveClass("quota-card--overlay-open");
+  expect(container.querySelector(".codex-focus-content")).toHaveAttribute("inert");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(phase === "installing" ? 0 : 1);
+  rerender(<QuotaCard snapshot={codex} snapshots={[codex]}
+    preferences={{ ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true }} updateOpen={false}
+    onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(container.querySelector(".codex-focus-content")).not.toHaveAttribute("inert");
+});
+
 it("segments only today's ring by money while keeping both center values", () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-16T12:00:00+08:00"));
@@ -318,7 +336,7 @@ describe("QuotaCard platform ledger", () => {
       const observedTime = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date("2026-07-20T14:24:00+08:00"));
       expect(screen.getByText(`已记录 6% · ${observedTime} 起`)).toBeInTheDocument();
       const dailyRing = screen.getByRole("group", { name: "今日已用 42%" });
-      expect(dailyRing).toHaveTextContent("上限余量 8.3%");
+      expect(dailyRing).toHaveTextContent("今天还可用 8.3%");
       expect(dailyRing.querySelector(".daily-usage-track")).not.toBeInTheDocument();
       expect(dailyRing.querySelector(".codex-ring-value strong")).toHaveTextContent("42");
       expect(Number(dailyRing.querySelector(".codex-ring-progress")?.getAttribute("stroke-dasharray")?.split(" ")[0])).toBeCloseTo(42, 6);
@@ -328,7 +346,7 @@ describe("QuotaCard platform ledger", () => {
       expect(weeklyRing).toHaveTextContent("暂无");
       expect(screen.queryByText("当前套餐")).not.toBeInTheDocument();
       expect(screen.queryByText("Pro Lite")).not.toBeInTheDocument();
-      const slider = screen.getByRole("slider", { name: "个人上限" });
+      const slider = screen.getByRole("slider", { name: "我的今日额度" });
       expect(slider).toHaveValue("14.3");
       expect(screen.getByText("官方额度快照")).toBeInTheDocument();
       expect(screen.queryByText("官方 App Server")).not.toBeInTheDocument();
@@ -452,7 +470,9 @@ describe("QuotaCard platform ledger", () => {
       const dailyRing = screen.getByRole("group", { name: "今日已用 120%" });
       expect(dailyRing).toHaveClass("codex-ring-card--over_pace");
       expect(dailyRing).toHaveTextContent("超出上限 20%");
-      expect(dailyRing).toHaveTextContent("已用 12% / 总建议");
+      expect(dailyRing).toHaveTextContent("已记录 12%");
+      expect(dailyRing.querySelector(".daily-budget-recommendation")).toHaveTextContent("今日总额度");
+      expect(dailyRing.querySelector(".daily-budget-control p")).toBeNull();
       expect(dailyRing.querySelector(".codex-ring-value strong")).toHaveTextContent("120");
       expect(Number(dailyRing.querySelector(".codex-ring-progress")?.getAttribute("stroke-dasharray")?.split(" ")[0])).toBe(100);
     } finally {
@@ -533,7 +553,7 @@ describe("QuotaCard platform ledger", () => {
       />,
     );
 
-    const slider = screen.getByRole("slider", { name: "Personal cap" });
+    const slider = screen.getByRole("slider", { name: "My daily budget" });
     Object.assign(slider, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
     fireEvent.pointerDown(slider, { button: 0, pointerId: 3 });
     fireEvent.pointerUp(slider, { pointerId: 3 });

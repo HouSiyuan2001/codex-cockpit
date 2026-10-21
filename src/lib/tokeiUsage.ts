@@ -85,7 +85,7 @@ export interface ProjectUsageSnapshot {
   projects: { id: string; name: string; daily: Record<string, DailyModelUsage> }[];
   /** Local-only task metadata. Optional while reading legacy native snapshots and test fixtures. */
   tasks?: TaskUsage[];
-  peerTasks?: { deviceId: string; updatedAt: string; partial: boolean; tasks: TaskUsage[] }[];
+  peerTasks?: { deviceId: string; updatedAt: string | null; partial: boolean; tasks: TaskUsage[]; taskDetailsStatus?: "available" | "not-provided" | "not-received" }[];
   warnings: string[];
 }
 
@@ -172,7 +172,7 @@ export function aggregateSyncedTaskUsage(data: ProjectUsageSnapshot, settings: T
   for (const peer of data.peerTasks ?? []) {
     if (peer.deviceId === data.deviceId) continue;
     const old = peers.get(peer.deviceId);
-    if (!old || Date.parse(peer.updatedAt) > Date.parse(old.updatedAt)) peers.set(peer.deviceId, peer);
+    if (!old || (Date.parse(peer.updatedAt ?? "") || 0) > (Date.parse(old.updatedAt ?? "") || 0)) peers.set(peer.deviceId, peer);
   }
   for (const peer of peers.values()) {
     const aggregate = aggregateTaskUsage({ ...data, deviceId: peer.deviceId, tasks: peer.tasks }, settings, groupId, period, now);

@@ -38,7 +38,7 @@
 | Publication history/dependencies | `npm run audit:history`, `npm audit`, Worker `npm audit`, `cargo audit` | Commit author metadata, licensing and signing credential access |
 | Release | Versions, Mac/Windows builds, Defender, SHA-256 | Clean-machine install, launch, clipboard, uninstall and rollback |
 
-Sync regressions: space isolation, single-use/expired invitations, device binding, stale snapshots, owner-only pricing/invites, member group CAS conflicts, independent personal plans, task-sharing opt-in, invalid endpoints rejected before credential use.
+Sync regressions: space isolation, single-use/expired invitations, device binding, stale snapshots, owner-only pricing/invites, member group CAS conflicts, independent personal plans, new-connection task-sharing default and explicit opt-out, preservation of old disabled preferences, invalid endpoints rejected before credential use.
 
 Hardened Worker: nested aggregate/feedback allowlists, chunked UTF-8 request size bounds, rate-limit 429/Retry-After, fail-closed missing bindings, owner-only device revocation and cross-space denial. Existing operators must merge rate bindings before deployment; automated tests do not deploy or verify their actual edge configuration.
 

@@ -13,7 +13,7 @@ Use the user's own Cloudflare account and selected Worker/D1 database. Check `wr
 
 Keep configuration in ignored `wrangler.local.toml`. Use interactive `wrangler secret put BOOTSTRAP_SECRET`; never ask for secrets in chat, print them, put them in command arguments or commit them. Account signup/login stays interactive. Do not select a paid plan unless requested.
 
-Keep task-name sharing off by default. Explain that joining shares usage/plans/comfort with the chosen server and members, readable by the operator. Never upload real conversations, provider tokens or private app data for smoke tests.
+Before connecting, explain that new connections default to automatic sync and task-detail sharing (titles, identifiers and daily usage), readable by the chosen server operator and space members, alongside usage/plans/comfort. Respect an unchecked sharing option and existing disabled preferences; do not enable an old connection automatically. Never upload real conversations, provider tokens or private app data for smoke tests.
 
 Verify migrations, Worker health, first owner, second invited device, bidirectional group edits, conflicts and coverage separately. Deploy/health success is not desktop sync verification. Use synthetic automated test data. If interactive login or a second device is unavailable, say which checks remain.
 

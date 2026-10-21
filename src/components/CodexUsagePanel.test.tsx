@@ -30,6 +30,78 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("quiet Codex usage view", () => {
+  it.each([true, false])("explains aggregate-only peers without reporting zero tasks, zh=%s", async zh => {
+    const data = createUsagePreview();
+    const source = await getProjectUsage();
+    data.groups[0].deviceIds.push("Peer Mac");
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Peer Mac", updatedAt: source.updatedAt, partial: true, taskDetailsStatus: "not-provided", tasks: [] }] });
+    render(<CodexUsagePanel zh={zh} />);
+    const notice = await screen.findByRole("region", { name: zh ? "跨设备任务状态" : "Peer task status" });
+    expect(notice.closest(".usage-ranking")).not.toBeNull();
+    const toggle = within(notice).getByRole("button", { name: zh ? "展开跨设备任务提示" : "Show peer task tips" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(notice).getByText("Peer Mac")).not.toBeVisible();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(notice).getByText("Peer Mac")).toBeVisible();
+    expect(notice).toHaveTextContent(zh ? "1 台明细未就绪" : "1 awaiting details");
+    expect(notice).toHaveTextContent(zh ? "对方快照未提供任务明细" : "The peer snapshot has no task details");
+    expect(notice).toHaveTextContent(zh ? "不能据此认为没有用量" : "this does not mean zero usage");
+    expect(notice).not.toHaveTextContent(zh ? "当前范围 0 项" : "0 in this period");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(notice).getByText("Peer Mac")).not.toBeVisible();
+  });
+  it("reveals synced historical peer tasks without changing the member or combining date ledgers", async () => {
+    const data = createUsagePreview();
+    const source = await getProjectUsage();
+    data.groups[0].deviceIds.push("Peer Mac");
+    const task = source.tasks![0], day = Object.values(task.daily)[0];
+    const past = new Date(); past.setDate(past.getDate() - 2);
+    const date = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, "0")}-${String(past.getDate()).padStart(2, "0")}`;
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Peer Mac", updatedAt: source.updatedAt, partial: false, taskDetailsStatus: "available", tasks: [{ ...task, name: "Historical peer task", daily: { [date]: day } }] }] });
+    render(<CodexUsagePanel zh />);
+    fireEvent.click(await screen.findByRole("button", { name: "展开跨设备任务提示" }));
+    const showHistory = await screen.findByRole("button", { name: "查看历史任务" });
+    expect(screen.queryByText("Historical peer task")).not.toBeInTheDocument();
+    fireEvent.click(showHistory);
+    expect(await screen.findByText("来自 Peer Mac")).toBeInTheDocument();
+    expect(screen.getByText("Historical peer task")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "统计时间" })).toHaveValue("all");
+    expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:demo");
+  });
+  it("offers other members' tasks explicitly and keeps the task view when selecting all members", async () => {
+    const data = createUsagePreview();
+    const source = await getProjectUsage();
+    data.groups.push({ id: "other", name: "Other member", deviceIds: ["Other PC"] });
+    data.devices.push({ ...data.devices[0], id: "Other PC" });
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Other PC", updatedAt: source.updatedAt, partial: false, tasks: [{ ...source.tasks![0], name: "Other member task" }] }] });
+    render(<CodexUsagePanel zh />);
+    fireEvent.click(await screen.findByRole("button", { name: "展开跨设备任务提示" }));
+    const allMembers = await screen.findByRole("button", { name: "查看全部组员任务（另 1 台设备）" });
+    expect(screen.queryByText("Other member task")).not.toBeInTheDocument();
+    fireEvent.click(allMembers);
+    expect(await screen.findByText("Other member task")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("global");
+    expect(screen.getByRole("combobox", { name: "查看方式" })).toHaveValue("tasks");
+    expect(saveTokeiGroups).not.toHaveBeenCalled();
+  });
+  it("refreshes a peer from missing details to shared tasks on a subsequent native read", async () => {
+    const data = createUsagePreview();
+    const source = await getProjectUsage();
+    data.groups[0].deviceIds.push("Peer Mac");
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Peer Mac", updatedAt: null, partial: true, taskDetailsStatus: "not-received", tasks: [] }] });
+    render(<CodexUsagePanel zh />);
+    await screen.findByRole("region", { name: "跨设备任务状态" });
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Peer Mac", updatedAt: source.updatedAt, partial: false, taskDetailsStatus: "available", tasks: [{ ...source.tasks![0], name: "Newly shared peer task" }] }] });
+    fireEvent.change(screen.getByRole("combobox", { name: "统计时间" }), { target: { value: "7d" } });
+    expect(await screen.findByText("Newly shared peer task")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "跨设备任务状态" })).not.toHaveTextContent("明细未就绪");
+  });
   it.each(["codex_directory_missing", "source_permission_denied", "no_usage_records"])("explains %s without discarding an existing usage cache", async (warning) => {
     const source = await getProjectUsage();
     Object.assign(source, { status: "unavailable", scannedFiles: 0, projects: [], tasks: [], warnings: [warning] });
@@ -124,7 +196,7 @@ describe("quiet Codex usage view", () => {
     expect(screen.queryByRole("img", { name: "模型用量占比" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "看成本" }));
     expect(screen.queryByText("0 Tokens")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "选择 Codex 数据目录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更改目录" })).toBeInTheDocument();
   });
   it("shows the previous aggregate immediately while a fresh read is pending", () => {
     const cached = createUsagePreview();

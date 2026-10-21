@@ -10,6 +10,7 @@ import { getPersonPlan, savePersonPlan, planPreferences, planDateKey, type Perso
 import { capsuleLogicalWidth, QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
 import { isCodexPlus, fiveHourRemaining } from "./lib/plusQuota";
 import { ControlCenter } from "./components/ControlCenter";
+import { InlineUpdate } from "./components/InlineUpdate";
 import { EMPTY_UPDATE_STATE } from "./components/UpdatePanel";
 import type { UpdateViewState } from "./components/UpdatePanel";
 import { createAutomaticBackup, exportAppData, fetchCodexResetForecast, fetchSnapshots, getAppDiagnostics, getAutostartEnabled, getPreferences, getRuntimeState, getVolcengineDiagnostics, importAppData, listenDesktopEvents, openControlCenterWindow, openExternalUrl, reconnectVolcengine, resizeWidgetToContent, restoreLatestBackup, sendDesktopNotification, setAlwaysOnTop, setAutostartEnabled, setWidgetExpanded, startDragging, updatePreferences, updateRuntimeState } from "./lib/bridge";
@@ -76,6 +77,7 @@ export default function App() {
   const [operationError, setOperationError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateViewState>(EMPTY_UPDATE_STATE);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const inlineUpdate = useRef(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<VolcengineDiagnostics | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -315,7 +317,7 @@ export default function App() {
 
   const startUpdateDownload = useCallback(async (info: AppUpdateInfo, reveal = false) => {
     const sequence = ++updateSequence.current;
-    if (reveal) setUpdateOpen(true);
+    if (reveal && !inlineUpdate.current) setUpdateOpen(true);
     setUpdateState({ phase: "downloading", info, progress: null, error: null });
     try {
       await downloadAppUpdate((progress) => {
@@ -325,29 +327,30 @@ export default function App() {
       });
       if (updateSequence.current === sequence) {
         setUpdateState({ phase: "ready", info, progress: { downloadedBytes: 0, totalBytes: 0, percent: 100 }, error: null });
-        setUpdateOpen(true);
+        if (!inlineUpdate.current) setUpdateOpen(true);
       }
     } catch (error) {
       if (updateSequence.current !== sequence) return;
       setUpdateState({ phase: "error", info, progress: null, error: errorMessage(error, t.updateFailed) });
       setOperationError(t.updateFailed);
-      if (reveal) setUpdateOpen(true);
+      if (reveal && !inlineUpdate.current) setUpdateOpen(true);
     }
   }, [t.updateFailed]);
 
-  const checkUpdate = useCallback((manual = false) => {
+  const checkUpdate = useCallback((manual = false, inSettings = false) => {
+    if (manual) inlineUpdate.current = inSettings;
     if (["downloading", "installing"].includes(updateState.phase) ||
         (["available", "ready"].includes(updateState.phase) && updateState.info?.channel === preferences.updateChannel)) {
       if (manual) {
         setDiagnosticsOpen(false);
-        setUpdateOpen(true);
+        if (!inlineUpdate.current) setUpdateOpen(true);
       }
       return;
     }
     const sequence = ++updateSequence.current;
     if (manual) {
       setDiagnosticsOpen(false);
-      setUpdateOpen(true);
+      if (!inlineUpdate.current) setUpdateOpen(true);
       setUpdateState({ phase: "checking", info: null, progress: null, error: null });
     }
     setOperationError(null);
@@ -364,7 +367,7 @@ export default function App() {
       }
       if (!info.automaticInstall || manual || !preferences.automaticUpdates) {
         setUpdateState({ phase: "available", info, progress: null, error: null });
-        if (!manual) setUpdateOpen(true);
+        if (!manual && !inlineUpdate.current) setUpdateOpen(true);
         return;
       }
       await startUpdateDownload(info, manual);
@@ -372,7 +375,7 @@ export default function App() {
       if (updateSequence.current !== sequence) return;
       setUpdateState({ phase: "error", info: null, progress: null, error: errorMessage(error, t.updateFailed) });
       setOperationError(t.updateFailed);
-      if (manual) setUpdateOpen(true);
+      if (manual && !inlineUpdate.current) setUpdateOpen(true);
     });
   }, [preferences.automaticUpdates, preferences.skippedUpdateVersion, preferences.updateChannel, startUpdateDownload, t.updateFailed, updateState.phase]);
 
@@ -464,10 +467,12 @@ export default function App() {
     }
   }, [t.errorUnavailable]);
 
-  const closeControlSurface = useCallback(async () => {
+  const closeControlSurface = useCallback(async (collapse = false) => {
     if (controlOpenRef.current) await closeControlCenterWindow();
     controlOpenRef.current = false;
     setControlOpen(false);
+    // Panel switches keep the widget expanded; explicit close uses the layout effect.
+    if (collapse && !effectiveStayExpanded(preferencesRef.current)) setCompact(true);
   }, []);
 
   const openVolcengineDiagnostics = useCallback(async () => {
@@ -764,7 +769,7 @@ export default function App() {
     const info = updateState.info;
     if (!info) return;
     ++updateSequence.current;
-    setUpdateOpen(true);
+    if (!inlineUpdate.current) setUpdateOpen(true);
     setUpdateState({ phase: "installing", info, progress: updateState.progress, error: null });
     void createAutomaticBackup({ schemaVersion: 1, createdAt: new Date().toISOString(), preferences, runtimeState: runtimeStateRef.current })
       .then(() => installAppUpdate())
@@ -1028,7 +1033,7 @@ export default function App() {
   }, [compactLayout, controlOpen, stayExpanded]);
 
   useEffect(() => {
-    if (!compact || stayExpanded || controlOpen || widgetTransitioning.current) return;
+    if (!compact || stayExpanded || controlOpen || controlOpenRef.current || widgetTransitioning.current) return;
     void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth).catch(() => setOperationError("Widget layout resize failed."));
   }, [compact, compactCapsuleWidth, compactLayout, controlOpen, stayExpanded]);
 
@@ -1223,9 +1228,14 @@ export default function App() {
           onComfortPersonChange={handleComfortPersonChange}
           onComfortSnapshotRefresh={handleComfortSnapshotRefresh}
           onUsageGroupsChange={refreshComfortUsage}
-          onCheckUpdate={() => void handleUpdateOpen()}
+          onCheckUpdate={() => checkUpdate(true, true)}
+          updateBusy={["checking", "downloading", "installing"].includes(updateState.phase)}
+          updateContent={<InlineUpdate state={updateState} language={language}
+            onDownload={() => { inlineUpdate.current = true; handleUpdateDownload(); }}
+            onInstall={handleUpdateInstall} onRetry={() => checkUpdate(true, true)}
+            onOpenRelease={handleUpdateRelease} />}
           onClose={() => {
-            void closeControlSurface().catch(() => setOperationError("Control center close failed."));
+            void closeControlSurface(true).catch(() => setOperationError("Control center close failed."));
           }}
           onRefresh={() => { void refresh(true); }}
           onOpenCodexResets={() => void openExternalUrl(CODEX_RESETS_URL).catch(() => setOperationError(language === "en" ? "Codex Resets could not be opened." : "无法打开 Codex Resets。"))}

@@ -42,7 +42,7 @@ If Cockpit has made your day a little easier, you're welcome to buy Dice (骰子
 
 [Documentation](README.md) · [AI installation skill](../skills/codex-cockpit/SKILL.md) · [Contributing](../.github/CONTRIBUTING.md)
 
-Team administrators self-host sync in their own Cloudflare account and invite devices. No public hosting is provided. This is for small trusted teams, not open-registration SaaS. Space members and server operators can read shared data; it is not end-to-end encrypted. Sharing task and project names is off by default.
+Team administrators self-host sync in their own Cloudflare account and invite devices. No public hosting is provided. This is for small trusted teams, not open-registration SaaS. Space members and server operators can read shared data; it is not end-to-end encrypted. New connections default to automatic sync and task-detail sharing, with a notice and an opt-out before connecting. Upgrades preserve existing disabled settings. Without a configured connection, data stays local.
 
 </details>
 

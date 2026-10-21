@@ -30,7 +30,7 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
   const [mode, setMode] = useState<"join" | "create">("join");
   const [spaceName, setSpaceName] = useState("");
   const [secret, setSecret] = useState("");
-  const [shareTasks, setShareTasks] = useState(false);
+  const [shareTasks, setShareTasks] = useState(true);
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -58,34 +58,20 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
   const connected = cloud?.config;
   const failure = connected && runtime?.lastError;
   return <section className="minimal-section cloud-sync-settings" aria-label={zh ? "云同步" : "Cloud sync"}>
-    <header className="minimal-section-header"><strong>{zh ? "云同步" : "Cloud sync"}</strong><small>Cloudflare</small></header>
+    <header className="minimal-section-header"><strong>{zh ? "云同步" : "Cloud sync"}</strong></header>
     {connected ? <>
       <p>{connected.spaceName} · {runtime?.phase === "running" ? (zh ? "同步中" : "Syncing") : failure ? (zh ? "同步失败，可重试" : "Sync failed; retry") : (zh ? "已连接" : "Connected")}</p>
-      <p className="usage-note cloud-endpoint">{connected.endpoint}</p>
       <div className="usage-sync-actions">
         <button disabled={busy || runtime?.phase === "running"} onClick={() => void action(async () => { const result = await syncUsageNow(); if (result.lastError) throw result.lastError; })}>{zh ? "立即同步" : "Sync now"}</button>
-        <label><input type="checkbox" checked={connected.enabled} disabled={busy} onChange={event => void action(() => call("set_cloud_sync_enabled", { enabled: event.target.checked }))} />{zh ? "自动同步 · 每分钟接收 / 每5分钟上传" : "Automatic · download every minute / upload every 5 min"}</label>
-        <label><input type="checkbox" checked={connected.shareTaskDetails ?? false} disabled={busy} onChange={event => void action(() => call("set_cloud_task_sharing", { enabled: event.target.checked }))} />{zh ? "共享任务名称和项目名称" : "Share task and project names"}</label>
-        {connected.role === "owner" && <button disabled={busy} onClick={() => void action(async () => { const result = await call<{ inviteCode: string }>("create_cloud_invite"); setInvite(result.inviteCode); })}>{zh ? "邀请组员 / 新设备" : "Invite member / device"}</button>}
+        <label><input type="checkbox" checked={connected.enabled} disabled={busy} onChange={event => void action(() => call("set_cloud_sync_enabled", { enabled: event.target.checked }))} />{zh ? "自动同步" : "Automatic sync"}</label>
+        <label><input type="checkbox" checked={connected.shareTaskDetails ?? false} disabled={busy} onChange={event => void action(() => call("set_cloud_task_sharing", { enabled: event.target.checked }))} />{zh ? "共享任务与项目名" : "Share task and project names"}</label>
+        {connected.role === "owner" && <button disabled={busy} onClick={() => void action(async () => { const result = await call<{ inviteCode: string }>("create_cloud_invite"); setInvite(result.inviteCode); })}>{zh ? "邀请成员或设备" : "Invite member or device"}</button>}
       </div>
       {invite && <label className="cloud-invite">{zh ? "邀请码（24小时有效，仅可使用一次）" : "Invitation (24 hours, single use)"}<input readOnly value={invite} aria-label={zh ? "新邀请码" : "New invitation"} /></label>}
-      {connected.role === "owner" && <details>
-        <summary>{zh ? "设备访问权限" : "Device access"}</summary>
-        <p className="usage-note">{zh ? "停用会立即阻止该设备后续访问；不会删除历史快照、其他设备的缓存或备份。恢复接入由管理员处理，不要复制身份令牌。" : "Revocation blocks future access, but does not erase snapshots, peer caches or backups. Contact the operator to restore access; never copy credentials."}</p>
-        {cloud?.members.filter(member => member.role !== "owner" && member.deviceId !== connected.deviceId).map(member => <div key={member.deviceId}>
-          <span>{member.displayName} · {member.deviceId}</span>
-          <button type="button" disabled={busy} onClick={() => setRevokeTarget(member.deviceId)}>{zh ? "停用设备" : "Revoke device"}</button>
-        </div>)}
-        {revokeTarget && <div role="alert">
-          <p>{zh ? "确认停用这台设备？" : "Revoke access for this device?"} {revokeTarget}</p>
-          <button type="button" disabled={busy} onClick={() => void action(async () => { await call("revoke_cloud_device", { deviceId: revokeTarget }); setRevokeTarget(null); })}>{zh ? "确认停用" : "Confirm revocation"}</button>
-          <button type="button" disabled={busy} onClick={() => setRevokeTarget(null)}>{zh ? "取消" : "Cancel"}</button>
-        </div>}
-      </details>}
       <p className="usage-note">{zh ? "最近同步" : "Last synced"}: {when(runtime?.lastSuccessAt, zh)}</p>
       {/collector_(timeout|busy)/.test(runtime?.lastError ?? "") && <p role="status" className="usage-note">{zh ? "本机用量采集繁忙或超时，稍后自动重试；云端已接收的数据仍保留。" : "Local collection is busy or timed out and will retry; downloaded cloud data is retained."}</p>}
     </> : <>
-      <p className="usage-note">{zh ? "使用你信任的自建服务。加入后，这台电脑的用量会同步给其他设备；不会上传对话正文或模型账号密钥。" : "Use a server you trust. Joined devices share usage, not conversation bodies or provider credentials."}</p>
+      <p className="usage-note">{zh ? "使用你信任的自建服务。连接后默认自动同步用量和任务明细（名称、标识、每日用量），服务器管理员和空间成员可见。可取消下方共享选项；不会上传对话正文、项目路径或模型账号密钥。" : "Use a server you trust. Connecting enables automatic usage and task-detail sync (titles, IDs and daily usage), visible to the operator and space members. Uncheck sharing below to opt out. Conversation bodies, project paths and provider credentials are not uploaded."}</p>
       <div className="usage-sync-actions">
         <button type="button" aria-pressed={mode === "join"} onClick={() => setMode("join")}>{zh ? "接受邀请" : "Join a space"}</button>
         <button type="button" aria-pressed={mode === "create"} onClick={() => setMode("create")}>{zh ? "创建共享空间" : "Create a space"}</button>
@@ -111,8 +97,25 @@ export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage |
       </form>
     </>}
     {error && <p role="alert" className="usage-error">{error}</p>}
-    {connected && <p className="usage-note">{zh ? "已加入的设备都可修改组员与设备归属；保存后同步到其他设备。" : "Any joined device can edit member and device assignments; changes sync after saving."}</p>}
-    <details className="cloud-sync-details"><summary>{zh ? "设备同步详情" : "Device sync details"}</summary>
+    <details className="cloud-sync-details"><summary>{zh ? "高级设置与设备详情" : "Advanced settings and devices"}</summary>
+    {connected && <>
+      <p className="usage-note cloud-endpoint">Cloudflare · {connected.endpoint}</p>
+      <p className="usage-note">{zh ? "自动同步：每分钟接收，每5分钟上传。" : "Automatic sync: download every minute, upload every 5 minutes."}</p>
+      <p className="usage-note">{zh ? "成员与设备归属可在任一已加入设备修改，保存后同步。" : "Edit member and device assignments on any joined device; changes sync after saving."}</p>
+      {connected.role === "owner" && <details>
+        <summary>{zh ? "设备访问权限" : "Device access"}</summary>
+        <p className="usage-note">{zh ? "停用会立即阻止该设备后续访问；不会删除历史快照、其他设备的缓存或备份。恢复接入由管理员处理，不要复制身份令牌。" : "Revocation blocks future access, but does not erase snapshots, peer caches or backups. Contact the operator to restore access; never copy credentials."}</p>
+        {cloud?.members.filter(member => member.role !== "owner" && member.deviceId !== connected.deviceId).map(member => <div key={member.deviceId}>
+          <span>{member.displayName} · {member.deviceId}</span>
+          <button type="button" disabled={busy} onClick={() => setRevokeTarget(member.deviceId)}>{zh ? "停用设备" : "Revoke device"}</button>
+        </div>)}
+        {revokeTarget && <div role="alert">
+          <p>{zh ? "确认停用这台设备？" : "Revoke access for this device?"} {revokeTarget}</p>
+          <button type="button" disabled={busy} onClick={() => void action(async () => { await call("revoke_cloud_device", { deviceId: revokeTarget }); setRevokeTarget(null); })}>{zh ? "确认停用" : "Confirm revocation"}</button>
+          <button type="button" disabled={busy} onClick={() => setRevokeTarget(null)}>{zh ? "取消" : "Cancel"}</button>
+        </div>}
+      </details>}
+    </>}
     {connected && <p className="usage-note">{zh ? "最近接收云端数据" : "Last cloud download"}: {when(cloud?.lastPulledAt, zh)} · {cloud?.pricingReady ? (zh ? `计价配置已就绪` : `Pricing ready`) : (zh ? "计价配置未就绪" : "Pricing unavailable")}</p>}
     <div className="cloud-member-status">{usage?.groups.map(group => <div key={group.id}>
       <strong>{group.name}</strong>

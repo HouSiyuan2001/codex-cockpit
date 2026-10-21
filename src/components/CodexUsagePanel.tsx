@@ -6,6 +6,7 @@ import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggre
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { modelUsageColors, UNRANKED_MODEL_COLOR } from "../lib/modelUsageColors";
 import { TaskUsageRow } from "./TaskUsageRow";
+import { PeerTaskStatus } from "./PeerTaskStatus";
 import { UsageCalendar } from "./UsageCalendar";
 import { CustomTaskStatistics } from "./CustomTaskStatistics";
 import { DailyUsageTrend } from "./DailyUsageTrend";
@@ -193,12 +194,15 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
 
     {!group && !global ? <p className="usage-empty">{zh ? "选择一名组员，或到设置中分配设备。" : "Choose a member, or assign devices in settings."}</p> : <>
         <div className="usage-total">{!donut && <><span>{metric === "tokens" ? (zh ? "Token 用量" : "Token usage") : (zh ? "估算成本" : "Estimated cost")}</span><strong aria-label={totalCostUnavailable ? costLabel(null, zh) : undefined}>{summary?.hasData ? totalCostUnavailable ? "—" : metric === "cost" ? costLabel(chartTotal, zh) : formatTokens(summary.totalTokens, zh) : "—"}</strong></>}<small>{metric === "tokens" ? `${zh ? "估算成本" : "Estimated cost"} ${costLabel(summary?.estimatedCostUsd ?? null, zh)}` : `${totalCostUnavailable ? `${costLabel(null, zh)} · ` : ""}${(summary?.hasData ? formatTokens(summary.totalTokens, zh) : "—")} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button>{view === "tasks" && <small className="usage-inline-status">{[projects?.warnings.includes("scan_limit") ? (zh ? "补扫中" : "Scanning") : null, metric === "cost" && taskCostIncomplete ? (zh ? "成本不全" : "Partial cost") : null, taskReconciliation?.mismatch ? (zh ? "待对账" : "Ledger mismatch") : null].filter(Boolean).join(" · ")}</small>}</div>
-        <div className={donut ? "usage-model-today" : undefined}>
+        <div className={donut ? `usage-model-today${view === "tasks" ? " usage-task-today" : ""}` : undefined}>
         {view === "tasks" && (summary?.hasData || rows.length > 0) && <UsageChart rows={rows} total={taskTotal} knownTotal={knownTotal} period={period} devices={[]} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks colors={taskColors} />}
         {(view === "models" || view === "users") && summary?.hasData && <UsageChart rows={rows} total={chartTotal} knownTotal={metric === "cost" ? summary.knownCostUsd : undefined} period={period} devices={summary.devices} ids={colorIds} zh={zh} metric={metric} onToggle={toggleMetric} users={view === "users"} summaryOnly={summaryOnly} colors={modelColors} />}
         <div className="usage-ranking">
           {view === "tasks" ? (visibleRows as AggregatedTaskUsage[]).map((task) => <TaskUsageRow key={task.id} task={task} max={metricValue(rows[0], metric) ?? 0} color={taskColors[task.id]} zh={zh} metric={metric} total={knownTotal} />) : visibleRows.map((model) => <ModelRow key={model.id} model={model as ModelUsage} max={metricValue(rows[0], metric) ?? 0} color={modelColors ? modelColors[model.id] ?? UNRANKED_MODEL_COLOR : usageColor(model.id, colorIds)} zh={zh} metric={metric} total={view === "projects" ? knownTotal : denominator} />)}
           {!rows.length && <p className="usage-empty">{view === "tasks" ? projectError ? (zh ? "任务统计暂不可用。" : "Task statistics unavailable.") : !projects ? (zh ? "正在读取任务统计…" : "Loading task statistics…") : (zh ? "这段时间暂无可归属的任务记录。" : "No attributed task records in this period.") : view === "projects" ? projectError ? (zh ? "项目统计暂不可用。" : "Project statistics unavailable.") : !projects ? (zh ? "正在读取本机项目统计…" : "Loading local project statistics…") : !projects.deviceId || !(global ? summary?.devices.some(device => device.id === projects.deviceId) : group?.deviceIds.includes(projects.deviceId)) ? (zh ? "此分组未包含本机，暂无项目明细。" : "This group does not include this device.") : (zh ? "这段时间暂无可归属的项目记录。" : "No attributed project records in this period.") : (zh ? "这段时间暂无模型用量记录。" : "No model usage recorded in this period.")}</p>}
+          {view === "tasks" && projects && scopedProjects && <PeerTaskStatus source={projects} scopedSource={scopedProjects} deviceIds={fullDevices.map(device => device.id)} period={selectedPeriod} zh={zh}
+            onShowHistory={() => { setDateRange(null); setPeriod("all"); setShowAll(true); }}
+            onShowAllMembers={() => { setGlobal(true); setView("tasks"); setShowAll(false); }} />}
           {rows.length > 5 && <button type="button" className="usage-text-button" onClick={() => setShowAll((value) => !value)}>{showAll ? (zh ? "收起" : "Show less") : (zh ? `其余 ${rows.length - 5} 项` : `${rows.length - 5} more`)}</button>}
         </div>
         </div>

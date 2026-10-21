@@ -156,6 +156,10 @@ html[data-background-blur="false"] *::after {
 .update-header > button { width: 23px; height: 23px; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid rgba(45,70,105,.12); border-radius: 50%; color: #536174; background: rgba(255,255,255,.55); cursor: pointer; }
 .update-header > button:disabled { opacity: .42; cursor: default; }
 .update-header > button svg { width: 12px; height: 12px; }
+.inline-app-update { display: grid; gap: 8px; margin-block: 8px; min-width: 0; }
+.inline-app-update p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.inline-app-update progress { width: 100%; }
+.inline-app-update button { justify-self: start; }
 .update-body { min-height: 0; display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 10px; }
 .update-status { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 8px 10px; border: 1px solid rgba(36,94,158,.1); border-radius: 13px; background: rgba(255,255,255,.48); }
 .update-status > svg { width: 21px; height: 21px; margin-bottom: 4px; color: #3077bc; }
@@ -1688,6 +1692,8 @@ button.usage-stat-card:hover { border-color: color-mix(in srgb, var(--accent-col
 .usage-color-key { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
 .usage-model-today { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; align-items: center; margin: 18px 0 8px; }
 .usage-model-today .usage-ranking { min-width: 0; }
+.usage-model-today .usage-ranking:only-child { grid-column: 1 / -1; }
+.usage-task-today { align-items: start; }
 .usage-model-today .usage-donut { margin: 0; }
 .usage-donut { position: relative; width: 170px; margin: 6px auto 18px; }
 .usage-donut-toggle { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
@@ -2775,15 +2781,21 @@ textarea {
 /* Minimal control center: keep only settings that change everyday use. */
 .control-center--minimal {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: 22px;
 }
 .codex-focus-card.quota-card--overlay-open .control-center--minimal {
   inset: 0;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: inherit;
 }
+:root[data-platform="linux"] .codex-focus-card.quota-card--overlay-open .control-center--minimal {
+  animation: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.control-center--minimal > .usage-page-tabs { margin: 16px 22px 0; }
 .codex-focus-card.quota-card--overlay-open .control-center--minimal.control-center--calendar-open {
   grid-template-columns: minmax(0, 560fr) minmax(300px, 380fr);
 }
@@ -2792,7 +2804,7 @@ textarea {
 .control-center--calendar-open .control-calendar-side {
   display: block;
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 2 / span 2;
   padding: 16px 18px 16px 0;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -2857,7 +2869,7 @@ textarea {
   display: grid;
   align-content: start;
   gap: 12px;
-  padding: 16px 22px 20px;
+  padding: 12px 22px 20px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(123, 159, 255, .28) transparent;
@@ -3245,6 +3257,16 @@ textarea {
 .usage-explanation[open] { flex-basis: 100%; }
 .usage-explanation p, .usage-explanation li { line-height: 1.6; overflow-wrap: anywhere; }
 .usage-explanation ul { padding-left: 16px; }
+.usage-peer-status { margin: 8px 0; color: var(--glass-muted, #9babbc); font-size: calc(8px * var(--ui-font-scale, 1)); line-height: 1.6; overflow-wrap: anywhere; min-width: 0; }
+.usage-peer-heading { display: flex; align-items: center; gap: 6px; }
+.usage-peer-heading > span { white-space: nowrap; }
+.usage-peer-toggle { flex-shrink: 0; padding: 1px 6px; min-height: 22px; border: 1px solid var(--glass-edge, rgba(123, 159, 255, .2)); border-radius: 6px; background: transparent; color: inherit; font: inherit; line-height: 1.3; }
+.usage-peer-details { margin-top: 8px; }
+.usage-peer-status p { margin: 0; }
+.usage-peer-actions { display: flex; flex-wrap: wrap; column-gap: 14px; }
+.usage-peer-status ul { padding-left: 18px; margin: 6px 0; }
+.usage-peer-status li + li { margin-top: 8px; }
+.usage-peer-status small { display: block; font-size: inherit; }
 .usage-text-button { justify-self: start; border: 0; padding: 9px 3px; color: var(--glass-muted, #9babbc); background: transparent; font-size: calc(9px * var(--ui-font-scale, 1)); }
 .usage-group-editor { margin-top: 22px; }
 .control-settings-page > .usage-group-editor { margin-top: 0; padding: 13px 14px 14px; border: 1px solid rgba(225, 249, 244, .12); border-radius: 16px; background: rgba(255, 255, 255, .055); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055); }
@@ -3729,6 +3751,17 @@ textarea {
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  /* Text fields scroll the dialog body, never the outer rounded surface.
+     overflow:hidden would still allow focus to scroll this native clip. */
+  overflow: clip;
+}
+:root[data-platform="linux"] .codex-focus-card.quota-card--overlay-open {
+  /* The dialog owns its rounded clipping. A clip-path or retained transform
+     on its ancestor can leave GTK WebKit's editable/scroll layers stale. */
+  clip-path: none;
+  animation: none;
+  transform: none;
+  isolation: auto;
 }
 
 /* One perimeter on both native platforms. This must follow all theme rules:
@@ -3788,3 +3821,57 @@ textarea {
 .local-usage-actions button:disabled { opacity: .5; cursor: default; }
 .local-usage-actions button:focus-visible { outline: 2px solid var(--glass-accent, #7b9fff); outline-offset: 2px; }
 .local-usage-consent { padding: 10px; border: 1px solid var(--glass-edge); border-radius: 10px; }
+
+/* Update dialogs share the active theme and remain readable in a narrow native
+   window at large text sizes. Status/error text must never be line-clamped. */
+.quota-card .update-panel {
+  color: var(--glass-ink);
+  border-color: var(--glass-edge);
+  background: var(--glass-surface-strong);
+}
+.quota-card .update-panel .update-header > div { min-width: 0; }
+.quota-card .update-panel .update-header h2 {
+  color: var(--glass-ink);
+  overflow-wrap: anywhere;
+}
+.quota-card .update-panel .update-header p:not(.update-kicker),
+.quota-card .update-panel .update-status small,
+.quota-card .update-panel .update-notes > p,
+.quota-card .update-panel .update-notes > div,
+.quota-card .update-panel .update-footer > span { color: var(--glass-muted); }
+.quota-card .update-panel .update-header > button,
+.quota-card .update-panel .update-secondary {
+  color: var(--glass-ink);
+  border-color: var(--glass-edge);
+  background: var(--glass-surface);
+}
+.quota-card .update-panel .update-body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(80px, 1fr);
+  overflow: auto;
+}
+.quota-card .update-panel .update-status,
+.quota-card .update-panel .update-notes {
+  color: var(--glass-ink);
+  border-color: var(--glass-edge);
+  background: var(--glass-surface);
+}
+.quota-card .update-panel .update-status strong,
+.quota-card .update-panel .update-status small {
+  display: block;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  -webkit-line-clamp: unset;
+}
+.quota-card .update-panel .update-notes > div { height: auto; }
+.quota-card .update-panel .update-footer,
+.quota-card .update-panel .update-footer > div { flex-wrap: wrap; }
+.quota-card .update-panel .update-footer > div { justify-content: flex-end; }
+.quota-card .update-panel .update-footer button {
+  max-width: 100%;
+  padding: 5px 10px;
+  white-space: normal;
+  text-align: center;
+}

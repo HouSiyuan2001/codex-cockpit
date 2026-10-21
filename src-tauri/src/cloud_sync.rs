@@ -229,7 +229,11 @@ pub async fn exchange_daily_plan(app: tauri::AppHandle, body: Value) -> Result<V
 }
 
 fn entry(endpoint: &str, device: &str) -> Result<keyring::Entry, String> {
-    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+    if !cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux"
+    )) {
         return Err("cloud_secure_store_unsupported".into());
     }
     keyring::Entry::new(SERVICE, &credential_key(endpoint, device))
@@ -321,6 +325,7 @@ async fn enroll(
     endpoint: &str,
     token: String,
     expected_device: Option<&str>,
+    share_task_details: bool,
 ) -> Result<(), String> {
     let me = request(endpoint, "/v1/me", Some(&token), None).await?;
     let device = me["deviceId"]
@@ -342,7 +347,7 @@ async fn enroll(
     }
     let cfg = CloudConfig {
         endpoint: endpoint.to_owned(),
-        share_task_details: false,
+        share_task_details,
         device_id: device.into(),
         space_id: space.into(),
         space_name: me["space"]["name"].as_str().unwrap_or("Cloudflare").into(),
@@ -406,7 +411,14 @@ pub struct CloudSetup {
     device_id: String,
     space_name: Option<String>,
     bootstrap_secret: Option<String>,
-    share_task_details: Option<bool>,
+    // New connections share tasks unless the user opts out. CloudConfig keeps
+    // its separate false serde default so loading an old setup never opts in.
+    #[serde(default = "new_connection_task_sharing")]
+    share_task_details: bool,
+}
+
+fn new_connection_task_sharing() -> bool {
+    true
 }
 
 #[tauri::command]
@@ -477,11 +489,7 @@ pub async fn connect_cloud_sync(app: tauri::AppHandle, setup: CloudSetup) -> Res
     entry(&endpoint, device)?
         .set_password(&token)
         .map_err(|_| "cloud_keychain_unavailable")?;
-    enroll(&data, &endpoint, token, Some(device)).await?;
-    if let Some(mut cfg) = config(&data)? {
-        cfg.share_task_details = share_task_details.unwrap_or(false);
-        usage_sync::write_json(&data.join(CONFIG), &cfg)?;
-    }
+    enroll(&data, &endpoint, token, Some(device), share_task_details).await?;
     if config(&data)?.is_some_and(|cfg| cfg.role == "owner") {
         let path = data.join("usage-groups.json");
         if tokei_usage::read_json(&path, 65536)
@@ -697,6 +705,47 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn new_connection_shares_tasks_by_default_but_respects_explicit_opt_out() {
+        for mode in [
+            json!({"inviteCode":"synthetic-invite"}),
+            json!({"spaceName":"Test","bootstrapSecret":"synthetic-secret"}),
+        ] {
+            let mut setup = json!({"endpoint":"https://sync.example.com","displayName":"Example","deviceId":"Windows-Test"});
+            setup
+                .as_object_mut()
+                .unwrap()
+                .extend(mode.as_object().unwrap().clone());
+            assert!(
+                serde_json::from_value::<CloudSetup>(setup.clone())
+                    .unwrap()
+                    .share_task_details
+            );
+            setup["shareTaskDetails"] = json!(false);
+            assert!(
+                !serde_json::from_value::<CloudSetup>(setup)
+                    .unwrap()
+                    .share_task_details
+            );
+        }
+    }
+    #[test]
+    fn loading_existing_connections_never_enables_sharing_or_automatic_sync() {
+        let f = Fixture::new();
+        for sharing in [None, Some(false), Some(true)] {
+            let mut saved = json!({"endpoint":"https://sync.example.com","deviceId":"Windows-Test","spaceId":"test-space","spaceName":"Test","role":"member","enabled":false,"intervalSeconds":600});
+            if let Some(value) = sharing {
+                saved["shareTaskDetails"] = json!(value);
+            }
+            usage_sync::write_json(&f.0.join(CONFIG), &saved).unwrap();
+            let before = std::fs::read(f.0.join(CONFIG)).unwrap();
+            let restored = config(&f.0).unwrap().unwrap();
+            assert_eq!(restored.share_task_details, sharing.unwrap_or(false));
+            assert!(!restored.enabled);
+            assert_eq!(restored.interval_seconds, 600);
+            assert_eq!(std::fs::read(f.0.join(CONFIG)).unwrap(), before);
         }
     }
     #[test]

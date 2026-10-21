@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Simplify local/cloud settings, keep update progress and retry inline, and improve update readability across themes and font sizes.
+- Clarify daily budget labels and preserve expanded panels when switching control surfaces.
+- Add Linux-scoped GTK input/window compatibility and Secret Service credential support; native Wayland and full Linux installation/sync acceptance remain unverified.
+- Default new cloud connections to automatic sync and task-detail sharing, with an upfront notice and opt-out. Preserve existing disabled settings on upgrade.
+- Keep peer task availability hints collapsed behind a compact toggle; distinguish missing details from zero usage and offer history/member filters.
+
 ## 0.3.0 - 2026-10-13
 
 - Publish synchronized Mac universal and Windows x64 packages with signed stable-channel updates.

@@ -137,7 +137,7 @@ it("keeps the heatmap basis, marker, and curve on the selected person's fitted k
   expect(basis()).toBe("Charlie · Default basis k 25.0% · no usable feedback");
 });
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); delete document.documentElement.dataset.platform; vi.restoreAllMocks(); });
 
 function installPointerEvent(): void {
   class TestPointerEvent extends MouseEvent {
@@ -211,6 +211,19 @@ describe("ControlCenter essentials", () => {
     expect(screen.queryByText("Backup and migration")).not.toBeInTheDocument();
   });
 
+  it("keeps page navigation outside the scrolling settings content", () => {
+    renderControlCenter();
+    const navigation = screen.getByRole("navigation", { name: "Control center pages" });
+    const body = screen.getByRole("dialog").querySelector(".control-body")!;
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    body.scrollTop = 500;
+    expect(body.contains(navigation)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(screen.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("textbox", { name: "Server URL" })).toBeInTheDocument();
+  });
+
   it("requests an immediate refresh from the compact status row", () => {
     const onRefresh = vi.fn();
     renderControlCenter(onRefresh);
@@ -251,6 +264,26 @@ describe("ControlCenter essentials", () => {
     fireEvent.pointerDown(screen.getByRole("status"), { button: 0 });
 
     expect(onDrag).not.toHaveBeenCalled();
+  });
+
+  it.each(["linux", "windows", "macos"])("only pre-focuses editable fields on Linux (%s)", (platform) => {
+    document.documentElement.dataset.platform = platform;
+    installPointerEvent();
+    const onDrag = vi.fn();
+    renderControlCenter(vi.fn(), vi.fn(), vi.fn(), { ...DEFAULT_WIDGET_PREFERENCES, language: "en" }, vi.fn(), onDrag);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const input = screen.getByRole("textbox", { name: "Server URL" });
+    const pointer = new window.PointerEvent("pointerdown", { button: 0, bubbles: true, cancelable: true });
+    fireEvent(input, pointer);
+    if (platform === "linux") expect(input).toHaveFocus();
+    else expect(input).not.toHaveFocus();
+    expect(pointer.defaultPrevented).toBe(false);
+    expect(onDrag).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(screen.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("textbox", { name: "Server URL" })).toBeInTheDocument();
   });
 
   it("opens the Codex Resets history from the status row", () => {
