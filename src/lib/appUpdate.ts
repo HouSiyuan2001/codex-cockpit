@@ -3,7 +3,7 @@ import type { UpdateChannel } from "../types";
 
 export const RELEASE_URL = import.meta.env.VITE_RELEASE_URL || "";
 
-export type AppUpdatePlatform = "windows" | "macos";
+export type AppUpdatePlatform = "windows" | "macos" | "linux";
 
 export interface AppUpdateInfo {
   version: string;
@@ -37,7 +37,7 @@ export function checkForAppUpdate(channel: UpdateChannel = "stable"): Promise<Ap
     if (!metadata) return null;
     pending = new Update(metadata);
     pendingInfo = { version: pending.version, body: pending.body ?? null, date: pending.date ?? null,
-      platform: navigator.userAgent.includes("Windows") ? "windows" : "macos", channel,
+      platform: navigator.userAgent.includes("Windows") ? "windows" : navigator.userAgent.includes("Linux") ? "linux" : "macos", channel,
       releaseUrl: RELEASE_URL, automaticInstall: true };
     return pendingInfo;
   })().finally(() => { checking = null; });

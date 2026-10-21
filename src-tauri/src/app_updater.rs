@@ -13,6 +13,11 @@ pub struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn linux_package_supports_updates(bundle: Option<tauri::utils::config::BundleType>) -> bool {
+    matches!(bundle, Some(tauri::utils::config::BundleType::AppImage))
+}
+
 fn update_endpoint(repository: &str, channel: &str) -> Result<String, String> {
     if !matches!(channel, "stable" | "beta") {
         return Err("Unknown update channel".into());
@@ -40,6 +45,12 @@ pub async fn check_cockpit_update(
     webview: Webview,
     channel: String,
 ) -> Result<Option<UpdateMetadata>, String> {
+    // The Linux feed contains AppImages only. Do not offer one to a system
+    // package installation or overwrite an unpackaged development executable.
+    #[cfg(target_os = "linux")]
+    if !linux_package_supports_updates(tauri::utils::platform::bundle_type()) {
+        return Err("此 Linux 安装请从版本页面下载对应安装包，并通过包管理器更新；应用内更新仅支持 AppImage。 / Use the package manager to update this Linux installation; in-app updates require AppImage.".into());
+    }
     let endpoint = update_endpoint(
         option_env!("COCKPIT_UPDATES_REPOSITORY").unwrap_or("HouSiyuan2001/codex-cockpit"),
         &channel,
@@ -71,6 +82,14 @@ pub async fn check_cockpit_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linux_update_feed_is_only_offered_to_appimages() {
+        use tauri::utils::config::BundleType;
+        assert!(linux_package_supports_updates(Some(BundleType::AppImage)));
+        assert!(!linux_package_supports_updates(Some(BundleType::Deb)));
+        assert!(!linux_package_supports_updates(Some(BundleType::Rpm)));
+        assert!(!linux_package_supports_updates(None));
+    }
     #[test]
     fn endpoints_keep_channels_separate_and_reject_unconfigured_builds() {
         assert!(update_endpoint("", "stable").is_err());

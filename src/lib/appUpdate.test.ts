@@ -14,7 +14,17 @@ import { checkForAppUpdate, downloadAppUpdate, installAppUpdate, discardAppUpdat
 const metadata = { rid: 1, currentVersion: '0.3.0-beta.2', version: '0.3.0-beta.3', body: '更新', date: '2026-10-02T00:00:00Z', rawJson: {} };
 describe('signed desktop updates', () => {
   beforeEach(() => { vi.resetAllMocks(); mocks.invoke.mockResolvedValue(metadata); });
-  afterEach(async () => { await discardAppUpdate(); });
+  afterEach(async () => { await discardAppUpdate(); vi.restoreAllMocks(); });
+  it('identifies Linux updater packages without reporting macOS', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (X11; Linux x86_64)');
+    expect(await checkForAppUpdate()).toMatchObject({ platform: 'linux' });
+  });
+  it('preserves manual Linux package update guidance without preparing a download', async () => {
+    mocks.invoke.mockRejectedValue(new Error('Use the package manager to update this Linux installation.'));
+    await expect(checkForAppUpdate()).rejects.toThrow('package manager');
+    await expect(downloadAppUpdate(vi.fn())).rejects.toThrow('Check for an update');
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
   it('uses the constrained native source and selected channel', async () => {
     expect(await checkForAppUpdate('beta')).toMatchObject({ version: metadata.version, channel: 'beta', automaticInstall: true });
     expect(mocks.invoke).toHaveBeenCalledWith('check_cockpit_update', { channel: 'beta' });
