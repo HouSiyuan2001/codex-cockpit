@@ -8,4 +8,4 @@ Each team's administrator owns its Cloudflare account and resources; invited use
 
 The application identifier is `app.codexcockpit.desktop`; no automatic import of another app's private cloud configuration. Members start unconfigured. Synthetic fixtures are only for tests/browser preview.
 
-Calendar dates/shared plans use the existing UTC+8 convention. Arbitrary timezone selection is not implemented. v0.3.0 is a stable desktop release, without notarization/Authenticode (Mac ad-hoc signature only). Signed updates use this repository's stable/beta Release feeds; users confirm before installation. This repository is public. Build/deploy automation never changes repository visibility. See AUTO-UPDATE.md.
+Calendar dates/shared plans use the existing UTC+8 convention. Arbitrary timezone selection is not implemented. v0.3.1 is a stable desktop release, without notarization/Authenticode (Mac ad-hoc signature only). Signed updates use this repository's stable/beta Release feeds; users confirm before installation. This repository is public. Build/deploy automation never changes repository visibility. See AUTO-UPDATE.md.

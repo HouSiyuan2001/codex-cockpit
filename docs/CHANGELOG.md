@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 - 2026-10-22
 
 - Update Vite and TLS/certificate dependencies for published security fixes; remove unused legacy ZIP updater support while retaining signed NSIS EXE/macOS archive updates.
 - Preserve stationary capsule clicks on Linux and apply a rounded X11 window shape without animated resizing when no compositor is available. Linux end-to-end GUI/sync acceptance is still pending.

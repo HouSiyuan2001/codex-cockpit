@@ -2,7 +2,7 @@
 
 面向使用者的简介见[当前版本说明](RELEASE.md)。本文保留打包、扫描和校验的技术细节，供维护者参考。
 
-`0.3.0` is the stable desktop release. The repository is public; earlier beta records below are historical evidence, not validation of this package.
+`0.3.1` is the stable desktop release. The repository is public; earlier beta records below are historical evidence, not validation of this package.
 
 Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE and SHA256SUMS. Both platform jobs must pass before publication. No workflow changes repository visibility.
 
