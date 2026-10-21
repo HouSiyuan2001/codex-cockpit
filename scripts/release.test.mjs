@@ -3,6 +3,15 @@ import { readFileSync } from "node:fs";
 import { assertVersionSync, buildChangelog, nextVersion, updateCargoManifest } from "./release.mjs";
 
 describe("release automation", () => {
+  it("keeps the signed raw installer feed without legacy ZIP extraction", () => {
+    const manifest = readFileSync(new URL("../src-tauri/Cargo.toml", import.meta.url), "utf8");
+    const lock = readFileSync(new URL("../src-tauri/Cargo.lock", import.meta.url), "utf8");
+    const feed = readFileSync(new URL("./updater-manifest.mjs", import.meta.url), "utf8");
+    expect(manifest).toContain('tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }');
+    expect(lock).not.toMatch(/^name = "zip"$/m);
+    expect(feed).toContain("select('-setup.exe')");
+    expect(feed).toContain("select('.app.tar.gz')");
+  });
   it("uses stable update defaults in both frontend and native preferences", () => {
     const frontend = readFileSync(new URL("../src/lib/preferences.ts", import.meta.url), "utf8");
     const native = readFileSync(new URL("../src-tauri/src/models.rs", import.meta.url), "utf8");

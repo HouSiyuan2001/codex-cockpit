@@ -50,4 +50,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation", "NSData"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-updater = "2"
+# Our feed uses signed raw NSIS EXEs and macOS app.tar.gz archives. The legacy
+# Windows ZIP/Linux tarred-AppImage feature is unused and pulls vulnerable ZIP code.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
