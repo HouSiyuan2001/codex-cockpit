@@ -5,6 +5,8 @@ mod cloud_sync;
 mod codex;
 mod codex_project_usage;
 mod comfort_sync;
+#[cfg(target_os = "linux")]
+mod linux_window;
 mod local_usage;
 mod models;
 mod qoder;
@@ -1059,12 +1061,22 @@ fn animate_window_to(
         .map(|frame| (frame, window.scale_factor().unwrap_or(1.0)));
 
     let animation_started = Instant::now();
+    // Without a compositor, intermediate X11 sizes expose unpainted WebKit
+    // backing pixels as black strips. Apply one final geometry in that case.
+    #[cfg(target_os = "linux")]
+    let animate_geometry = linux_window::supports_geometry_animation();
+    #[cfg(not(target_os = "linux"))]
+    let animate_geometry = true;
     let mut last_applied = from;
     loop {
         if generation.load(Ordering::SeqCst) != ticket {
             return Ok(());
         }
-        let linear = (animation_started.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0);
+        let linear = if animate_geometry {
+            (animation_started.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0)
+        } else {
+            1.0
+        };
         let progress = smooth_transition_progress(linear);
         let position = PhysicalPosition::new(
             interpolate_i32(from.position.x, to.position.x, progress),
@@ -3157,6 +3169,7 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 {
                     use gtk::prelude::*;
+                    linux_window::install(&window.gtk_window()?);
                     let presence_handle = app.handle().clone();
                     window.gtk_window()?.connect_map(move |gtk_window| {
                         let always_on_top = presence_handle

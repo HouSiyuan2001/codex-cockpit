@@ -11,6 +11,7 @@ import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpande
 import type { TokeiUsage } from "./lib/tokeiUsage";
 import { savePersonPlan, planDateKey } from "./lib/personPlanSync";
 import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./lib/appUpdate";
+import { copy } from "./lib/i18n";
 
 vi.mock("./lib/personPlanSync", async (importOriginal) => ({
   ...await importOriginal<typeof import("./lib/personPlanSync")>(),
@@ -373,6 +374,40 @@ describe("App comfort persistence regressions", () => {
     expect(screen.getByTestId("comfort-state")).toHaveTextContent('"totalTokens":6000000');
     expect(mocks.updateRuntimeState).not.toHaveBeenCalled();
   });
+});
+
+it("keeps checking, download progress, ready and installation inside Settings", async () => {
+  vi.mocked(checkForAppUpdate).mockResolvedValueOnce({ version: "0.4.0", body: null, date: null, platform: "windows", channel: "stable", releaseUrl: "", automaticInstall: true });
+  let finishDownload!: () => void;
+  vi.mocked(downloadAppUpdate).mockImplementationOnce(async onProgress => {
+    onProgress({ downloadedBytes: 42, totalBytes: 100, percent: 42 });
+    await new Promise<void>(resolve => { finishDownload = resolve; });
+  });
+  await expandApp();
+  fireEvent.click(screen.getByRole("button", { name: "leave then open control" }));
+  fireEvent.click(screen.getByRole("button", { name: "check update" }));
+  fireEvent.click(await screen.findByRole("button", { name: copy["zh-CN"].updateDownload }));
+  expect(await screen.findByRole("progressbar")).toHaveAttribute("value", "42");
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("none");
+  await act(async () => finishDownload());
+  const restart = await screen.findByRole("button", { name: "重启并安装" });
+  expect(installAppUpdate).not.toHaveBeenCalled();
+  expect(closeControlCenterWindow).not.toHaveBeenCalled();
+  fireEvent.click(restart);
+  await waitFor(() => expect(installAppUpdate).toHaveBeenCalledOnce());
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("none");
+  expect(screen.getByRole("status", { name: "更新状态" })).toHaveTextContent("安装");
+});
+
+it("keeps a failed update check and retry inside Settings", async () => {
+  vi.mocked(checkForAppUpdate).mockRejectedValueOnce(new Error("synthetic network failure")).mockResolvedValueOnce(null);
+  await expandApp();
+  fireEvent.click(screen.getByRole("button", { name: "leave then open control" }));
+  fireEvent.click(screen.getByRole("button", { name: "check update" }));
+  fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+  await waitFor(() => expect(screen.getByRole("status", { name: "更新状态" })).toHaveTextContent(copy["zh-CN"].updateCurrentTitle));
+  expect(closeControlCenterWindow).not.toHaveBeenCalled();
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("none");
 });
 
 describe("App control surface regressions", () => {

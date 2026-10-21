@@ -848,8 +848,8 @@ describe("QuotaCard platform ledger", () => {
     expect(onActivate).not.toHaveBeenCalled();
   });
 
-  it("keeps repeated Windows clicks out of the native drag loop but still hands off a real drag", () => {
-    const platform = vi.spyOn(window.navigator, "platform", "get").mockReturnValue("Win32");
+  it.each(["Win32", "Linux x86_64", "Linux aarch64"])("keeps repeated %s clicks out of the native drag loop but still hands off a real drag", (platformName) => {
+    const platform = vi.spyOn(window.navigator, "platform", "get").mockReturnValue(platformName);
     try {
       const onActivate = vi.fn();
       const onDrag = vi.fn();

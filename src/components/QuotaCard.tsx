@@ -1200,7 +1200,7 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | null>(null);
   const dragGesture = useRef<{ screenX: number; screenY: number; started: boolean } | null>(null);
-  const deferNativeDrag = /^Win/i.test(navigator.platform);
+  const deferNativeDrag = /^(Win|Linux)/i.test(navigator.platform);
   const activeLanguage = normalizeLanguage(language);
   const visibleWatch = snapshot.provider === "codex" ? resetWatch : null;
   const t = copy[activeLanguage];
@@ -1280,8 +1280,8 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
 
   const handleMouseMove = (event: ReactMouseEvent<HTMLElement>) => {
     const gesture = dragGesture.current;
-    // Windows' native move loop can consume mouse-up/click even without a
-    // movement. Keep stationary presses in the WebView; hand off only a drag.
+    // Windows and Linux native move loops can consume a stationary click or
+    // race its expansion. Keep presses in the WebView until an actual drag.
     if (!deferNativeDrag || !gesture || gesture.started || !(event.buttons & 1)) return;
     if (Math.hypot(event.screenX - gesture.screenX, event.screenY - gesture.screenY) < 6) return;
     gesture.started = true;

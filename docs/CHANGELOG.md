@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve stationary capsule clicks on Linux and apply a rounded X11 window shape without animated resizing when no compositor is available. Linux end-to-end GUI/sync acceptance is still pending.
 - Simplify local/cloud settings, keep update progress and retry inline, and improve update readability across themes and font sizes.
 - Clarify daily budget labels and preserve expanded panels when switching control surfaces.
 - Add Linux-scoped GTK input/window compatibility and Secret Service credential support; native Wayland and full Linux installation/sync acceptance remain unverified.
