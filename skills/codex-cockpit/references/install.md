@@ -11,6 +11,15 @@ Mac 可以在仅含本次下载文件的目录使用 `shasum -a 256 "实际文�
 
 校验和检查的是文件一致性，不证明作者身份或没有漏洞。当前测试版 Mac 未公证、Windows 无发布者签名；以后每个版本重新读取说明，不永久假定所有版本都未签名。
 
+## Linux x64
+
+从 v0.3.2 起提供 Ubuntu 22.04 基线构建的 `.AppImage` 与 Debian/Ubuntu `.deb`，不包含 ARM 包。先核对同版本 `SHA256SUMS`。
+
+- Debian/Ubuntu：通过系统软件安装器或 `sudo apt install ./实际文件名.deb` 安装，密码由用户自己输入。后续 `.deb` 仍用包管理器手动更新。
+- AppImage：赋予执行权限后运行，签名自动更新仅适用于这一格式。需要系统具备 FUSE 2 兼容库；具体包名随发行版变化，不直接套用其他系统的安装命令。
+- 云凭据需要 Secret Service（如 GNOME Keyring 或兼容 KWallet）；安装与解锁交给用户，不写明文凭据作为替代。
+- 当前主要适配 X11/XWayland；原生 Wayland、混合 DPI 与真实多设备完整验收仍有待补齐。自动构建和 Xvfb 启动成功不等于所有桌面环境验收。
+
 ## 安装和首开
 
 - **Mac：** 打开已核对的 DMG，把 `Codex Cockpit.app` 放入用户选择的 Applications 目录，再从安装位置启动。更新前确认旧包位置，保留可恢复的旧版本，不让旧/新进程同时运行。不要从 DMG 一直运行测试后声称已安装。

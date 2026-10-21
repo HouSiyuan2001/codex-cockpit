@@ -2,6 +2,7 @@ name: Desktop release
 on:
   push:
     tags: ['v*']
+    branches: ['codex/release-validation']
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,7 +32,13 @@ jobs:
       - run: npm run build
       - run: npm run audit:public
       - run: npm run audit:history
-      - run: npm run version:check -- --tag "$GITHUB_REF_NAME"
+      - name: Check synchronized version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            npm run version:check -- --tag "$GITHUB_REF_NAME"
+          else
+            npm run version:check
+          fi
       - run: npm --prefix cloud/usage-sync-worker test
   build:
     needs: verify
@@ -45,6 +52,9 @@ jobs:
           - os: windows-latest
             label: windows-x64
             args: --bundles nsis
+          - os: ubuntu-22.04
+            label: linux-x64
+            args: --bundles deb,appimage
     runs-on: ${{ matrix.os }}
     env:
       VITE_RELEASE_URL: https://github.com/${{ github.repository }}/releases
@@ -55,6 +65,11 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Install Linux build and smoke-test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev libfuse2 patchelf xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -78,6 +93,9 @@ jobs:
           APPLE_SIGNING_IDENTITY: '-'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      - name: Smoke-test Linux packages
+        if: runner.os == 'Linux'
+        run: bash scripts/verify-linux-package.sh
       - name: Scan Windows executable and installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -95,10 +113,14 @@ jobs:
             src-tauri/target/**/bundle/nsis/*.exe.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
             src-tauri/target/**/bundle/macos/*.app.tar.gz.sig
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/appimage/*.AppImage
+            src-tauri/target/**/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
           retention-days: 7
   publish:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,9 +144,11 @@ jobs:
             asset="packages/${name// /.}"
             test ! -e "$asset"
             cp "$file" "$asset"
-          done < <(find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.sig' -o -name '*.app.tar.gz' \) -print0)
+          done < <(find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.sig' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' \) -print0)
           test "$(find packages -name '*.dmg' | wc -l)" -ge 1
           test "$(find packages -name '*.exe' | wc -l)" -ge 1
+          test "$(find packages -name '*.deb' | wc -l)" -eq 1
+          test "$(find packages -name '*.AppImage' | wc -l)" -eq 1
           version="${GITHUB_REF_NAME#v}"
           channel=stable
           flags=()
@@ -136,7 +160,7 @@ jobs:
             previous+=(previous/latest.json)
           fi
           node scripts/updater-manifest.mjs packages "$GITHUB_REPOSITORY" "$version" "${previous[@]}"
-          (cd packages && sha256sum *.dmg *.exe *.app.tar.gz *.sig > SHA256SUMS)
+          (cd packages && sha256sum *.dmg *.exe *.app.tar.gz *.deb *.AppImage *.sig > SHA256SUMS)
           gh release create "$GITHUB_REF_NAME" packages/* --verify-tag "${flags[@]}" --title "Codex Cockpit $GITHUB_REF_NAME" --notes-file docs/RELEASE.md
           if gh release view "updates-$channel" >/dev/null 2>&1; then
             # Only this manifest pointer is mutable; versioned installers stay intact.

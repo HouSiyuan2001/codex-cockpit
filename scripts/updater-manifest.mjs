@@ -12,8 +12,8 @@ export function makeManifest({ repository, version, files, signature, notes, dat
     if (!sig) throw new Error(`Missing signature for ${file}`);
     return { url: `https://github.com/${repository}/releases/download/v${version}/${encodeURIComponent(basename(file))}`, signature: sig };
   };
-  const mac = select('.app.tar.gz'); const win = select('-setup.exe');
-  return { version, notes, pub_date: date, platforms: { 'darwin-aarch64': mac, 'darwin-x86_64': mac, 'windows-x86_64': win } };
+  const mac = select('.app.tar.gz'); const win = select('-setup.exe'); const linux = select('.AppImage');
+  return { version, notes, pub_date: date, platforms: { 'darwin-aarch64': mac, 'darwin-x86_64': mac, 'windows-x86_64': win, 'linux-x86_64': linux } };
 }
 
 export function assertNewer(next, previous) {

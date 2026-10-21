@@ -7,7 +7,7 @@
 还剩多少额度？今天用了多少？哪个任务最能「吃」Token？<br>
 把这些小问号，装进屏幕边上的一个小窗口。
 
-[⬇️ 下载 Mac / Windows 版](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [✨ 官方网站](https://codex-cockpit.pages.dev/) · [🎬 我榨干了 Codex](https://www.bilibili.com/video/BV1SXbv6REWz/) · [English](docs/README.en.md)
+[⬇️ 下载 Mac / Windows / Linux 版](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [✨ 官方网站](https://codex-cockpit.pages.dev/) · [🎬 我榨干了 Codex](https://www.bilibili.com/video/BV1SXbv6REWz/) · [English](docs/README.en.md)
 
 </div>
 
@@ -47,7 +47,7 @@
 
 ## 两步，带它回家
 
-1. 打开 [版本下载页](https://github.com/HouSiyuan2001/codex-cockpit/releases)：Mac 选 `universal.dmg`，Windows x64 选 `x64-setup.exe`。
+1. 打开 [版本下载页](https://github.com/HouSiyuan2001/codex-cockpit/releases)：Mac 选 `universal.dmg`，Windows x64 选 `x64-setup.exe`，Linux x64 选 `.AppImage` 或 Debian/Ubuntu 的 `.deb`。
 2. 安装并打开，先从本机用量看起。云同步不是必填项，慢慢来就好。
 
 App 会自动查找本机 Codex 数据目录。找不到时，到「设置 → 本机 Codex 数据」选择目录并确认读取；没有找到记录不会被当作用量为零。[首次安装说明](docs/LOCAL-USAGE.md)

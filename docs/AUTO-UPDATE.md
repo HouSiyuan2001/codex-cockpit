@@ -10,7 +10,7 @@
 
 - `TAURI_SIGNING_PRIVATE_KEY` 放在本仓库 Actions Secret，绝不提交到 Git。
 - `src-tauri/tauri.conf.json` 只放对应公钥。私钥需独立安全备份；更换公钥会使已有安装无法验证新签名。
-- `v*` 版本标签触发 Mac universal 和 Windows x64 构建；两个平台与扫描都通过后，发布安装包、签名、校验和与 `latest.json`。
+- `v*` 版本标签触发 Mac universal、Windows x64 和 Linux x64 构建；三个平台、Linux 启动检查与 Windows 扫描都通过后，发布安装包、签名、校验和与 `latest.json`。Linux 自动更新适用于 AppImage，`.deb` 需通过包管理器手动更新。
 - 测试版更新 `updates-beta/latest.json`，正式版更新 `updates-stable/latest.json`，不会相互覆盖。清单链接到不可替换的版本包；旧版本或同版本不会覆盖较新清单。
 - Tauri 更新签名用于验证更新来源，不等于 Apple 公证或 Windows 发布者签名。首次安装仍需手动安装新版，旧 beta.2 不会凭空获得自动更新功能。
 

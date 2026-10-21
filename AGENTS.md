@@ -1,6 +1,6 @@
 # Codex Cockpit: start here
 
-Codex Cockpit (Codex 驾驶舱) is a Tauri desktop app for macOS and Windows. Some internal names still say Quota Float. It is not the Codex app itself, a website deployment project, or a chat server.
+Codex Cockpit (Codex 驾驶舱) is a Tauri desktop app for macOS, Windows and Linux. Some internal names still say Quota Float. It is not the Codex app itself, a website deployment project, or a chat server.
 
 ## Find the right instructions
 

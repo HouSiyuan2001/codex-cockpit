@@ -36,7 +36,7 @@
 | Worker | `npm --prefix cloud/usage-sync-worker test` with in-memory SQL migrations | Fresh D1 deployment and two actual clients |
 | Privacy | `npm run audit:public` | New assets, screenshots/logs; no scanner guarantees absence of all secrets |
 | Publication history/dependencies | `npm run audit:history`, `npm audit`, Worker `npm audit`, `cargo audit` | Commit author metadata, licensing and signing credential access |
-| Release | Versions, Mac/Windows builds, Defender, SHA-256 | Clean-machine install, launch, clipboard, uninstall and rollback |
+| Release | Versions, Mac/Windows/Linux builds, Defender, SHA-256; Linux package install/startup/uninstall under Xvfb | Interactive desktop behavior, clean-machine install, clipboard, signed update and rollback |
 
 Sync regressions: space isolation, single-use/expired invitations, device binding, stale snapshots, owner-only pricing/invites, member group CAS conflicts, independent personal plans, new-connection task-sharing default and explicit opt-out, preservation of old disabled preferences, invalid endpoints rejected before credential use.
 

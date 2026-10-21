@@ -2,9 +2,11 @@
 
 面向使用者的简介见[当前版本说明](RELEASE.md)。本文保留打包、扫描和校验的技术细节，供维护者参考。
 
-`0.3.1` is the stable desktop release. The repository is public; earlier beta records below are historical evidence, not validation of this package.
+`0.3.2` is the three-platform stable desktop release. The v0.3.1 two-platform run was cancelled before publication; its tag is retained without replacing it. The repository is public; earlier beta records below are historical evidence, not validation of this package.
 
-Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE and SHA256SUMS. Both platform jobs must pass before publication. No workflow changes repository visibility.
+Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE, Linux x64 AppImage and Debian package, and SHA256SUMS. All three platform jobs must pass before publication. No workflow changes repository visibility.
+
+Linux is built on Ubuntu 22.04. The disposable runner installs the Debian package, checks native-library resolution, runs both packages under Xvfb with isolated empty settings, and uninstalls the Debian package. This startup smoke does not establish interactive tray/input behavior, native Wayland, mixed DPI, credential unlocking, real sync, or update/rollback acceptance. AppImage receives signed in-app updates; Debian packages are updated manually through the package manager.
 
 Release builds restore Rust caches when available but do not save them (`save-if: 'false'`). This avoids expensive post-job cache cleanup/compression blocking publication after the signed packages have already been uploaded. Tests, signatures and Windows security scans remain mandatory; a cache miss simply rebuilds dependencies.
 
@@ -13,6 +15,8 @@ Mac uses ad-hoc signing, not Apple notarization; Windows is not Authenticode-sig
 Automated checks do not replace clean-machine install/launch/clipboard/uninstall/rollback tests. Until separately recorded, packages are evaluation builds. No certificate purchase or paid cloud plan is required.
 
 Use the release script's `--dry-run` for subsequent versions. It synchronizes npm/Cargo/Tauri versions. A matching `v*` tag triggers `.github/workflows/release.yml`, publishing only after checks/builds/scans. Versions ending in `-beta.n` create pre-releases; versions without that suffix publish to the stable channel. Do not silently replace existing assets.
+
+Push release candidates to `codex/release-validation` to run the same three-platform build gates without publishing a Release or changing update feeds. Publication is restricted to version tags.
 
 Fork builds inject their own release URL with `VITE_RELEASE_URL`; self-builds without it do not open the original author's release page. Desktop tags never deploy Cloudflare.
 

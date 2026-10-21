@@ -5,7 +5,7 @@
 What's left of your quota? How much did you use today? Which task ate the most tokens?<br>
 A quiet little window keeps those answers close by.
 
-[Download for Mac / Windows](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [Official website](https://codex-cockpit.pages.dev/) · [中文](../README.md)
+[Download for Mac / Windows / Linux](https://github.com/HouSiyuan2001/codex-cockpit/releases) · [Official website](https://codex-cockpit.pages.dev/) · [中文](../README.md)
 
 ## Your AI's little sidekick 🐾
 

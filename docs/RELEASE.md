@@ -1,35 +1,9 @@
-# Codex 驾驶舱 · v0.3.1
+# Codex 驾驶舱 · v0.3.2
 
-这次主要改善设置、应用更新与跨设备任务提示，并整合 Linux 平台兼容修复。感谢试用反馈和社区贡献。
+- **新增 Linux x64 安装包**：整合 [PR #6](https://github.com/HouSiyuan2001/codex-cockpit/pull/6)，修复输入焦点、窗口置顶与胶囊点击。感谢 @dailiuyi！
+- **设置与更新更顺手**：精简设置，下载进度和失败重试集中显示。
+- **跨设备任务更清楚**：折叠提示、历史筛选，缺失明细不再显示为零；同时更新安全依赖。
 
-[官方网站](https://codex-cockpit.pages.dev/) · [使用说明](https://github.com/HouSiyuan2001/codex-cockpit#readme)
+下载：Mac 选 `universal.dmg`，Windows 选 `x64-setup.exe`，Linux x64 选 `.AppImage` 或 Debian/Ubuntu 的 `.deb`。校验文件见 `SHA256SUMS`。
 
-## 这次更新了什么？
-
-- **设置更简洁。** 云同步高级选项、设备详情和本机读取说明默认折叠；今日额度的名称与说明更清楚。
-- **更新进度留在设置里。** 检查、下载、重启安装和失败重试在同一处显示，改善不同主题和大字号下的提示可读性。安装仍需用户确认。
-- **跨设备任务不再把缺失当成零。** 提示默认收成一行，展开后区分未收到、未提供和已提供明细，也能查看历史日期或其他成员的任务。
-- **新连接的默认项更明确。** 确认创建或加入空间后，默认开启自动同步与任务明细共享；连接前可取消共享，连接后也可关闭。已有用户主动关闭的设置保持不变。服务器管理员和空间成员可见共享明细，不上传对话正文、项目路径或模型账号密钥。
-- **整合 Linux PR #6。** 感谢 [@dailiuyi 的贡献](https://github.com/HouSiyuan2001/codex-cockpit/pull/6)：主分支已包含 GTK 输入焦点、置顶恢复、绘制等待超时、托盘与 Secret Service 支持，并补充胶囊点击和无合成器窗口修复。代码整合不等于所有 Linux 桌面环境已完成验收。
-- **更新安全依赖。** 修复 Vite 与 TLS/证书依赖的已公布漏洞，移除未使用的旧 ZIP 更新格式；保留签名验证和现有 Windows EXE / Mac 更新归档。
-
-## 下载哪个？
-
-| 你的电脑 | 安装包 |
-| --- | --- |
-| Mac，Apple Silicon 或 Intel | 文件名以 `universal.dmg` 结尾 |
-| Windows，x64 | 文件名以 `x64-setup.exe` 结尾 |
-
-手动安装只需下载对应安装包。`SHA256SUMS` 是文件校验表，`.sig`、`.app.tar.gz` 和 `latest.json` 用于自动更新，不需要手动打开。
-
-本次正式安装包仍提供 Mac 和 Windows。Linux 改动包含在源码中，尚未发布 Linux 正式安装包；原生 Wayland、混合 DPI、凭据解锁及真实多设备同步仍需进一步验收。
-
-装好后先看本机用量即可。多设备或多人同步由自己的管理员按 [Cloudflare 指南](https://github.com/HouSiyuan2001/codex-cockpit/blob/main/skills/cloudflare-sync/references/self-hosting.md)部署，再邀请成员加入；成员、颜色和设备归属都能自定义。
-
-## 更新前的小提醒
-
-- 保留已有设置，不需要清空数据。设置里可选择正式版更新通道，检查并下载新版，再确认重启安装。
-- Mac 尚未经过 Apple 公证，Windows 尚未发布者签名。自动更新有独立签名验证，但不等于系统发布者认证；请核对来源，不要关闭系统安全保护。
-- 金额是参考估算，不是 OpenAI 账单。没有记录、缺价或信息不完整时，界面会保留相应提示。
-- 自动构建、测试和 Windows 安全扫描不能代替所有实机验证；尚未完整记录全新机器安装、旧版自动更新及回滚验收。
-- 自建服务器的管理员升级 Worker 前需补齐限流绑定；桌面更新不会自动部署或修改服务器。普通本机用户无需操作。
+提醒：新加入空间默认共享任务明细，可提前取消；已有关闭设置不变。Mac 未公证、Windows 无发布者签名。Linux 原生 Wayland、混合 DPI 与完整跨设备验收仍待补齐；[安装说明](https://github.com/HouSiyuan2001/codex-cockpit/blob/main/skills/codex-cockpit/references/install.md)。

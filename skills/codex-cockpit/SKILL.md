@@ -1,6 +1,6 @@
 ---
 name: codex-cockpit
-description: Install, update, explain and troubleshoot Codex Cockpit on Mac or Windows, including usage/costs, calendars, receipt export and shared-device settings. Use for this desktop app, not installing Codex itself or unrelated dashboards. Route optional administrator-owned server deployment to cloudflare-sync.
+description: Install, update, explain and troubleshoot Codex Cockpit on Mac, Windows or Linux, including usage/costs, calendars, receipt export and shared-device settings. Use for this desktop app, not installing Codex itself or unrelated dashboards. Route optional administrator-owned server deployment to cloudflare-sync.
 ---
 
 # Codex 驾驶舱安装与排障

@@ -11,6 +11,7 @@ describe("release automation", () => {
     expect(lock).not.toMatch(/^name = "zip"$/m);
     expect(feed).toContain("select('-setup.exe')");
     expect(feed).toContain("select('.app.tar.gz')");
+    expect(feed).toContain("select('.AppImage')");
   });
   it("uses stable update defaults in both frontend and native preferences", () => {
     const frontend = readFileSync(new URL("../src/lib/preferences.ts", import.meta.url), "utf8");
@@ -71,14 +72,29 @@ describe("release automation", () => {
     expect(result).toContain("- Fix updater\n- Add retry");
   });
 
-  it("builds Mac and Windows packages without automatic updater artifacts", () => {
+  it("builds all three platforms with updater artifacts only in release configuration", () => {
     const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(workflow).toContain("os: windows-latest");
     expect(workflow).toContain("--bundles nsis");
     expect(workflow).toContain("--target universal-apple-darwin --bundles app,dmg");
+    expect(workflow).toContain("os: ubuntu-22.04");
+    expect(workflow).toContain("--bundles deb,appimage");
+    expect(workflow).toContain("bash scripts/verify-linux-package.sh");
+    expect(workflow).toContain("*.AppImage.sig");
+    expect(workflow).toContain("sha256sum *.dmg *.exe *.app.tar.gz *.deb *.AppImage *.sig");
     expect(workflow).toContain("--prerelease");
     const config = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
     expect(config.bundle.createUpdaterArtifacts).toBe(false);
+  });
+
+  it("requires an isolated Linux package startup and uninstall check", () => {
+    const smoke = readFileSync(new URL("./verify-linux-package.sh", import.meta.url), "utf8");
+    expect(smoke).toContain('RUNNER_ENVIRONMENT:-');
+    expect(smoke).toContain('XDG_CONFIG_HOME="$stage/$label/config"');
+    expect(smoke).toContain('[[ $result -eq 124 ]]');
+    expect(smoke).toContain('smoke_launch deb "$binary"');
+    expect(smoke).toContain('smoke_launch appimage');
+    expect(smoke).toContain('sudo dpkg --remove');
   });
 
   it("blocks release publishing until Defender accepts the Windows artifacts", () => {
@@ -86,6 +102,7 @@ describe("release automation", () => {
     const defenderScript = readFileSync(new URL("./verify-windows-defender.ps1", import.meta.url), "utf8");
     expect(releaseWorkflow).toMatch(/build:\s+needs: verify/);
     expect(releaseWorkflow).toMatch(/publish:\s+needs: build/);
+    expect(releaseWorkflow).toContain("if: startsWith(github.ref, 'refs/tags/v')");
     expect(releaseWorkflow).toContain("verify-windows-defender.ps1 -Path");
     expect(releaseWorkflow).not.toContain("continue-on-error");
     expect(releaseWorkflow).not.toContain("if: always()");
