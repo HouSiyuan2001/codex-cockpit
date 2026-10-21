@@ -1,0 +1,17 @@
+name: Hold superseded two-platform v0.3.1 release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/hold-v031.yml']
+permissions:
+  contents: read
+# Match only the superseded v0.3.1 run. This prevents its publish job while
+# three-platform packaging is prepared; it does not affect other releases.
+concurrency:
+  group: release-refs/tags/v0.3.1
+  cancel-in-progress: true
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Two-platform publication superseded by three-platform preparation.'
