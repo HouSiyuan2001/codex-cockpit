@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aggregateGlobalUsage, createUsagePreview, withLiveLocalUsage, type ProjectUsageSnapshot, type TokeiUsage } from "./tokeiUsage";
 
@@ -5,7 +6,7 @@ const api = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: api.invoke }));
 let getProjectUsage: typeof import("./tokeiBridge")["getProjectUsage"];
 let getTokeiUsage: typeof import("./tokeiBridge")["getTokeiUsage"];
-const now = new Date(2026, 8, 10, 12);
+const now = chinaTime(2026, 8, 10, 12);
 const localId = "local-synthetic-device";
 
 function standalone() {

@@ -1,3 +1,4 @@
+import { calendarDate, dateAtBeijingNoon, USAGE_TIME_ZONE } from "../lib/usageDay";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { localDateKey } from "../lib/comfortFeedback";
@@ -32,17 +33,17 @@ type CalendarView = "week" | "month";
 
 function dateFromLocalDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day, 12);
+  return calendarDate(year, month - 1, day);
 }
 
 function calendarDays(month: Date): Date[] {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1, 12);
-  const mondayOffset = (first.getDay() + 6) % 7;
+  const first = calendarDate(month.getUTCFullYear(), month.getUTCMonth(), 1);
+  const mondayOffset = (first.getUTCDay() + 6) % 7;
   const start = new Date(first);
-  start.setDate(first.getDate() - mondayOffset);
+  start.setUTCDate(first.getUTCDate() - mondayOffset);
   return Array.from({ length: 42 }, (_, index) => {
     const date = new Date(start);
-    date.setDate(start.getDate() + index);
+    date.setUTCDate(start.getUTCDate() + index);
     return date;
   });
 }
@@ -50,27 +51,27 @@ function calendarDays(month: Date): Date[] {
 function recentWeekDays(end: Date): Date[] {
   return Array.from({ length: 7 }, (_, index) => {
     const date = new Date(end);
-    date.setDate(end.getDate() - 6 + index);
+    date.setUTCDate(end.getUTCDate() - 6 + index);
     return date;
   });
 }
 
 function formatMonth(month: Date, language: Language): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { year: "numeric", month: "long" }).format(month);
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, year: "numeric", month: "long" }).format(month);
 }
 
 function formatSelectedDate(value: string, language: Language): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { month: "short", day: "numeric", weekday: "short" }).format(dateFromLocalDate(value));
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, month: "short", day: "numeric", weekday: "short" }).format(dateFromLocalDate(value));
 }
 
 function formatWeekday(value: Date, language: Language): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { weekday: "short" }).format(value);
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, weekday: "short" }).format(value);
 }
 
 function formatWeekRange(days: readonly Date[], language: Language): string {
   const locale = language === "en" ? "en-US" : "zh-CN";
-  const start = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(days[0]);
-  const end = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(days[days.length - 1]);
+  const start = new Intl.DateTimeFormat(locale, { timeZone: USAGE_TIME_ZONE, month: "short", day: "numeric" }).format(days[0]);
+  const end = new Intl.DateTimeFormat(locale, { timeZone: USAGE_TIME_ZONE, year: "numeric", month: "short", day: "numeric" }).format(days[days.length - 1]);
   return `${start}–${end}`;
 }
 
@@ -84,7 +85,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
   const [view, setView] = useState<CalendarView>("week");
   const [visibleWeekEnd, setVisibleWeekEnd] = useState(() => dateFromLocalDate(today));
   const followsCurrentWeek = useRef(true);
-  const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12));
+  const [visibleMonth, setVisibleMonth] = useState(() => calendarDate(dateAtBeijingNoon(today).getUTCFullYear(), dateAtBeijingNoon(today).getUTCMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(today);
   const labels = language === "en"
     ? {
@@ -163,14 +164,14 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
   }, [today]);
 
   const moveMonth = (offset: number) => {
-    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1, 12));
+    setVisibleMonth((current) => calendarDate(current.getUTCFullYear(), current.getUTCMonth() + offset, 1));
   };
 
   const moveWeek = (offset: number) => {
     followsCurrentWeek.current = false;
     setVisibleWeekEnd((current) => {
       const next = new Date(current);
-      next.setDate(current.getDate() + offset * 7);
+      next.setUTCDate(current.getUTCDate() + offset * 7);
       return next;
     });
   };
@@ -179,7 +180,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
     const now = new Date();
     followsCurrentWeek.current = true;
     setVisibleWeekEnd(dateFromLocalDate(localDateKey(now)));
-    setVisibleMonth(new Date(now.getFullYear(), now.getMonth(), 1, 12));
+    setVisibleMonth(calendarDate(dateFromLocalDate(localDateKey(now)).getUTCFullYear(), dateFromLocalDate(localDateKey(now)).getUTCMonth(), 1));
     setSelectedDate(localDateKey(now));
   };
 
@@ -211,7 +212,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
           const usage = dailyUsageByDate.get(dateKey);
           const usagePercent = personPercentMode ? percentText(dateKey) : tokenMode ? tokenText(dateKey) : usage ? formatUsagePercent(usage.observedUsedPercent, language, usage.coverage) : null;
           const usageLabel = tokenMode ? "Token" : labels.weeklyUsage;
-          const isOutside = view === "month" && date.getMonth() !== visibleMonth.getMonth();
+          const isOutside = view === "month" && date.getUTCMonth() !== visibleMonth.getUTCMonth();
           const isFuture = dateKey > today;
           const isSelected = dateKey === selectedDate;
           return (
@@ -227,7 +228,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
               onMouseDown={(event) => event.stopPropagation()}
               onClick={() => setSelectedDate(dateKey)}
             >
-              <span className="comfort-history-day-number">{date.getDate()}</span>
+              <span className="comfort-history-day-number">{date.getUTCDate()}</span>
               <span className="comfort-history-day-detail" aria-hidden="true">
                 {record ? <span className="comfort-history-day-emoji">{COMFORT_EMOJI[record.comfort]}</span> : null}
                 {usagePercent !== null ? <small className="comfort-history-day-usage">{tokenMode ? usagePercent.replace(/(\d+)\.\d{2}M$/, (_, whole: string) => Number(whole) >= 10 ? `${whole}M` : usagePercent.replace(/0M$/, "M")) : usagePercent}</small> : null}
@@ -255,7 +256,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
               </dl>
               <p>{language === "en" ? "Devices" : "设备"}：{selectedSnapshot.deviceIds.length} · {selectedSnapshot.coverage === "complete" ? (language === "en" ? "Complete" : "完整日账") : (language === "en" ? "Partial; not used for fitting" : "部分记录，不参与拟合")}</p>
               {selectedSnapshot.missingDeviceIds.length > 0 && <p>{language === "en" ? "Missing devices" : "缺失设备"}：{selectedSnapshot.missingDeviceIds.join("、")}</p>}
-              <p>{language === "en" ? "Captured" : "采集时间"}：{new Date(selectedSnapshot.observedAt).toLocaleString(language === "en" ? "en-US" : "zh-CN")}</p>
+              <p>{language === "en" ? "Captured" : "采集时间"}：{new Date(selectedSnapshot.observedAt).toLocaleString(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE })}</p>
               <ul>{selectedSnapshot.models.map(model => <li key={model.id}>{model.name} · {formatTokens(model.totalTokens, language !== "en")}</li>)}</ul>
             </details>}
             {selectedRecord?.observedUsedPercent !== null && selectedRecord?.observedUsedPercent !== undefined && <p>{language === "en" ? "Quota reference (04:00 day boundary, not token conversion)" : "额度参考（04:00 日界，不与 Token 换算）"}：{selectedRecord.observedUsedPercent.toFixed(1)}%</p>}

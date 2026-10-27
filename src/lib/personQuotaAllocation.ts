@@ -1,3 +1,4 @@
+import { localDateKey as beijingDateKey, calendarDate } from "./usageDay";
 import type { ComfortQuotaAllocation, ComfortUsageCoverage } from "../types";
 import { MAX_DAILY_OBSERVED_PERCENT } from "../types";
 import type { TokeiDevice, TokeiUsage } from "./tokeiUsage";
@@ -17,17 +18,17 @@ export interface SharedDailyQuotaReference {
 function validLocalDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(year, month - 1, day, 12);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+  const parsed = calendarDate(year, month - 1, day);
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
-function localDateKey(value: Date): string {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+function localDateKey(date: Date): string {
+  return beijingDateKey(date);
 }
 
 function dayEndTimestamp(localDate: string): number {
   const [year, month, day] = localDate.split("-").map(Number);
-  return new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
+  return Date.UTC(year, month - 1, day + 1, -8);
 }
 
 function safeDeviceId(value: unknown): value is string {

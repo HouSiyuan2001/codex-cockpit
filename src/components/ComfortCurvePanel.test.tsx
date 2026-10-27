@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -5,7 +6,7 @@ import { COMFORT_CURVE_VERSION, personalizeComfortCurve, smoothKneeEfficiency } 
 import type { ComfortFeedbackRecord } from "../types";
 import { ComfortCurvePanel, comfortCurveAxis } from "./ComfortCurvePanel";
 afterEach(cleanup);
-const now = new Date(2026, 8, 11, 12);
+const now = chinaTime(2026, 8, 11, 12);
 const record = (comfort: ComfortFeedbackRecord["comfort"], date = "2026-09-10"): ComfortFeedbackRecord => ({
   localDate: date, observedAt: now.toISOString(), observedUsedPercent: 25, comfort, usageCoverage: "complete",
   usageObservedAt: null, usageSource: "official-snapshot", curveVersion: COMFORT_CURVE_VERSION,

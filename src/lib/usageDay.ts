@@ -1,7 +1,7 @@
 export const USAGE_DAY_START_HOUR = 4;
 export const USAGE_TIME_ZONE = "Asia/Shanghai";
 
-function beijingParts(date: Date): { year: number; month: number; day: number; hour: number } {
+export function beijingParts(date: Date): { year: number; month: number; day: number; hour: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: USAGE_TIME_ZONE,
     year: "numeric",
@@ -19,11 +19,18 @@ function shiftBeijingDate(parts: Pick<ReturnType<typeof beijingParts>, "year" | 
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** Shared calendar day, independent of the operating system timezone. */
 export function localDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return shiftBeijingDate(beijingParts(date), 0);
+}
+
+/** Calendar arithmetic uses Beijing noon (04:00 UTC) and UTC getters/setters. */
+export function calendarDate(year: number, month: number, day = 1): Date {
+  return new Date(Date.UTC(year, month, day, 4));
+}
+
+export function dateAtBeijingNoon(key: string): Date {
+  return new Date(`${key}T12:00:00+08:00`);
 }
 
 export function usageDateKey(date: Date): string {

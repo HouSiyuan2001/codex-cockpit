@@ -18,6 +18,7 @@ mod trae;
 mod usage_sync;
 mod usage_sync_git;
 mod usage_sync_snapshot;
+mod usage_time;
 mod volcengine;
 mod website_reset_probability;
 mod workbuddy;

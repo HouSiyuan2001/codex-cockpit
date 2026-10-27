@@ -1,7 +1,8 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { aggregateTaskUsage, aggregateSyncedTaskUsage, reconcileTaskUsage, type DailyModelUsage, type ProjectUsageSnapshot, type TaskUsage, type TokeiGroupSettings, type UsageMetrics } from "./tokeiUsage";
 
-const now = new Date(2026, 8, 10, 12);
+const now = chinaTime(2026, 8, 10, 12);
 const settings: TokeiGroupSettings = { groups: [{ id: "mine", name: "Mine", deviceIds: ["Local Mac"] }], defaultGroupId: "mine" };
 
 function day(totalTokens: number, model = "GPT-5.6"): DailyModelUsage {

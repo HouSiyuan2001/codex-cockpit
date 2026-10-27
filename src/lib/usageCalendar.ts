@@ -1,27 +1,30 @@
+import { calendarDate, dateAtBeijingNoon } from "./usageDay";
 import { canonicalModelId, localDateKey, type DailyModelUsage, type ProjectUsageSnapshot, type TokeiDevice, type TokeiUsage, type UsageMetric } from "./tokeiUsage";
 
 export type CalendarScale = "day" | "week" | "month" | "quarter" | "year";
 export interface UsageDateRange { start: string; end: string; scale: CalendarScale }
-export const dateAtNoon = (key: string) => new Date(`${key}T12:00:00`);
-export function shiftDate(date: Date, days: number) { const next = new Date(date); next.setDate(next.getDate() + days); return next; }
+export const dateAtNoon = (key: string) => dateAtBeijingNoon(key);
+export function shiftDate(date: Date, days: number) { const next = new Date(date); next.setUTCDate(next.getUTCDate() + days); return next; }
 /** Only render the complete calendar weeks intersecting the requested month. */
 export function calendarMonthCellCount(year: number, month: number) {
-  const leading = (new Date(year, month, 1, 12).getDay() + 6) % 7;
-  const days = new Date(year, month + 1, 0, 12).getDate();
+  const leading = (calendarDate(year, month, 1).getUTCDay() + 6) % 7;
+  const days = calendarDate(year, month + 1, 0).getUTCDate();
   return Math.ceil((leading + days) / 7) * 7;
 }
 export function calendarRange(date: Date, scale: CalendarScale): UsageDateRange {
+  date = dateAtBeijingNoon(localDateKey(date));
   let start = new Date(date), end = new Date(date);
-  const year = date.getFullYear(), month = date.getMonth();
-  if (scale === "week") { start = shiftDate(date, -((date.getDay() + 6) % 7)); end = shiftDate(start, 6); }
-  if (scale === "month") { start = new Date(year, month, 1, 12); end = new Date(year, month + 1, 0, 12); }
-  if (scale === "quarter") { const first = Math.floor(month / 3) * 3; start = new Date(year, first, 1, 12); end = new Date(year, first + 3, 0, 12); }
-  if (scale === "year") { start = new Date(year, 0, 1, 12); end = new Date(year, 11, 31, 12); }
+  const year = date.getUTCFullYear(), month = date.getUTCMonth();
+  if (scale === "week") { start = shiftDate(date, -((date.getUTCDay() + 6) % 7)); end = shiftDate(start, 6); }
+  if (scale === "month") { start = calendarDate(year, month, 1); end = calendarDate(year, month + 1, 0); }
+  if (scale === "quarter") { const first = Math.floor(month / 3) * 3; start = calendarDate(year, first, 1); end = calendarDate(year, first + 3, 0); }
+  if (scale === "year") { start = calendarDate(year, 0, 1); end = calendarDate(year, 11, 31); }
   return { start: localDateKey(start), end: localDateKey(end), scale };
 }
 export function rangeLabel(range: UsageDateRange) { return range.start === range.end ? range.start : `${range.start} – ${range.end}`; }
 export function isoWeekNumber(date: Date) {
-  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  date = dateAtBeijingNoon(localDateKey(date));
+  const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   utc.setUTCDate(utc.getUTCDate() + 4 - (utc.getUTCDay() || 7));
   return Math.ceil(((utc.getTime() - Date.UTC(utc.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
 }
@@ -48,7 +51,7 @@ export function usageInRange(data: TokeiUsage, range: UsageDateRange, now = new 
 }
 export function tasksInRange(data: ProjectUsageSnapshot, range: UsageDateRange, now = new Date()): ProjectUsageSnapshot {
   const today = localDateKey(now);
-  const filter = <T extends { daily: Record<string, DailyModelUsage> }>(rows: T[]) => rows.map(row => ({ ...row, daily: filterDaily(row.daily, range, today) }));
+  const filter = <T extends { daily: Record<string, DailyModelUsage>; summaryDevice?: TokeiDevice }>(rows: T[]) => rows.map(row => ({ ...row, daily: filterDaily(row.daily, range, today), ...(row.summaryDevice ? { summaryDevice: { ...row.summaryDevice, daily: filterDaily(row.summaryDevice.daily, range, today), ranges: {} } } : {}) }));
   return { ...data, projects: filter(data.projects), tasks: data.tasks && filter(data.tasks), peerTasks: data.peerTasks?.map(peer => ({ ...peer, tasks: filter(peer.tasks) })) };
 }
 /** Null means no known value. Zero is reserved for an explicit zero-valued ledger. */

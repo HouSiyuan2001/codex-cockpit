@@ -9,7 +9,7 @@ const model = (tokens: number, cost: number | null) => ({ id: "m", name: "Model"
 const day = (tokens: number, cost: number | null, modelCost = cost): DailyModelUsage => ({ ...model(tokens, cost), models: [model(tokens, modelCost)] });
 const device = (id: string, daily: TokeiDevice["daily"], updatedAt = "2026-09-15T12:00:00Z", overrides: Partial<TokeiDevice> = {}): TokeiDevice => ({ id, daily, updatedAt, stale: false, ranges: {}, ...overrides });
 // Navigation follows local calendar dates; do not shift fixtures with the host timezone.
-const now = new Date("2026-09-15T12:00:00");
+const now = new Date("2026-09-15T12:00:00+08:00");
 
 afterEach(cleanup);
 
@@ -131,13 +131,13 @@ describe("DailyUsageTrend history navigation", () => {
   });
 
   it("advances only a latest window across local midnight", () => {
-    const nextDay = new Date("2026-09-16T12:00:00");
+    const nextDay = new Date("2026-09-16T12:00:00+08:00");
     const view = render(<DailyUsageTrend devices={[history]} metric="tokens" zh now={now} />);
     view.rerender(<DailyUsageTrend devices={[history]} metric="tokens" zh now={nextDay} />);
     expect(screen.getByText("9/10–9/16")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "往前" }));
     expect(screen.getByText("9/9–9/15")).toBeInTheDocument();
-    view.rerender(<DailyUsageTrend devices={[history]} metric="tokens" zh now={new Date("2026-09-17T12:00:00")} />);
+    view.rerender(<DailyUsageTrend devices={[history]} metric="tokens" zh now={new Date("2026-09-17T12:00:00+08:00")} />);
     expect(screen.getByText("9/9–9/15")).toBeInTheDocument();
   });
 

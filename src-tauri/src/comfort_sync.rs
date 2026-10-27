@@ -4,7 +4,7 @@
 //! unrelated application fields and malformed records never enter the wire format.
 
 use crate::tokei_usage;
-use chrono::{DateTime, Local, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::{json, Map, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -244,7 +244,7 @@ fn baseline_records(
 fn sanitize_assigned_record(value: &Value, now: DateTime<Utc>) -> Option<Value> {
     let object = value.as_object()?;
     let local_date = valid_local_date(object.get("localDate")?.as_str()?)?;
-    if local_date > Local::now().date_naive() {
+    if local_date > crate::usage_time::calendar_day(&now) {
         return None;
     }
     let observed_at = valid_timestamp(object.get("observedAt")?.as_str()?, now)?;

@@ -499,18 +499,32 @@ pub fn start(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut last_peer_attempt: Option<std::time::Instant> = None;
         let mut last_local_attempt: Option<std::time::Instant> = None;
+        let mut local_interval = Duration::from_secs(60);
         loop {
             let Ok(data) = app.path().app_config_dir() else {
                 tokio::time::sleep(Duration::from_secs(15)).await;
                 continue;
             };
-            if last_local_attempt.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+            if last_local_attempt.is_none_or(|t| t.elapsed() >= local_interval) {
                 if let Ok(_guard) = RUN_LOCK.try_lock() {
-                    let _ = collect_local_usage(&data).await;
+                    let collected = collect_local_usage(&data).await;
+                    // Continue a bounded history prefix while the capsule is
+                    // collapsed too. Real failures keep the normal backoff;
+                    // neither upload cadence nor sync preferences are changed.
+                    local_interval = if collected.as_ref().is_ok_and(|snapshot| {
+                        snapshot
+                            .warnings
+                            .iter()
+                            .any(|warning| warning == "scan_limit")
+                    }) {
+                        Duration::from_secs(2)
+                    } else {
+                        Duration::from_secs(60)
+                    };
                     last_local_attempt = Some(std::time::Instant::now());
                 }
             }
-            tokio::time::sleep(Duration::from_secs(15)).await;
+            tokio::time::sleep(local_interval.min(Duration::from_secs(15))).await;
             if !matches!(crate::cloud_sync::config(&data), Ok(Some(_))) {
                 continue;
             }
@@ -865,7 +879,7 @@ mod tests {
                 "_device":"peer","_ts":now.timestamp(),
                 "comfortFeedbackVersion":1,
                 "comfortFeedback":[{
-                    "localDate":chrono::Local::now().format("%Y-%m-%d").to_string(),
+                    "localDate":crate::usage_time::calendar_day(&now).to_string(),
                     "observedAt":now.to_rfc3339(),"updatedAt":now.to_rfc3339(),
                     "comfort":"comfortable","personId":"person-a","personName":"Alice",
                     "tokenSnapshot":null,"quotaAllocation":null,

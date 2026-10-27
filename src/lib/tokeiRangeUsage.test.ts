@@ -1,7 +1,8 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { aggregateGlobalUsage, aggregateGroupUsage, createUsagePreview, selectDeviceUsage } from "./tokeiUsage";
 
-const now = new Date(2026, 8, 10, 14);
+const now = chinaTime(2026, 8, 10, 14);
 function fixture() {
   const data = createUsagePreview(now);
   const day = data.devices[0].daily["2026-09-10"];
@@ -73,7 +74,7 @@ describe("range-only peer compatibility", () => {
   });
   it("allows calendar week for rolling seven days only when both bounds exactly match", () => {
     const data = fixture();
-    const sunday = new Date(2026, 8, 13, 14);
+    const sunday = chinaTime(2026, 8, 13, 14);
     expect(selectDeviceUsage(data.devices[0], "7d", sunday).source).toBe("range");
   });
 });

@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import type { ProviderSnapshot, ResetForecast } from "../types";
 import { calculateQuotaPace, forecastAdjustedResetAt, mostOverPaceWindow, paceBaselineKey, refreshDailyPaceBaselines, trackedQuotaWindows } from "./quotaPace";
@@ -40,9 +41,9 @@ describe("quota pace", () => {
   });
 
   it("reports how far usage is ahead of an even weekly pace", () => {
-    const startsAt = new Date("2026-07-20T00:00:00+08:00");
-    const now = new Date("2026-07-22T00:00:00+08:00");
-    const resetsAt = new Date("2026-07-27T00:00:00+08:00");
+    const startsAt = chinaTime(2026, 6, 20, 0, 0, 0);
+    const now = chinaTime(2026, 6, 22, 0, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 27, 0, 0, 0);
     const pace = calculateQuotaPace(
       { remainingPercent: 50, resetsAt: resetsAt.toISOString(), windowSeconds: (resetsAt.getTime() - startsAt.getTime()) / 1000 },
       now,
@@ -63,26 +64,26 @@ describe("quota pace", () => {
   });
 
   it("rebalances today's budget from the quota and time currently remaining", () => {
-    const startsAt = new Date("2026-07-20T00:00:00+08:00");
+    const startsAt = chinaTime(2026, 6, 20, 0, 0, 0);
     const resetsAt = new Date(startsAt.getTime() + 7 * 86_400_000);
     const pace = calculateQuotaPace(
       { remainingPercent: 90, resetsAt: resetsAt.toISOString(), windowSeconds: 604_800 },
-      new Date("2026-07-22T12:00:00+08:00"),
+      chinaTime(2026, 6, 22, 12, 0, 0),
     );
     expect(pace.todayRemainingPercent).toBeCloseTo(13.3333, 2);
     expect(pace.averageRate).toBeCloseTo(20, 2);
   });
 
   it("automatically increases tomorrow's budget when quota is conserved", () => {
-    const startsAt = new Date("2026-07-20T00:00:00+08:00");
+    const startsAt = chinaTime(2026, 6, 20, 0, 0, 0);
     const resetsAt = new Date(startsAt.getTime() + 7 * 86_400_000);
     const today = calculateQuotaPace(
       { remainingPercent: 80, resetsAt: resetsAt.toISOString(), windowSeconds: 604_800 },
-      new Date("2026-07-22T04:00:00+08:00"),
+      chinaTime(2026, 6, 22, 4, 0, 0),
     );
     const tomorrow = calculateQuotaPace(
       { remainingPercent: 75, resetsAt: resetsAt.toISOString(), windowSeconds: 604_800 },
-      new Date("2026-07-23T04:00:00+08:00"),
+      chinaTime(2026, 6, 23, 4, 0, 0),
     );
 
     expect(today.todayRemainingPercent).toBeCloseTo(16.5517, 2);
@@ -90,13 +91,13 @@ describe("quota pace", () => {
   });
 
   it("keeps the daily suggestion fixed while live usage spends against it", () => {
-    const now = new Date("2026-07-22T08:00:00+08:00");
-    const resetsAt = new Date("2026-07-25T20:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 8, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 25, 20, 0, 0).toISOString();
     const [baseline] = Object.values(refreshDailyPaceBaselines({}, [codexSnapshot(70, resetsAt)], now));
     const initial = calculateQuotaPace(codexSnapshot(70, resetsAt).weeklyWindow!, now, baseline);
     const refreshed = calculateQuotaPace(
       codexSnapshot(65, resetsAt).weeklyWindow!,
-      new Date("2026-07-22T13:00:00+08:00"),
+      chinaTime(2026, 6, 22, 13, 0, 0),
       baseline,
     );
 
@@ -105,8 +106,8 @@ describe("quota pace", () => {
   });
 
   it("charges Codex usage since reset against today's plan when tracking starts late", () => {
-    const now = new Date("2026-07-22T08:00:00+08:00");
-    const resetsAt = new Date("2026-07-27T08:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 8, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 27, 8, 0, 0).toISOString();
     const baselines = refreshDailyPaceBaselines({}, [codexSnapshot(70, resetsAt)], now);
     const baseline = baselines[paceBaselineKey("codex", "weekly")];
     const pace = calculateQuotaPace(codexSnapshot(70, resetsAt).weeklyWindow!, now, baseline);
@@ -117,8 +118,8 @@ describe("quota pace", () => {
   });
 
   it("restarts the consumption estimate after an early Codex reset", () => {
-    const now = new Date("2026-07-22T08:00:00+08:00");
-    const resetsAt = new Date("2026-08-03T08:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 8, 0, 0);
+    const resetsAt = chinaTime(2026, 7, 3, 8, 0, 0).toISOString();
     const baselines = refreshDailyPaceBaselines(
       {},
       [codexSnapshot(100, resetsAt)],
@@ -138,15 +139,15 @@ describe("quota pace", () => {
 
     const tracked = calculateQuotaPace(
       codexSnapshot(95, resetsAt).weeklyWindow!,
-      new Date("2026-07-22T09:00:00+08:00"),
+      chinaTime(2026, 6, 22, 9, 0, 0),
       baseline,
     );
     expect(tracked.usedPercent).toBe(5);
   });
 
   it("weights the Radar reset window against the guaranteed weekly reset", () => {
-    const now = new Date("2026-07-22T04:00:00+08:00");
-    const resetsAt = new Date("2026-07-27T04:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 4, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 27, 4, 0, 0).toISOString();
     const adjusted = Date.parse(forecastAdjustedResetAt(resetsAt, now, resetForecast(80)));
 
     // 80% × the 24h window midpoint + 20% × the guaranteed 120h reset = 43.2h.
@@ -154,22 +155,22 @@ describe("quota pace", () => {
   });
 
   it("falls back to the weekly reset when the Radar forecast is invalid", () => {
-    const now = new Date("2026-07-22T00:00:00+08:00");
-    const resetsAt = new Date("2026-07-27T00:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 0, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 27, 0, 0, 0).toISOString();
 
     expect(forecastAdjustedResetAt(resetsAt, now, { ...resetForecast(80), score: Number.NaN })).toBe(resetsAt);
   });
 
   it("captures Radar once per day and applies it to the daily suggestion", () => {
-    const now = new Date("2026-07-22T04:00:00+08:00");
-    const resetsAt = new Date("2026-07-27T04:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 4, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 27, 4, 0, 0).toISOString();
     const first = refreshDailyPaceBaselines({}, [codexSnapshot(70, resetsAt)], now, new Set(), resetForecast(80));
     const baseline = first[paceBaselineKey("codex", "weekly")];
     const pace = calculateQuotaPace(codexSnapshot(70, resetsAt).weeklyWindow!, now, baseline);
     const sameDay = refreshDailyPaceBaselines(
       first,
       [codexSnapshot(65, resetsAt)],
-      new Date("2026-07-22T12:00:00+08:00"),
+      chinaTime(2026, 6, 22, 12, 0, 0),
       new Set(),
       resetForecast(10),
     );
@@ -182,18 +183,18 @@ describe("quota pace", () => {
   });
 
   it("uses the latest Radar probability when the next local day begins", () => {
-    const resetsAt = new Date("2026-07-27T00:00:00+08:00").toISOString();
+    const resetsAt = chinaTime(2026, 6, 27, 0, 0, 0).toISOString();
     const first = refreshDailyPaceBaselines(
       {},
       [codexSnapshot(70, resetsAt)],
-      new Date("2026-07-22T00:00:00+08:00"),
+      chinaTime(2026, 6, 22, 0, 0, 0),
       new Set(),
       resetForecast(80),
     );
     const nextDay = refreshDailyPaceBaselines(
       first,
       [codexSnapshot(65, resetsAt)],
-      new Date("2026-07-23T00:00:00+08:00"),
+      chinaTime(2026, 6, 23, 0, 0, 0),
       new Set(),
       resetForecast(10),
     );
@@ -206,10 +207,10 @@ describe("quota pace", () => {
   });
 
   it("recalculates next day from leftover quota and the exact projected reset time", () => {
-    const resetsAt = new Date("2026-07-25T12:00:00+08:00").toISOString();
-    const firstDay = new Date("2026-07-22T08:00:00+08:00");
+    const resetsAt = chinaTime(2026, 6, 25, 12, 0, 0).toISOString();
+    const firstDay = chinaTime(2026, 6, 22, 8, 0, 0);
     const first = refreshDailyPaceBaselines({}, [codexSnapshot(70, resetsAt)], firstDay);
-    const nextDay = new Date("2026-07-23T04:00:00+08:00");
+    const nextDay = chinaTime(2026, 6, 23, 4, 0, 0);
     const next = refreshDailyPaceBaselines(first, [codexSnapshot(66, resetsAt)], nextDay);
     const baseline = next[paceBaselineKey("codex", "weekly")];
     const pace = calculateQuotaPace(codexSnapshot(66, resetsAt).weeklyWindow!, nextDay, baseline);
@@ -223,15 +224,15 @@ describe("quota pace", () => {
   });
 
   it("preserves an early Codex reset anchor across local-day rebalancing", () => {
-    const resetAt = new Date("2026-07-22T08:00:00+08:00");
-    const resetsAt = new Date("2026-08-03T08:00:00+08:00").toISOString();
+    const resetAt = chinaTime(2026, 6, 22, 8, 0, 0);
+    const resetsAt = chinaTime(2026, 7, 3, 8, 0, 0).toISOString();
     const first = refreshDailyPaceBaselines(
       {},
       [codexSnapshot(100, resetsAt)],
       resetAt,
       new Set(["codex"]),
     );
-    const nextDay = new Date("2026-07-23T04:00:00+08:00");
+    const nextDay = chinaTime(2026, 6, 23, 4, 0, 0);
     const next = refreshDailyPaceBaselines(first, [codexSnapshot(95, resetsAt)], nextDay);
     const baseline = next[paceBaselineKey("codex", "weekly")];
     const pace = calculateQuotaPace(codexSnapshot(95, resetsAt).weeklyWindow!, nextDay, baseline);
@@ -243,16 +244,16 @@ describe("quota pace", () => {
   });
 
   it("starts a new daily pace baseline at 4:00", () => {
-    const resetsAt = new Date("2026-07-27T04:00:00+08:00").toISOString();
+    const resetsAt = chinaTime(2026, 6, 27, 4, 0, 0).toISOString();
     const beforeFour = refreshDailyPaceBaselines(
       {},
       [codexSnapshot(70, resetsAt)],
-      new Date("2026-07-22T03:59:00+08:00"),
+      chinaTime(2026, 6, 22, 3, 59, 0),
     );
     const atFour = refreshDailyPaceBaselines(
       beforeFour,
       [codexSnapshot(70, resetsAt)],
-      new Date("2026-07-22T04:00:00+08:00"),
+      chinaTime(2026, 6, 22, 4, 0, 0),
     );
 
     expect(atFour[paceBaselineKey("codex", "weekly")].localDate)
@@ -260,21 +261,21 @@ describe("quota pace", () => {
   });
 
   it("reanchors immediately when the projected weekly reset timestamp changes", () => {
-    const now = new Date("2026-07-22T08:00:00+08:00");
-    const oldReset = new Date("2026-07-26T08:00:00+08:00").toISOString();
-    const newReset = new Date("2026-07-25T08:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 8, 0, 0);
+    const oldReset = chinaTime(2026, 6, 26, 8, 0, 0).toISOString();
+    const newReset = chinaTime(2026, 6, 25, 8, 0, 0).toISOString();
     const oldBaselines = refreshDailyPaceBaselines({}, [codexSnapshot(70, oldReset)], now);
-    const next = refreshDailyPaceBaselines(oldBaselines, [codexSnapshot(68, newReset)], new Date("2026-07-22T09:00:00+08:00"));
+    const next = refreshDailyPaceBaselines(oldBaselines, [codexSnapshot(68, newReset)], chinaTime(2026, 6, 22, 9, 0, 0));
     const baseline = next[paceBaselineKey("codex", "weekly")];
 
     expect(baseline.resetsAt).toBe(newReset);
     expect(baseline.remainingPercent).toBe(68);
-    expect(baseline.capturedAt).toBe(new Date("2026-07-22T09:00:00+08:00").toISOString());
+    expect(baseline.capturedAt).toBe(chinaTime(2026, 6, 22, 9, 0, 0).toISOString());
   });
 
   it("preserves the daily baseline through a transient provider failure", () => {
-    const now = new Date("2026-07-22T08:00:00+08:00");
-    const resetsAt = new Date("2026-07-26T08:00:00+08:00").toISOString();
+    const now = chinaTime(2026, 6, 22, 8, 0, 0);
+    const resetsAt = chinaTime(2026, 6, 26, 8, 0, 0).toISOString();
     const current = refreshDailyPaceBaselines({}, [codexSnapshot(70, resetsAt)], now);
     const unavailable = {
       ...codexSnapshot(0, resetsAt),
@@ -282,8 +283,8 @@ describe("quota pace", () => {
       status: "unavailable" as const,
     };
 
-    expect(refreshDailyPaceBaselines(current, [unavailable], new Date("2026-07-22T09:00:00+08:00"))).toEqual(current);
-    expect(refreshDailyPaceBaselines(current, [{ ...unavailable, status: "signed_out" }], new Date("2026-07-22T09:00:00+08:00"))).toEqual({});
+    expect(refreshDailyPaceBaselines(current, [unavailable], chinaTime(2026, 6, 22, 9, 0, 0))).toEqual(current);
+    expect(refreshDailyPaceBaselines(current, [{ ...unavailable, status: "signed_out" }], chinaTime(2026, 6, 22, 9, 0, 0))).toEqual({});
   });
 
   it("tracks only the weekly Codex window even when compatibility data includes 5h", () => {

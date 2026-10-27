@@ -57,3 +57,18 @@ System/YaHei/Times/FZ fonts depend on local installation; never bundle proprieta
 files. Browser checks do not replace macOS and Windows native-window smoke tests.
 
 macOS Dock presence: launch the packaged app from Applications and confirm no Dock icon appears. Open/close the control center through the widget and menu bar, then relaunch and repeat. If tray creation fails, the app must retain its Dock/taskbar fallback so the window remains reachable. Also verify normal Windows tray behavior.
+
+## 中国时区与跨设备日期
+
+- 在 `TZ=America/Los_Angeles` 和 `TZ=Asia/Shanghai` 下分别运行完整前端及 Rust 测试。测试日期明确携带时区，不把宿主机设置偷偷切回中国来掩盖问题。
+- Token、金额、日历、个人快照完整性与同步范围固定为中国自然日；额度计划仍以北京时间 04:00 换日。
+- 覆盖北京时间午夜、04:00、跨年、美国夏令时重复小时；同一事件的累计增量只记录一次。
+- 旧的无时区日汇总不与新口径相加。完整重扫且覆盖原总量后整体重建；部分扫描或缺失历史保留旧汇总并标记 `timeZonePending` / partial。
+- 已迁移的同设备快照优先于总量不更大的旧云端副本，避免重复迁移。所有序列化继续只允许统计字段。
+
+## 模型与任务视图一致性
+
+- 两种视图、顶部总量和日历使用同一任务明细快照；切换视图不重新请求扫描。补扫前缀不混入旧时区账本。
+- 测试旧模型汇总与新任务金额冲突、子 Agent 折叠、同设备回声、重复任务 ID、最新远端快照、部分计价、日历范围和滚动周期。
+- 只有汇总的设备显式显示未归属任务/模型；日期边界匹配的旧范围汇总仍保留，日历筛选不伪造逐日拆分。
+- 这只是内存中的统一展示投影，不覆盖磁盘或云端历史；扫描未完成时明确标记部分数据。

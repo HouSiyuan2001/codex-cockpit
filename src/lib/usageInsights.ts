@@ -1,3 +1,4 @@
+import { localDateKey as beijingDateKey, dateAtBeijingNoon } from "./usageDay";
 import { clampPercent } from "./format";
 import { MAX_DAILY_OBSERVED_PERCENT } from "../types";
 import type { DailyUsageSummary, ProviderId, QuotaHistoryPoint } from "../types";
@@ -23,14 +24,11 @@ export interface QuotaTrendGeometry {
 }
 
 function dateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return beijingDateKey(date);
 }
 
 export function mondayWeekdayIndex(date: Date): number {
-  return (date.getDay() + 6) % 7;
+  return (dateAtBeijingNoon(beijingDateKey(date)).getUTCDay() + 6) % 7;
 }
 
 function usageLevel(value: number | null): UsageCalendarDay["level"] {
@@ -72,8 +70,8 @@ export function buildUsageCalendar(
   );
   const recovered = usageFromHistory(history, provider);
   const days: UsageCalendarDay[] = [];
-  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
-  cursor.setDate(cursor.getDate() - Math.max(0, dayCount - 1));
+  const cursor = dateAtBeijingNoon(beijingDateKey(now));
+  cursor.setUTCDate(cursor.getUTCDate() - Math.max(0, dayCount - 1));
   for (let index = 0; index < dayCount; index += 1) {
     const date = new Date(cursor);
     const localDate = dateKey(date);
@@ -89,7 +87,7 @@ export function buildUsageCalendar(
       sampleCount: summary?.sampleCount ?? (recoveredValue !== undefined ? 2 : 0),
       level: usageLevel(observedUsedPercent),
     });
-    cursor.setDate(cursor.getDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return days;
 }

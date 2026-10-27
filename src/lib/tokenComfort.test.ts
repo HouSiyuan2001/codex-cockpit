@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import type { ComfortCode, ComfortFeedbackRecord } from "../types";
 import type { DailyModelUsage, ModelUsage, TokeiDevice, TokeiUsage } from "./tokeiUsage";
@@ -10,8 +11,8 @@ import {
 } from "./tokenComfort";
 
 const targetDate = "2026-09-09";
-const dayEnd = new Date(2026, 8, 10, 0, 0, 0, 0);
-const fetchedAt = new Date(2026, 8, 10, 12, 0, 0, 0);
+const dayEnd = chinaTime(2026, 8, 10, 0, 0, 0, 0);
+const fetchedAt = chinaTime(2026, 8, 10, 12, 0, 0, 0);
 
 function model(id: string, input: number, cached: number, output: number, reasoning = 0): ModelUsage {
   return {

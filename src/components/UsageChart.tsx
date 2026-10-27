@@ -63,8 +63,8 @@ export function UsageChart({ rows, total, knownTotal, period, devices, ids, zh, 
     days.set(key, bin);
   }
   if (period !== "all") {
-    const cursor = new Date(`${start}T12:00:00`);
-    while (localDateKey(cursor) <= end) { const key = localDateKey(cursor); if (!days.has(key)) days.set(key, { total: -1, models: new Map() }); cursor.setDate(cursor.getDate() + 1); }
+    const cursor = new Date(`${start}T12:00:00+08:00`);
+    while (localDateKey(cursor) <= end) { const key = localDateKey(cursor); if (!days.has(key)) days.set(key, { total: -1, models: new Map() }); cursor.setUTCDate(cursor.getUTCDate() + 1); }
   }
   const bins = [...days.entries()].sort(([a], [b]) => a.localeCompare(b));
   const max = Math.max(1, ...bins.map(([, day]) => day.total));

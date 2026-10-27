@@ -1,7 +1,8 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { aggregateGlobalUsage, aggregateGroupUsage, canonicalModelId, createUsagePreview, formatTokens, periodStart, validateGroupSettings, withLiveLocalUsage, type ProjectUsageSnapshot } from "./tokeiUsage";
 
-const now = new Date(2026, 8, 10, 12);
+const now = chinaTime(2026, 8, 10, 12);
 
 describe("personal Codex usage", () => {
   it("inserts the native local ledger only once and preserves it during a partial rescan", () => {
@@ -81,7 +82,7 @@ describe("personal Codex usage", () => {
     data.devices[0].daily = {};
     expect(aggregateGroupUsage(data, "demo", "all", now).models).toEqual(result.models);
     data.devices[0].ranges.all.models[0].estimatedCostUsd = null;
-    expect(aggregateGroupUsage(data, "demo", "all", now).models[0].estimatedCostUsd).toBeNull();
+    expect(aggregateGroupUsage(data, "demo", "all", now).models[0]).toMatchObject({ estimatedCostUsd: 0.3, costIncomplete: true });
     expect(canonicalModelId("tokei-name:openai/GPT-6-ASTRA")).toBe("gpt-6-astra");
     expect(canonicalModelId("gpt-6-astra-2026-09-01")).not.toBe("gpt-6-astra");
     expect(canonicalModelId("other/gpt-6-astra")).toBe("other/gpt-6-astra");
@@ -89,6 +90,9 @@ describe("personal Codex usage", () => {
     expect(canonicalModelId("openai/gpt-6-sol")).toBe("gpt-6-sol");
     expect(canonicalModelId("tokei-name:openai/GPT-6.1-SOL")).toBe("gpt-6.1-sol");
     expect(canonicalModelId("gpt-6.1-sol")).not.toBe(canonicalModelId("gpt-6-sol"));
+    expect(canonicalModelId("tokei-name:openai/GPT-6.1-TERRA")).toBe("gpt-6.1-terra");
+    expect(canonicalModelId("gpt-6.1-terra")).not.toBe(canonicalModelId("gpt-5.6-terra"));
+    expect(canonicalModelId("gpt-6.1-terra")).not.toBe(canonicalModelId("gpt-6.1-sol"));
     expect(canonicalModelId("tokei-name:openai/GPT-6-LUNA")).toBe("gpt-6-luna");
     expect(canonicalModelId("gpt-6-sol")).not.toBe(canonicalModelId("gpt-5.6-sol"));
   });
@@ -133,7 +137,7 @@ describe("personal Codex usage", () => {
     expect(aggregateGroupUsage(data, "demo", "today", now).totalTokens).toBe(2000000);
     expect(aggregateGroupUsage(data, "demo", "7d", now).totalTokens).toBe(4000000);
     expect(aggregateGroupUsage(data, "demo", "month", now).totalTokens).toBe(6000000);
-    expect(periodStart("7d", new Date(2026, 0, 3))).toBe("2025-12-28");
+    expect(periodStart("7d", chinaTime(2026, 0, 3))).toBe("2025-12-28");
   });
   it("exposes missing model data and missing costs without inventing zero", () => {
     const data = createUsagePreview(now);
@@ -144,7 +148,7 @@ describe("personal Codex usage", () => {
     expect(result.estimatedCostUsd).toBeNull();
     expect(result.incompleteModels).toBe(true);
     expect(result.missingDeviceIds).toEqual(["Offline"]);
-    expect(aggregateGroupUsage(data, "demo", "today", new Date(2026, 8, 12)).estimatedCostUsd).toBeNull();
+    expect(aggregateGroupUsage(data, "demo", "today", chinaTime(2026, 8, 12)).estimatedCostUsd).toBeNull();
   });
   it("accepts arbitrary names but rejects ambiguous duplicate membership", () => {
     expect(validateGroupSettings({ groups: [{ id: "a", name: "My research", deviceIds: ["a"] }], defaultGroupId: "a" })).toBe(true);

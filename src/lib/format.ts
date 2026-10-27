@@ -1,3 +1,4 @@
+import { USAGE_TIME_ZONE } from "./usageDay";
 import { copy, normalizeLanguage } from "./i18n";
 import type { Language, ProviderSnapshot } from "../types";
 
@@ -39,18 +40,14 @@ export function needsFastRefresh(snapshot: ProviderSnapshot, now = new Date()): 
 export function formatResetDate(value: string | null, language: Language = "zh-CN"): string {
   const t = copy[normalizeLanguage(language)];
   if (!value) return t.dateUnknown;
-  const isoDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  if (isoDate) {
-    return `${Number(isoDate[2])}/${Number(isoDate[3])}`;
-  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return t.dateUnknown;
-  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { month: "numeric", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, month: "numeric", day: "numeric" }).format(date);
 }
 
 export function formatDateTime(value: string, language: Language): string {
   const t = copy[normalizeLanguage(language)];
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return t.creditExpiresUnknown;
-  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }

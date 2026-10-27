@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6,7 +7,7 @@ import { createUsagePreview } from "../lib/tokeiUsage";
 import { UsageCalendar } from "./UsageCalendar";
 afterEach(cleanup);
 it("stays collapsed until opened and chooses day, week, month, quarter and year", () => {
-  const now = new Date(2026, 8, 22, 12), onSelect = vi.fn(), onMetricChange = vi.fn();
+  const now = chinaTime(2026, 8, 22, 12), onSelect = vi.fn(), onMetricChange = vi.fn();
   render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={onSelect} onMetricChange={onMetricChange} now={now} />);
   const open = () => fireEvent.click(screen.getByRole("button", { name: "日历" }));
   expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
@@ -47,7 +48,7 @@ it("stays collapsed until opened and chooses day, week, month, quarter and year"
 });
 
 it("keeps the heatmap as the focus without duplicate footer actions", () => {
-  const now = new Date(2026, 8, 22, 12);
+  const now = chinaTime(2026, 8, 22, 12);
   render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={vi.fn()} onMetricChange={vi.fn()} now={now} />);
   const trigger = screen.getByRole("button", { name: "日历" });
   fireEvent.click(trigger);
@@ -65,7 +66,7 @@ it("keeps the heatmap as the focus without duplicate footer actions", () => {
 });
 
 it("renders in a side panel and keeps it open after selecting a date", () => {
-  const now = new Date(2026, 8, 22, 12), onSelect = vi.fn();
+  const now = chinaTime(2026, 8, 22, 12), onSelect = vi.fn();
   const target = document.createElement("aside");
   document.body.append(target);
   render(<UsageCalendar zh devices={createUsagePreview(now).devices} metric="cost" selection={null} onSelect={onSelect} onMetricChange={vi.fn()} now={now} open portalTarget={target} onOpenChange={vi.fn()} />);
@@ -74,4 +75,17 @@ it("renders in a side panel and keeps it open after selecting a date", () => {
   expect(onSelect).toHaveBeenCalledWith({ start: "2026-09-22", end: "2026-09-22", scale: "day" });
   expect(target.querySelector('[role="region"]')).toBeInTheDocument();
   target.remove();
+});
+
+it("opens the China month across an American year boundary", () => {
+  const now = new Date("2026-12-31T08:30:00-08:00");
+  const data = createUsagePreview(now);
+  const onSelect = vi.fn();
+  render(<UsageCalendar devices={data.devices} metric="tokens" zh selection={null} onSelect={onSelect} onMetricChange={vi.fn()} now={now} open />);
+  expect(screen.getByRole("region", { name: "用量日历" })).toHaveTextContent("2027 / 1");
+  const today = screen.getByRole("button", { name: /^2027-01-01 ·/ });
+  expect(today).not.toBeDisabled();
+  fireEvent.click(today);
+  expect(onSelect).toHaveBeenLastCalledWith({ start: "2027-01-01", end: "2027-01-01", scale: "day" });
+  expect(screen.getByRole("button", { name: /^2027-01-02 ·/ })).toBeDisabled();
 });

@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import type { CodexDailyUsage, ProviderSnapshot } from "../types";
 import { buildTodayQuotaAdvice, dailyUsageRatio } from "./todayQuota";
@@ -87,13 +88,13 @@ describe("today quota advice", () => {
       status,
       weeklyWindow: { remainingPercent: 70, resetsAt: weeklyReset, windowSeconds: 604_800 },
       dailyUsage: dailyUsage(3),
-      now: new Date("2026-08-14T03:59:00+08:00"),
+      now: chinaTime(2026, 7, 14, 3, 59),
     });
     const atFour = buildTodayQuotaAdvice({
       status,
       weeklyWindow: { remainingPercent: 70, resetsAt: weeklyReset, windowSeconds: 604_800 },
       dailyUsage: dailyUsage(3),
-      now: new Date("2026-08-14T04:00:00+08:00"),
+      now: chinaTime(2026, 7, 14, 4, 0),
     });
 
     expect(beforeFour.todayUsedPercent).toBe(3);

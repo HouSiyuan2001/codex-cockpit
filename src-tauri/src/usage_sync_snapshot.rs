@@ -3,7 +3,7 @@ use crate::{
     codex_project_usage::{affects_token_coverage, ProjectUsageSnapshot},
     tokei_usage::{self, Metrics, UsagePeriod},
 };
-use chrono::{Datelike, Duration, Local, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -146,7 +146,12 @@ pub fn build(
     collected: &ProjectUsageSnapshot,
     baselines: &[Value],
 ) -> Result<Value, String> {
-    build_at(device_id, collected, baselines, Local::now().date_naive())
+    build_at(
+        device_id,
+        collected,
+        baselines,
+        crate::usage_time::calendar_day(&Utc::now()),
+    )
 }
 pub(crate) fn build_at(
     device_id: &str,
@@ -154,10 +159,82 @@ pub(crate) fn build_at(
     baselines: &[Value],
     today: NaiveDate,
 ) -> Result<Value, String> {
+    // Legacy daily aggregates have no event timestamps and cannot be shifted
+    // between timezones. Rebuild them atomically only after a complete rescan
+    // covers the old total. Until then return the old ledger, never a sum of
+    // China-dated records and host-dated records of the same events.
+    let candidates: Vec<_> = baselines
+        .iter()
+        .filter(|value| value["_device"].as_str() == Some(device_id))
+        .filter_map(|value| {
+            let device = tokei_usage::parse_device(value, device_id, None)?;
+            let daily = device
+                .daily
+                .values()
+                .map(|day| u128::from(day.metrics.total_tokens))
+                .sum::<u128>();
+            let total = daily.max(
+                device
+                    .ranges
+                    .get("all")
+                    .map_or(0, |range| u128::from(range.metrics.total_tokens)),
+            );
+            (total > 0).then_some((value, total))
+        })
+        .collect();
+    let china_total = candidates
+        .iter()
+        .filter(|(value, _)| {
+            value["_cockpit"]["timeZone"].as_str() == Some(crate::usage_time::TIME_ZONE)
+        })
+        .map(|(_, total)| *total)
+        .max();
+    let migrating = candidates.iter().any(|(value, total)| {
+        value["_cockpit"]["timeZone"].as_str() != Some(crate::usage_time::TIME_ZONE)
+            && china_total.is_none_or(|known| *total > known)
+    });
+    if let Some((previous, old_total)) = candidates
+        .iter()
+        .filter(|_| migrating)
+        .max_by_key(|(_, total)| *total)
+    {
+        let new_total: u128 = collected
+            .projects
+            .iter()
+            .flat_map(|project| project.daily.values())
+            .map(|day| u128::from(day.metrics.total_tokens))
+            .sum();
+        let complete = collected.status == "ready"
+            && !collected
+                .warnings
+                .iter()
+                .any(|warning| affects_token_coverage(warning));
+        if !complete || new_total < *old_total {
+            // Feed the held ledger through the normal allowlist serializer;
+            // never echo arbitrary fields from a previous snapshot.
+            let mut baseline = (*previous).clone();
+            if !baseline["_cockpit"].is_object() {
+                baseline["_cockpit"] = json!({});
+            }
+            let original_zone = baseline["_cockpit"]["timeZone"].clone();
+            baseline["_cockpit"]["timeZone"] = json!(crate::usage_time::TIME_ZONE);
+            let mut empty = collected.clone();
+            empty.projects.clear();
+            empty.status = "partial".into();
+            let mut retained = build_at(device_id, &empty, &[baseline], today)?;
+            retained["_cockpit"]["timeZone"] = original_zone;
+            retained["_cockpit"]["timeZonePending"] = json!(true);
+            return Ok(retained);
+        }
+    }
     let mut days: BTreeMap<String, UsagePeriod> = BTreeMap::new();
     let mut native_days: BTreeSet<String> = BTreeSet::new();
     let mut old_ranges: BTreeMap<String, UsagePeriod> = BTreeMap::new();
-    for value in baselines {
+    for value in baselines.iter().filter(|value| {
+        !migrating
+            && (china_total.is_none()
+                || value["_cockpit"]["timeZone"].as_str() == Some(crate::usage_time::TIME_ZONE))
+    }) {
         if value["_device"].as_str() != Some(device_id) {
             continue;
         }
@@ -325,7 +402,7 @@ pub(crate) fn build_at(
     };
     let payload = json!({"_device":device_id,"_ts":Utc::now().timestamp(),"_range_bounds":bounds,
         "codex":{"ranges":ranges},"_ledger":{"v":1,"tools":{"codex":ledger}},
-        "_cockpit":{"schemaVersion":1,"collectedAt":collected.updated_at,"status":status,"retainedDays":retained_days,"nativeDays":native_days}});
+        "_cockpit":{"timeZone":crate::usage_time::TIME_ZONE,"schemaVersion":1,"collectedAt":collected.updated_at,"status":status,"retainedDays":retained_days,"nativeDays":native_days}});
     if serde_json::to_vec(&payload)
         .map_err(|_| "snapshot_invalid")?
         .len()
@@ -388,6 +465,57 @@ mod tests {
             }],
         }
     }
+    #[test]
+    fn timezone_migration_replaces_complete_history_without_double_counting() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 11).unwrap();
+        let mut legacy = build_at("device", &fixture(100), &[], today).unwrap();
+        legacy["_cockpit"]
+            .as_object_mut()
+            .unwrap()
+            .remove("timeZone");
+        legacy["foreign"] = json!("never-sync");
+        let original = legacy.clone();
+        let mut new = fixture(100);
+        let day = new.projects[0].daily.remove("2026-09-10").unwrap();
+        new.projects[0].daily.insert("2026-09-11".into(), day);
+        let held = build_at("device", &new, &[legacy.clone()], today).unwrap();
+        assert_eq!(held["_cockpit"]["timeZonePending"], true);
+        assert!(!held.to_string().contains("never-sync"));
+        let old = tokei_usage::parse_device(&held, "device", None).unwrap();
+        assert!(old.daily.contains_key("2026-09-10"));
+        assert!(!old.daily.contains_key("2026-09-11"));
+        new.status = "ready".into();
+        let rebuilt = build_at("device", &new, &[held], today).unwrap();
+        assert_eq!(rebuilt["_cockpit"]["timeZone"], "Asia/Shanghai");
+        let parsed = tokei_usage::parse_device(&rebuilt, "device", None).unwrap();
+        assert_eq!(parsed.daily.len(), 1);
+        assert_eq!(parsed.daily["2026-09-11"].metrics.total_tokens, 100);
+        assert_eq!(parsed.ranges["all"].metrics.total_tokens, 100);
+        // A stale pre-upgrade cloud echo cannot undo a completed migration.
+        let repeat = build_at("device", &new, &[legacy.clone(), rebuilt], today).unwrap();
+        let repeated = tokei_usage::parse_device(&repeat, "device", None).unwrap();
+        assert_eq!(repeated.daily.len(), 1);
+        assert_eq!(repeated.daily["2026-09-11"].metrics.total_tokens, 100);
+        assert_eq!(legacy, original);
+    }
+
+    #[test]
+    fn timezone_migration_retains_missing_history_even_after_a_complete_scan() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 10).unwrap();
+        let mut legacy = build_at("device", &fixture(200), &[], today).unwrap();
+        legacy["_cockpit"]
+            .as_object_mut()
+            .unwrap()
+            .remove("timeZone");
+        let mut smaller = fixture(100);
+        smaller.status = "ready".into();
+        let retained = build_at("device", &smaller, &[legacy], today).unwrap();
+        assert_eq!(retained["_cockpit"]["timeZonePending"], true);
+        let parsed = tokei_usage::parse_device(&retained, "device", None).unwrap();
+        assert_eq!(parsed.ranges["all"].metrics.total_tokens, 200);
+        assert!(parsed.collection_partial);
+    }
+
     #[test]
     fn task_sync_is_explicit_allowlisted_and_size_bounded() {
         let mut source = fixture(100);

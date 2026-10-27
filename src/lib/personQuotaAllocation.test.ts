@@ -1,10 +1,11 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import type { ComfortQuotaAllocation } from "../types";
 import type { DailyModelUsage, TokeiDevice, TokeiUsage } from "./tokeiUsage";
 import { buildPersonQuotaAllocation, PERSON_QUOTA_ALLOCATION_VERSION } from "./personQuotaAllocation";
 
 const targetDate = "2026-09-09";
-const now = new Date(2026, 8, 10, 12);
+const now = chinaTime(2026, 8, 10, 12);
 
 function day(cost: number | null): DailyModelUsage {
   return {

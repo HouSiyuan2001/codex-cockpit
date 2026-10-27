@@ -32,8 +32,8 @@ describe("global user accounting", () => {
     expect(total.users[1].estimatedCostUsd).toBeCloseTo(2.7);
   });
   it("uses the selected period rather than stale range snapshots", () => {
-    const now = new Date("2026-09-10T12:00:00");
-    const data = createUsagePreview(new Date("2026-09-09T12:00:00"));
+    const now = new Date("2026-09-10T12:00:00+08:00");
+    const data = createUsagePreview(new Date("2026-09-09T12:00:00+08:00"));
     expect(aggregateGlobalUsage(data, "today", now).estimatedCostUsd).toBeNull();
     expect(aggregateGlobalUsage(data, "7d", now).estimatedCostUsd).toBeCloseTo(2.7);
   });

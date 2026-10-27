@@ -1,7 +1,7 @@
 //! Local-only allowlisted metadata collector. No messages, credentials, or raw records
 //! leave this module; no network, subprocesses, or persistent cache are used.
 use crate::tokei_usage::{Metrics, ModelUsage, UsagePeriod};
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,7 +26,108 @@ const MAX_METADATA_SECONDS: u64 = 2;
 
 pub(crate) fn affects_token_coverage(warning: &str) -> bool {
     !warning.starts_with("task_metadata_")
-        && !matches!(warning, "missing_model_price" | "cost_context_unavailable")
+        && !matches!(
+            warning,
+            "missing_model_price"
+                | "cost_context_unavailable"
+                | "non_usage_line_skipped"
+                | "session_alias_skipped"
+                | "counter_reset_recovered"
+        )
+}
+
+// Classify only a parsed top-level envelope and (for event_msg) its payload
+// type. Abort parsing as soon as those fields are known: the rest may be a
+// multi-megabyte message, and must never be retained. A token-count, metadata,
+// ambiguous or truncated header remains subject to the strict line limit.
+fn oversized_non_usage_prefix(bytes: &[u8]) -> bool {
+    use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, Visitor};
+    #[derive(Default)]
+    struct Header {
+        kind: Option<String>,
+        event: Option<String>,
+    }
+    struct Prefix<'a> {
+        header: &'a mut Header,
+        payload: bool,
+    }
+    impl<'de> DeserializeSeed<'de> for Prefix<'_> {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, de: D) -> Result<(), D::Error> {
+            de.deserialize_map(self)
+        }
+    }
+    impl<'de> Visitor<'de> for Prefix<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a session record envelope")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "type" {
+                    let kind = map.next_value::<String>()?;
+                    if self.payload {
+                        self.header.event = Some(kind);
+                    } else {
+                        self.header.kind = Some(kind);
+                    }
+                    // This deliberate error stops before parsing the message.
+                    // Classification below uses only successfully parsed fields.
+                    return Err(serde::de::Error::custom("envelope type read"));
+                } else if !self.payload && key == "payload" {
+                    map.next_value_seed(Prefix {
+                        header: self.header,
+                        payload: true,
+                    })?;
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(())
+        }
+    }
+    // The normal envelope puts type before payload. Read the payload header in
+    // a second bounded pass, retaining neither a body nor arbitrary fields.
+    struct EventPrefix<'a>(&'a mut Header);
+    impl<'de> Visitor<'de> for EventPrefix<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("an event envelope")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "payload" {
+                    map.next_value_seed(Prefix {
+                        header: self.0,
+                        payload: true,
+                    })?;
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(())
+        }
+    }
+    let mut header = Header::default();
+    let _ = Prefix {
+        header: &mut header,
+        payload: false,
+    }
+    .deserialize(&mut serde_json::Deserializer::from_slice(bytes));
+    if matches!(header.kind.as_deref(), Some("response_item" | "compacted")) {
+        return true;
+    }
+    if header.kind.as_deref() != Some("event_msg") {
+        return false;
+    }
+    let _ = serde::Deserializer::deserialize_map(
+        &mut serde_json::Deserializer::from_slice(bytes),
+        EventPrefix(&mut header),
+    );
+    header
+        .event
+        .as_deref()
+        .is_some_and(|kind| safe_text(kind) && kind != "token_count")
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -383,9 +484,11 @@ impl Pricing {
         // Offline Standard API-equivalent text rates per 1M tokens, checked
         // against the exact official model pages on 2026-10-12. See
         // docs/LOCAL-PRICING.md for sources and estimation limits.
+        // GPT-6.1 Terra added from its official model page on 2026-10-27.
         // Existing catalog entries and local overrides take precedence.
         for (id, input, cache_read, output) in [
             ("openai/gpt-6.1-sol", 2.0, 0.10, 10.0),
+            ("openai/gpt-6.1-terra", 1.0, 0.05, 5.0),
             ("openai/gpt-6-astra", 10.0, 1.0, 50.0),
             ("openai/gpt-6-sol", 2.0, 0.20, 10.0),
             ("openai/gpt-6-luna", 0.10, 0.01, 0.50),
@@ -517,7 +620,7 @@ impl Pricing {
         if origin == PricingOrigin::None {
             origin = PricingOrigin::Builtin;
             pricing.meta = Some(PricingMeta {
-                updated_at: Some("2026-10-12".into()),
+                updated_at: Some("2026-10-27".into()),
             });
         }
         if !app_catalog.is_some_and(|p| p.file_name().is_some_and(|n| n == "cloud-pricing.json")) {
@@ -893,6 +996,7 @@ struct FileState {
     model: String,
     owner: (String, String),
     discarding: bool,
+    discarding_non_usage: bool,
     lineage: String,
     task_id: String,
     modified: Option<SystemTime>,
@@ -909,6 +1013,7 @@ impl Default for FileState {
             model: "unknown".into(),
             owner: unassigned(),
             discarding: false,
+            discarding_non_usage: false,
             lineage: "unknown-session".into(),
             task_id: "unlinked-session".into(),
             modified: None,
@@ -1117,9 +1222,22 @@ impl Collector {
             };
             self.bytes += size;
             if size > MAX_LINE || state.discarding {
-                self.warnings.insert("line_limit".into());
+                if !state.discarding {
+                    state.discarding_non_usage = oversized_non_usage_prefix(&line);
+                }
+                self.warnings.insert(
+                    if state.discarding_non_usage {
+                        "non_usage_line_skipped"
+                    } else {
+                        "line_limit"
+                    }
+                    .into(),
+                );
                 state.discarding = !line.ends_with(b"\n");
                 state.offset += size as u64;
+                if !state.discarding {
+                    state.discarding_non_usage = false;
+                }
                 continue;
             }
             if !line.ends_with(b"\n") {
@@ -1167,7 +1285,16 @@ impl Collector {
                         info.last_token_usage
                             .filter(|last| last.valid() && total.delta(*last).is_some())
                     } else {
-                        total.delta(previous)
+                        total
+                            .delta(previous)
+                            .filter(|delta| delta.valid())
+                            .or_else(|| {
+                                let last = info
+                                    .last_token_usage
+                                    .filter(|last| last.valid() && total.delta(*last).is_some())?;
+                                self.warnings.insert("counter_reset_recovered".into());
+                                Some(last)
+                            })
                     };
                     first_usage = false;
                     previous = total;
@@ -1200,7 +1327,7 @@ impl Collector {
                     if model == "unknown" {
                         self.warnings.insert("unknown_model".into());
                     }
-                    let day = time.with_timezone(&Local).date_naive().to_string();
+                    let day = crate::usage_time::calendar_day(&time).to_string();
                     let p = self
                         .projects
                         .entry(owner.0.clone())
@@ -1275,12 +1402,23 @@ fn add_daily(day: &mut UsagePeriod, model: &str, metrics: &Metrics) {
         });
     }
 }
+#[cfg(test)]
 fn files(
     root: &Path,
     found: &mut Vec<PathBuf>,
     depth: usize,
     warnings: &mut HashSet<String>,
     remaining: &mut usize,
+) {
+    files_with_covered_roots(root, found, depth, warnings, remaining, &[]);
+}
+fn files_with_covered_roots(
+    root: &Path,
+    found: &mut Vec<PathBuf>,
+    depth: usize,
+    warnings: &mut HashSet<String>,
+    remaining: &mut usize,
+    covered_roots: &[PathBuf],
 ) {
     if depth > 5 {
         warnings.insert("directory_depth_limit".into());
@@ -1339,11 +1477,22 @@ fn files(
             return;
         }
         if kind.is_symlink() {
-            warnings.insert("unsafe_source".into());
+            // Do not follow links. A link into an independently enumerated,
+            // trusted source is only an alias; all other targets stay unsafe.
+            let covered = fs::canonicalize(&path)
+                .is_ok_and(|target| covered_roots.iter().any(|root| target.starts_with(root)));
+            warnings.insert(
+                if covered {
+                    "session_alias_skipped"
+                } else {
+                    "unsafe_source"
+                }
+                .into(),
+            );
             continue;
         }
         if kind.is_dir() {
-            files(&path, found, depth + 1, warnings, remaining);
+            files_with_covered_roots(&path, found, depth + 1, warnings, remaining, covered_roots);
         } else if kind.is_file() && path.extension().is_some_and(|x| x == "jsonl") {
             found.push(path);
         }
@@ -1592,14 +1741,21 @@ fn collect_increment_with_catalog(
     }
     let mut paths = Vec::new();
     let mut remaining_entries = 20_000;
+    let covered_roots: Vec<_> = roots
+        .iter()
+        .flat_map(|root| [root.join("sessions"), root.join("archived_sessions")])
+        .filter(|root| safe_path(root))
+        .filter_map(|root| fs::canonicalize(root).ok())
+        .collect();
     for root in roots {
         for name in ["sessions", "archived_sessions"] {
-            files(
+            files_with_covered_roots(
                 &root.join(name),
                 &mut paths,
                 0,
                 &mut c.warnings,
                 &mut remaining_entries,
+                &covered_roots,
             );
         }
     }
@@ -2017,6 +2173,16 @@ mod tests {
             .values()
             .map(|day| day.metrics.total_tokens)
             .sum()
+    }
+    #[test]
+    fn token_events_split_at_china_midnight_and_preserve_totals() {
+        let first = FIRST.replace("2026-01-01T00:00:00Z", "2026-01-01T07:59:59-08:00");
+        let second = SECOND.replace("2026-01-01T01:00:00Z", "2026-01-01T08:00:00-08:00");
+        let c = run(&[CONTEXT, &first, &first, &second, &second]);
+        let project = c.projects.values().next().unwrap();
+        assert_eq!(project.daily.len(), 2);
+        assert_eq!(project.daily["2026-01-01"].metrics.total_tokens, 110);
+        assert_eq!(project.daily["2026-01-02"].metrics.total_tokens, 60);
     }
     #[test]
     fn cumulative_deltas_repeated_last_and_privacy() {
@@ -2798,7 +2964,7 @@ mod tests {
         assert_eq!(pricing.origin.label(), "bundled-catalog");
         assert_eq!(
             pricing.meta.as_ref().unwrap().updated_at.as_deref(),
-            Some("2026-10-12")
+            Some("2026-10-27")
         );
         let counts = Counts {
             input_tokens: 200_000,
@@ -2808,6 +2974,7 @@ mod tests {
         };
         for (model, expected) in [
             ("gpt-6.1-sol", 0.505),
+            ("gpt-6.1-terra", 0.2525),
             ("gpt-6-astra", 2.55),
             ("gpt-6-sol", 0.51),
             ("gpt-6-luna", 0.0255),
@@ -2826,6 +2993,8 @@ mod tests {
             "gpt-6",
             "gpt-6.1",
             "gpt-6.1-sol-unknown",
+            "gpt-6.1-terra-unknown",
+            "other/gpt-6.1-terra",
             "other/gpt-6-astra",
         ] {
             assert!(pricing.estimate(model, counts, Some(counts)).is_none());
@@ -2836,16 +3005,21 @@ mod tests {
     }
 
     #[test]
-    fn fresh_session_prices_the_reported_three_models_and_survives_a_second_scan() {
+    fn fresh_session_prices_the_reported_four_models_and_survives_a_second_scan() {
         let home = metadata_fixture_dir("fresh-priced-session");
         let codex = home.join(".codex");
         fs::create_dir_all(codex.join("sessions")).unwrap();
         let mut records = vec![
             serde_json::json!({"type":"session_meta","payload":{"id":"synthetic-cost-task","cwd":"/synthetic/repo","message":"DO_NOT_EXPORT"}}),
         ];
-        for (index, model) in ["gpt-5.6-luna", "gpt-6-astra", "gpt-6.1-sol"]
-            .into_iter()
-            .enumerate()
+        for (index, model) in [
+            "gpt-5.6-luna",
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+        ]
+        .into_iter()
+        .enumerate()
         {
             let requests = (index + 1) as u64;
             records.push(serde_json::json!({"type":"turn_context","payload":{"model":model}}));
@@ -2882,9 +3056,9 @@ mod tests {
                 .any(|warning| warning == "missing_model_price"
                     || warning == "cost_context_unavailable"));
             let day = result.projects[0].daily.values().next().unwrap();
-            assert_eq!(day.metrics.total_tokens, 660_000);
-            assert!((day.metrics.estimated_cost_usd.unwrap() - 3.11).abs() < 1e-10);
-            assert_eq!(day.models.len(), 3);
+            assert_eq!(day.metrics.total_tokens, 880_000);
+            assert!((day.metrics.estimated_cost_usd.unwrap() - 3.3625).abs() < 1e-10);
+            assert_eq!(day.models.len(), 4);
             assert!(day
                 .models
                 .iter()
@@ -3033,6 +3207,32 @@ mod tests {
         fs::remove_dir_all(home).unwrap();
     }
     #[test]
+    fn builtin_terra_pricing_checks_the_exact_long_context_boundary() {
+        let home = metadata_fixture_dir("terra-context-boundary");
+        let pricing = Pricing::load(&home, None);
+        let base = Counts {
+            input_tokens: 272_000,
+            cached_input_tokens: 50_000,
+            output_tokens: 20_000,
+            reasoning_output_tokens: 10_000,
+        };
+        assert!(
+            (pricing.estimate("gpt-6.1-terra", base, Some(base)).unwrap() - 0.3245).abs() < 1e-10
+        );
+        let long = Counts {
+            input_tokens: 272_001,
+            ..base
+        };
+        assert!(
+            (pricing.estimate("gpt-6.1-terra", long, Some(long)).unwrap() - 0.599002).abs() < 1e-10
+        );
+        assert!(pricing.estimate("gpt-6.1-terra", long, None).is_none());
+        assert!(pricing
+            .estimate("gpt-6.1-terra", long, Some(base))
+            .is_none());
+        fs::remove_dir_all(home).unwrap();
+    }
+    #[test]
     fn app_catalog_precedes_legacy_and_overrides_are_preserved() {
         let raw = std::env::temp_dir().join(format!(
             "quota-pricing-test-{}-{}",
@@ -3156,8 +3356,110 @@ mod tests {
             Path::new("/home/test/.codex"),
             Instant::now(),
         );
-        assert!(c.warnings.contains("line_limit"));
+        assert!(c.warnings.contains("non_usage_line_skipped"));
+        assert!(!c.warnings.contains("line_limit"));
+        assert!(!affects_token_coverage("non_usage_line_skipped"));
         assert_eq!(c.projects.len(), 1);
+    }
+    #[test]
+    fn oversized_headers_never_mistake_token_or_metadata_records_for_messages() {
+        for bytes in [
+            br#"{"type":"response_item","payload":{"body":"truncated"#.as_slice(),
+            br#"{"type":"compacted","payload":{"replacement_history":[{"type":"token_count","body":"truncated"#.as_slice(),
+            br#"{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{"type":"agent_message","message":"truncated"#.as_slice(),
+        ] { assert!(oversized_non_usage_prefix(bytes)); }
+        for bytes in [
+            br#"{"type":"event_msg","payload":{"type":"token_count","body":"truncated"#.as_slice(),
+            br#"{"type":"turn_context","payload":{"type":"agent_message"#.as_slice(),
+            br#"{"type":"session_meta","payload":{"body":"truncated"#.as_slice(),
+            br#"{"payload":{"type":"response_item","body":"truncated"#.as_slice(),
+            br#"{"type":"event_msg","payload":{"body":{"type":"agent_message"},"unfinished":"truncated"#.as_slice(),
+            br#"{"type":"event_msg","payload":{"type":42,"body":"truncated"#.as_slice(),
+        ] { assert!(!oversized_non_usage_prefix(bytes)); }
+        let text = format!("{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"body\":\"{}\"}}}}\n{CONTEXT}\n{FIRST}\n", "x".repeat(MAX_LINE+10));
+        let mut c = Collector::default();
+        c.scan(
+            std::io::Cursor::new(text),
+            Path::new("/home/test"),
+            Path::new("/home/test/.codex"),
+            Instant::now(),
+        );
+        assert!(c.warnings.contains("line_limit"));
+        assert!(affects_token_coverage("line_limit"));
+        assert_eq!(
+            c.projects
+                .values()
+                .flat_map(|p| p.daily.values())
+                .map(|d| d.metrics.total_tokens)
+                .sum::<u64>(),
+            110
+        );
+    }
+    #[test]
+    fn oversized_message_discard_keeps_its_classification_across_incremental_reads() {
+        let mut c = Collector::default();
+        let mut state = FileState::default();
+        let prefix = format!(
+            "{{\"type\":\"response_item\",\"payload\":{{\"body\":\"{}",
+            "x".repeat(MAX_LINE)
+        );
+        c.scan_from(
+            std::io::Cursor::new(prefix),
+            Path::new("/home/test"),
+            Path::new("/home/test/.codex"),
+            Instant::now(),
+            &mut state,
+        );
+        assert!(state.discarding && state.discarding_non_usage);
+        let tail = format!("tail\"}}}}\n{CONTEXT}\n{FIRST}\n");
+        c.scan_from(
+            std::io::Cursor::new(tail),
+            Path::new("/home/test"),
+            Path::new("/home/test/.codex"),
+            Instant::now(),
+            &mut state,
+        );
+        assert!(!state.discarding);
+        assert!(!c.warnings.contains("line_limit"));
+        assert_eq!(
+            c.projects
+                .values()
+                .flat_map(|p| p.daily.values())
+                .map(|d| d.metrics.total_tokens)
+                .sum::<u64>(),
+            110
+        );
+    }
+    #[test]
+    fn counter_reset_uses_only_valid_explicit_increment_without_double_counting() {
+        let reset = r#"{"timestamp":"2026-01-01T01:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2}}}}"#;
+        let recovered = run(&[CONTEXT, FIRST, reset, reset]);
+        assert!(recovered.warnings.contains("counter_reset_recovered"));
+        assert!(!recovered.warnings.contains("counter_reset"));
+        assert!(!affects_token_coverage("counter_reset_recovered"));
+        assert_eq!(
+            recovered
+                .projects
+                .values()
+                .flat_map(|p| p.daily.values())
+                .map(|d| d.metrics.total_tokens)
+                .sum::<u64>(),
+            122
+        );
+        let invalid = reset.replace(
+            "\"input_tokens\":10,\"cached_input_tokens\":0,\"output_tokens\":2}}}",
+            "\"input_tokens\":999,\"cached_input_tokens\":0,\"output_tokens\":2}}}",
+        );
+        let held = run(&[CONTEXT, FIRST, &invalid]);
+        assert!(held.warnings.contains("counter_reset"));
+        assert_eq!(
+            held.projects
+                .values()
+                .flat_map(|p| p.daily.values())
+                .map(|d| d.metrics.total_tokens)
+                .sum::<u64>(),
+            110
+        );
     }
     #[test]
     fn worktree_common_dir_merges_without_running_git() {
@@ -3232,14 +3534,73 @@ mod tests {
         assert!(!result.warnings.iter().any(|w| w == "metadata_limit"));
         fs::remove_dir_all(temp).unwrap();
     }
+    #[cfg(unix)]
+    #[test]
+    fn source_aliases_are_skipped_only_when_the_target_is_already_covered() {
+        let temp = metadata_fixture_dir("session-alias");
+        fs::create_dir_all(temp.join("selected/sessions")).unwrap();
+        fs::create_dir_all(temp.join("original/sessions")).unwrap();
+        fs::create_dir_all(temp.join("outside")).unwrap();
+        fs::write(
+            temp.join("selected/sessions/usage.jsonl"),
+            format!("{CONTEXT}\n{FIRST}\n"),
+        )
+        .unwrap();
+        fs::write(
+            temp.join("outside/private.jsonl"),
+            format!("{CONTEXT}\n{SECOND}\n"),
+        )
+        .unwrap();
+        let temp = temp.canonicalize().unwrap();
+        let selected = temp.join("selected/sessions");
+        std::os::unix::fs::symlink(&selected, temp.join("original/sessions/duplicate")).unwrap();
+        let mut warnings = HashSet::new();
+        let mut found = Vec::new();
+        files_with_covered_roots(
+            &temp.join("original/sessions"),
+            &mut found,
+            0,
+            &mut warnings,
+            &mut 100,
+            std::slice::from_ref(&selected),
+        );
+        assert!(found.is_empty());
+        assert!(warnings.contains("session_alias_skipped"));
+        assert!(!affects_token_coverage("session_alias_skipped"));
+        assert!(!warnings.contains("unsafe_source"));
+        std::os::unix::fs::symlink(temp.join("outside"), temp.join("original/sessions/outside"))
+            .unwrap();
+        files_with_covered_roots(
+            &temp.join("original/sessions"),
+            &mut found,
+            0,
+            &mut warnings,
+            &mut 100,
+            std::slice::from_ref(&selected),
+        );
+        assert!(found.is_empty());
+        assert!(warnings.contains("unsafe_source"));
+        assert!(affects_token_coverage("unsafe_source"));
+        fs::remove_dir_all(temp).unwrap();
+    }
     #[test]
     #[ignore = "local authorized metadata only; emits no source data"]
     fn local_metadata_smoke() {
         let h = dirs::home_dir().unwrap();
+        let source = std::env::var_os("CODEX_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| h.join(".codex"));
+        let catalog = std::env::var_os("COCKPIT_SMOKE_CATALOG").map(PathBuf::from);
+        let max_passes = std::env::var("COCKPIT_SMOKE_PASSES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(4)
+            .clamp(1, 128);
         let started = Instant::now();
         let mut index = Index::default();
-        for pass in 1..=4 {
-            let c = collect_increment(&h, &h.join(".codex"), &mut index);
+        for pass in 1..=max_passes {
+            let c = collect_increment_with_catalog(&h, &source, &mut index, catalog.as_deref());
             assert!(c.scanned_files > 0);
             assert!(!c.projects.is_empty());
             let priced_periods = c
@@ -3257,6 +3618,50 @@ mod tests {
                 }] += 1;
                 counts
             });
+            let total_tokens: u64 = c
+                .projects
+                .iter()
+                .flat_map(|p| p.daily.values())
+                .map(|d| d.metrics.total_tokens)
+                .sum();
+            let has_terra = c
+                .projects
+                .iter()
+                .flat_map(|p| p.daily.values())
+                .flat_map(|d| &d.models)
+                .any(|model| model.id == "gpt-6.1-terra" || model.id == "openai/gpt-6.1-terra");
+            println!("native_total_tokens={total_tokens} terra_present={has_terra}");
+            if c.status == "ready" {
+                if let Some(path) = std::env::var_os("COCKPIT_SMOKE_BASELINE") {
+                    let baseline =
+                        crate::tokei_usage::read_json(Path::new(&path), 8 * 1024 * 1024).unwrap();
+                    let id = baseline["_device"]
+                        .as_str()
+                        .filter(|id| crate::usage_sync::safe_id(id))
+                        .unwrap();
+                    let before = crate::tokei_usage::parse_device(&baseline, id, None).unwrap();
+                    let old_total = before
+                        .daily
+                        .values()
+                        .map(|d| d.metrics.total_tokens)
+                        .sum::<u64>()
+                        .max(
+                            before
+                                .ranges
+                                .get("all")
+                                .map_or(0, |v| v.metrics.total_tokens),
+                        );
+                    let migrated =
+                        crate::usage_sync_snapshot::build(id, &c, std::slice::from_ref(&baseline))
+                            .unwrap();
+                    if total_tokens < old_total
+                        && baseline["_cockpit"]["timeZone"] != crate::usage_time::TIME_ZONE
+                    {
+                        assert_eq!(migrated["_cockpit"]["timeZonePending"], true);
+                    }
+                    println!("migration_input_tokens={old_total} migration_pending={} china_ledger_ready={}",migrated["_cockpit"]["timeZonePending"]==true,migrated["_cockpit"]["timeZone"]==crate::usage_time::TIME_ZONE);
+                }
+            }
             println!("pass={} status={} scanned_files={} projects={} tasks={} roots={} subagents={} forks={} unlinked={} task_metadata_coverage={} priced_periods={} device_identity={} elapsed_ms={} warnings={:?}", pass, c.status, c.scanned_files, c.projects.len(), c.tasks.len(), relation_counts[0], relation_counts[1], relation_counts[2], relation_counts[3], c.task_metadata_coverage, priced_periods, c.device_id.is_some(), started.elapsed().as_millis(), c.warnings);
             if !c.warnings.iter().any(|w| w == "scan_limit") {
                 break;

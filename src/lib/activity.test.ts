@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { canSendNotification, EMPTY_RUNTIME_STATE, isQuietHour, normalizeRuntimeState, recordSnapshotActivity } from "./activity";
 import { MAX_DAILY_OBSERVED_PERCENT } from "../types";
@@ -45,7 +46,7 @@ describe("activity timeline and notification policy", () => {
       [snapshot(90)],
       null,
       15,
-      new Date("2026-07-19T03:59:00+08:00"),
+      chinaTime(2026, 6, 19, 3, 59, 0),
     );
     const atFour = recordSnapshotActivity(
       beforeFour.state,
@@ -53,7 +54,7 @@ describe("activity timeline and notification policy", () => {
       [snapshot(82)],
       null,
       15,
-      new Date("2026-07-19T04:00:00+08:00"),
+      chinaTime(2026, 6, 19, 4, 0, 0),
     );
 
     expect(atFour.state.dailyUsage).toEqual([

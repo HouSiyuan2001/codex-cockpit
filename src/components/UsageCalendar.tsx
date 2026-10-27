@@ -1,3 +1,4 @@
+import { calendarDate, USAGE_TIME_ZONE } from "../lib/usageDay";
 import { useId, useMemo, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
@@ -14,15 +15,16 @@ export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetr
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => { if (onOpenChange) onOpenChange(next); else setInternalOpen(next); };
   const [scale, setScale] = useState<CalendarScale>("day");
-  const [cursor, setCursor] = useState(() => selection ? dateAtNoon(selection.start) : now);
-  const today = localDateKey(now), year = cursor.getFullYear(), month = cursor.getMonth();
+  const [cursor, setCursor] = useState(() => selection ? dateAtNoon(selection.start) : dateAtNoon(localDateKey(now)));
+  const chinaNow = dateAtNoon(localDateKey(now));
+  const today = localDateKey(now), year = cursor.getUTCFullYear(), month = cursor.getUTCMonth();
   const cells = useMemo(() => {
     if (scale === "day") {
-      const first = calendarRange(new Date(year, month, 1, 12), "week");
-      return Array.from({ length: calendarMonthCellCount(year, month) }, (_, i) => { const date = shiftDate(dateAtNoon(first.start), i); return { range: calendarRange(date, "day"), label: String(date.getDate()), outside: date.getMonth() !== month }; });
+      const first = calendarRange(calendarDate(year, month, 1), "week");
+      return Array.from({ length: calendarMonthCellCount(year, month) }, (_, i) => { const date = shiftDate(dateAtNoon(first.start), i); return { range: calendarRange(date, "day"), label: String(date.getUTCDate()), outside: date.getUTCMonth() !== month }; });
     }
     if (scale === "week") {
-      const first = calendarRange(new Date(year, month, 1, 12), "week");
+      const first = calendarRange(calendarDate(year, month, 1), "week");
       return Array.from({ length: calendarMonthCellCount(year, month) / 7 }, (_, i) => {
         const date = shiftDate(dateAtNoon(first.start), i * 7);
         return { range: calendarRange(date, "week"), label: zh ? `${isoWeekNumber(date)}周` : `W${isoWeekNumber(date)}`, outside: false };
@@ -30,8 +32,8 @@ export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetr
     }
     const count = scale === "month" ? 12 : scale === "quarter" ? 4 : 12;
     return Array.from({ length: count }, (_, i) => {
-      const date = scale === "year" ? new Date(Math.floor(year / 12) * 12 + i, 0, 1, 12) : new Date(year, i * (scale === "quarter" ? 3 : 1), 1, 12);
-      return { range: calendarRange(date, scale), label: scale === "year" ? String(date.getFullYear()) : scale === "quarter" ? `Q${i + 1}` : zh ? `${i + 1}月` : date.toLocaleDateString("en-US", { month: "short" }), outside: false };
+      const date = scale === "year" ? calendarDate(Math.floor(year / 12) * 12 + i, 0, 1) : calendarDate(year, i * (scale === "quarter" ? 3 : 1), 1);
+      return { range: calendarRange(date, scale), label: scale === "year" ? String(date.getUTCFullYear()) : scale === "quarter" ? `Q${i + 1}` : zh ? `${i + 1}月` : date.toLocaleDateString("en-US", { timeZone: USAGE_TIME_ZONE, month: "short" }), outside: false };
     });
   }, [scale, year, month, zh]);
   const values = cells.map(cell => calendarValue(devices, cell.range, metric, now));
@@ -40,11 +42,11 @@ export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetr
   const previewValue = calendarValue(devices, previewRange, metric, now);
   const displayValue = (value: number) => metric === "cost" ? formatCost(value, zh) : `${formatTokens(value, zh)} Tokens`;
   const select = (range: UsageDateRange | null) => onSelect(range);
-  const navigate = (direction: number) => setCursor(new Date(year + (scale === "year" ? direction * 12 : scale === "day" || scale === "week" ? 0 : direction), month + (scale === "day" || scale === "week" ? direction : 0), 1, 12));
-  const futurePage = (scale === "day" || scale === "week") ? year * 12 + month >= now.getFullYear() * 12 + now.getMonth() : scale === "year" ? Math.floor(year / 12) >= Math.floor(now.getFullYear() / 12) : year >= now.getFullYear();
+  const navigate = (direction: number) => setCursor(calendarDate(year + (scale === "year" ? direction * 12 : scale === "day" || scale === "week" ? 0 : direction), month + (scale === "day" || scale === "week" ? direction : 0), 1));
+  const futurePage = (scale === "day" || scale === "week") ? year * 12 + month >= chinaNow.getUTCFullYear() * 12 + chinaNow.getUTCMonth() : scale === "year" ? Math.floor(year / 12) >= Math.floor(chinaNow.getUTCFullYear() / 12) : year >= chinaNow.getUTCFullYear();
   const content = <div id={id} className="usage-calendar-content" role="region" aria-label={zh ? "用量日历" : "Usage calendar"} onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
       <div className="usage-calendar-scales">{scales.map(value => <button type="button" key={value} aria-pressed={scale === value} onClick={() => setScale(value)}>{scaleName(value, zh)}</button>)}</div>
-      <header><button type="button" aria-label={zh ? "日历上一页" : "Previous calendar page"} onClick={() => navigate(-1)}><CaretLeft /></button><strong>{scale === "day" || scale === "week" ? `${year} / ${month + 1}` : scale === "year" ? `${Math.floor(year / 12) * 12} – ${Math.floor(year / 12) * 12 + 11}` : year}</strong><button type="button" aria-label={zh ? "日历下一页" : "Next calendar page"} disabled={futurePage} onClick={() => navigate(1)}><CaretRight /></button><button type="button" className="usage-calendar-today" aria-label={zh ? "回到今天" : "Jump to today"} onClick={() => { setCursor(now); }}>{zh ? "今" : "Now"}</button><div className="usage-calendar-metric-switch" aria-label={zh ? "日历指标" : "Calendar metric"}><button type="button" aria-pressed={metric === "tokens"} onClick={() => onMetricChange("tokens")}>Token</button><button type="button" aria-pressed={metric === "cost"} onClick={() => onMetricChange("cost")}>{zh ? "成本" : "Cost"}</button></div></header>
+      <header><button type="button" aria-label={zh ? "日历上一页" : "Previous calendar page"} onClick={() => navigate(-1)}><CaretLeft /></button><strong>{scale === "day" || scale === "week" ? `${year} / ${month + 1}` : scale === "year" ? `${Math.floor(year / 12) * 12} – ${Math.floor(year / 12) * 12 + 11}` : year}</strong><button type="button" aria-label={zh ? "日历下一页" : "Next calendar page"} disabled={futurePage} onClick={() => navigate(1)}><CaretRight /></button><button type="button" className="usage-calendar-today" aria-label={zh ? "回到今天" : "Jump to today"} onClick={() => { setCursor(chinaNow); }}>{zh ? "今" : "Now"}</button><div className="usage-calendar-metric-switch" aria-label={zh ? "日历指标" : "Calendar metric"}><button type="button" aria-pressed={metric === "tokens"} onClick={() => onMetricChange("tokens")}>Token</button><button type="button" aria-pressed={metric === "cost"} onClick={() => onMetricChange("cost")}>{zh ? "成本" : "Cost"}</button></div></header>
       <div className={`usage-calendar-nav-grid usage-calendar-nav-grid--${scale}`} style={scale === "week" ? { "--calendar-week-count": cells.length } as CSSProperties : undefined}>
         {scale === "day" && [zh ? "周" : "Wk", ...(zh ? ["一", "二", "三", "四", "五", "六", "日"] : ["M", "T", "W", "T", "F", "S", "S"])].map((label, i) => <small key={`heading-${i}`}>{label}</small>)}
         {cells.map((cell, i) => {

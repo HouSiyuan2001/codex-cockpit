@@ -1,8 +1,9 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { buildDailyPersonCosts } from "./dailyPersonCosts";
 import type { DailyModelUsage, TokeiUsage } from "./tokeiUsage";
 
-const now = new Date(2026, 8, 14, 12);
+const now = chinaTime(2026, 8, 14, 12);
 const day = (cost: number | null, tokens = 1): DailyModelUsage => ({ estimatedCostUsd: cost, totalTokens: tokens, inputTokens: tokens, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, models: [] });
 function fixture(): TokeiUsage {
   return { fetchedAt: now.toISOString(), status: "ready", warnings: [], projectBreakdownAvailable: true, defaultGroupId: "alex", groups: [{ id: "alex", name: "成员甲", deviceIds: ["a"] }, { id: "blair", name: "成员乙", deviceIds: ["b"] }], devices: [

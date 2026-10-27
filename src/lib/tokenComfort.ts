@@ -1,3 +1,4 @@
+import { localDateKey as beijingDateKey, calendarDate } from "./usageDay";
 import type {
   ComfortCode,
   ComfortFeedbackRecord,
@@ -31,8 +32,8 @@ const ZERO_TOKEN_COUNTS: TokenCounts = {
 function validLocalDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(year, month - 1, day, 12);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+  const parsed = calendarDate(year, month - 1, day);
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
 function safeTokenCount(value: unknown): number {
@@ -61,7 +62,7 @@ function latestDevices(devices: readonly TokeiDevice[], wanted: ReadonlySet<stri
 
 function dayEndTimestamp(localDate: string): number {
   const [year, month, day] = localDate.split("-").map(Number);
-  return new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
+  return Date.UTC(year, month - 1, day + 1, -8);
 }
 
 function normalizedObservedAt(data: TokeiUsage, fallback: Date): string {
@@ -85,7 +86,7 @@ function emptySnapshot(localDate: string, observedAt: string): ComfortTokenSnaps
 
 /**
  * Build one person's aggregate from exact Tokei calendar-day ledger keys.
- * This deliberately uses local midnight boundaries and never the quota 04:00 day.
+ * This deliberately uses China midnight boundaries and never the quota 04:00 day.
  */
 export function buildTokenComfortSnapshot(
   data: TokeiUsage,
@@ -181,7 +182,7 @@ function samePerson(record: ComfortFeedbackRecord, personId: string | null): boo
 }
 
 function localDateAt(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return beijingDateKey(date);
 }
 
 function validSnapshotRecord(record: ComfortFeedbackRecord, now: Date): boolean {

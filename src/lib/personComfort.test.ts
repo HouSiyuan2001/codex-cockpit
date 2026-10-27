@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { COMFORT_CURVE_VERSION, personalizeComfortCurve } from "./comfortFeedback";
 import { allocationForFeedback, backfillPersonAllocations, personalFeedbackView } from "./personComfort";
@@ -5,7 +6,7 @@ import type { TokeiUsage } from "./tokeiUsage";
 import type { ComfortFeedbackRecord } from "../types";
 
 const date = "2026-09-08";
-const now = new Date(2026, 8, 10, 12);
+const now = chinaTime(2026, 8, 10, 12);
 function usage(): TokeiUsage {
   const day = (cost: number) => ({ inputTokens: 100, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 100, estimatedCostUsd: cost, models: [] });
   return { fetchedAt: now.toISOString(), status: "ready", warnings: [], projectBreakdownAvailable: true, defaultGroupId: "alex", groups: [{ id: "alex", name: "成员甲", deviceIds: ["mac"] }, { id: "blair", name: "成员乙", deviceIds: ["pc"] }], devices: [

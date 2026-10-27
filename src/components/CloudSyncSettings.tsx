@@ -1,3 +1,4 @@
+import { USAGE_TIME_ZONE } from "../lib/usageDay";
 import { useEffect, useState } from "react";
 import { isTauri } from "../lib/bridge";
 import { getUsageSyncStatus, syncUsageNow, type UsageSyncStatus } from "../lib/usageSyncBridge";
@@ -15,7 +16,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(command, args);
 }
-const when = (time: string | number | null | undefined, zh: boolean) => time ? new Date(typeof time === "number" ? time * 1000 : time).toLocaleString(zh ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : (zh ? "尚无记录" : "No record");
+const when = (time: string | number | null | undefined, zh: boolean) => time ? new Date(typeof time === "number" ? time * 1000 : time).toLocaleString(zh ? "zh-CN" : "en-US", { timeZone: USAGE_TIME_ZONE, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : (zh ? "尚无记录" : "No record");
 
 export function CloudSyncSettings({ usage, zh, onSynced }: { usage: TokeiUsage | null; zh: boolean; onSynced: () => Promise<unknown> | void }) {
   const [cloud, setCloud] = useState<CloudStatus | null>(null);

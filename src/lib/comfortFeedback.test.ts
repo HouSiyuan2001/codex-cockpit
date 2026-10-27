@@ -1,8 +1,9 @@
+import { chinaTime } from "../test/chinaTime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendComfortFeedback, appendComfortPromptedDate, buildComfortPrompt, comfortReminderKey, comfortYield, COMFORT_CURVE_VERSION, createComfortFeedbackRecord, getComfortPromptTarget, getPersonComfortPromptTarget, normalizeComfortFeedbackRecord, normalizeComfortFeedbackRecords, normalizeComfortPromptedKeys, normalizeComfortQuotaAllocation, personalizeComfortCurve, selectComfortUsage, smoothKneeEfficiency, upsertComfortFeedbackRecord } from "./comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
 
-const localDate = (year: number, month: number, day: number, hour: number, minute = 0) => new Date(year, month - 1, day, hour, minute);
+const localDate = (year: number, month: number, day: number, hour: number, minute = 0) => chinaTime(year, month - 1, day, hour, minute);
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(localDate(2026, 8, 14, 12)); });
 afterEach(() => vi.useRealTimers());
 

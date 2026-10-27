@@ -98,7 +98,10 @@ describe("quiet Codex usage view", () => {
     render(<CodexUsagePanel zh />);
     await screen.findByRole("region", { name: "跨设备任务状态" });
     vi.mocked(getProjectUsage).mockResolvedValue({ ...source, peerTasks: [{ deviceId: "Peer Mac", updatedAt: source.updatedAt, partial: false, taskDetailsStatus: "available", tasks: [{ ...source.tasks![0], name: "Newly shared peer task" }] }] });
+    const reads = vi.mocked(getProjectUsage).mock.calls.length;
     fireEvent.change(screen.getByRole("combobox", { name: "统计时间" }), { target: { value: "7d" } });
+    expect(getProjectUsage).toHaveBeenCalledTimes(reads);
+    fireEvent(window, new Event("codex-source-changed"));
     expect(await screen.findByText("Newly shared peer task")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "跨设备任务状态" })).not.toHaveTextContent("明细未就绪");
   });
@@ -171,7 +174,7 @@ describe("quiet Codex usage view", () => {
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
     const source = await getProjectUsage();
     source.projects = [];
-    source.tasks = [];
+    source.tasks = undefined;
     source.warnings = [warning];
     vi.mocked(getProjectUsage).mockResolvedValue(source);
     const { container } = render(<CodexUsagePanel zh />);
@@ -247,12 +250,37 @@ describe("quiet Codex usage view", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
     expect(screen.getByRole("img", { name: "模型用量占比" }).parentElement).toHaveTextContent("$138.83");
   });
+  it("keeps scan-prefix task and model costs identical without refetching on pivot", async () => {
+    const data = createUsagePreview();
+    const source = await getProjectUsage();
+    source.status = "partial";
+    source.warnings = ["scan_limit"];
+    const date = Object.keys(source.tasks![0].daily)[0];
+    const sample = source.tasks![0].daily[date];
+    source.tasks = [{ id: "repro", name: "Current scan task", relation: "root", daily: { [date]: { ...sample, estimatedCostUsd: 629.10, models: [{ ...sample.models[0], estimatedCostUsd: 629.10 }] } } }];
+    vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    vi.mocked(getProjectUsage).mockClear().mockResolvedValue(source);
+    render(<CodexUsagePanel zh />);
+    await screen.findByText("Current scan task");
+    fireEvent.click(screen.getByRole("button", { name: "看成本" }));
+    const taskTotal = screen.getByRole("img", { name: "任务用量占比" }).parentElement!.querySelector("strong")!.textContent;
+    expect(taskTotal).toBe("$629.10");
+    fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
+    expect(screen.getByRole("img", { name: "模型用量占比" }).parentElement!.querySelector("strong")!.textContent).toBe(taskTotal);
+    expect(getProjectUsage).toHaveBeenCalledTimes(1);
+  });
   it("keeps an unavailable cost as a quiet hint rather than an oversized headline", async () => {
     const data = createUsagePreview();
     const day = Object.values(data.devices[0].daily)[0];
     day.estimatedCostUsd = null;
     day.models.forEach(model => { model.estimatedCostUsd = null; });
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    const source = await getProjectUsage();
+    for (const task of source.tasks!) for (const entry of Object.values(task.daily)) {
+      entry.estimatedCostUsd = null;
+      entry.models.forEach(model => { model.estimatedCostUsd = null; });
+    }
+    vi.mocked(getProjectUsage).mockResolvedValue(source);
     const { container } = render(<CodexUsagePanel zh />);
     await screen.findByText("Local task");
     fireEvent.change(screen.getByRole("combobox", { name: "统计时间" }), { target: { value: "30d" } });
@@ -273,6 +301,9 @@ describe("quiet Codex usage view", () => {
     const day = Object.values(data.devices[0].daily)[0];
     data.devices[0].daily[key(older)] = day;
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    const source = await getProjectUsage();
+    source.tasks![0].daily[key(older)] = day;
+    vi.mocked(getProjectUsage).mockResolvedValue(source);
     const { container } = render(<CodexUsagePanel zh />);
     await screen.findByText("Local task");
     expect(container.querySelector(".usage-toolbar .usage-calendar-trigger")).toBe(screen.getByRole("button", { name: "日历" }));
@@ -432,7 +463,7 @@ describe("quiet Codex usage view", () => {
     fireEvent.click(screen.getByRole("button", { name: "切换为成本" }));
     expect(screen.getByRole("img", { name: "任务用量占比" }).parentElement).toHaveTextContent("$2.70");
   });
-  it("refreshes history and filters older tasks when the date range changes", async () => {
+  it("filters the same snapshot without fetching again when the date range changes", async () => {
     const source = await getProjectUsage();
     vi.mocked(getProjectUsage).mockClear();
     const previous = new Date(); previous.setDate(previous.getDate() - 1);
@@ -444,7 +475,7 @@ describe("quiet Codex usage view", () => {
     expect(screen.queryByText("Yesterday only")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "统计时间" }), { target: { value: "7d" } });
     expect(await screen.findByText("Yesterday only")).toBeInTheDocument();
-    await waitFor(() => expect(getProjectUsage).toHaveBeenCalledTimes(2));
+    expect(getProjectUsage).toHaveBeenCalledTimes(1);
     fireEvent.change(screen.getByRole("combobox", { name: "统计时间" }), { target: { value: "today" } });
     expect(screen.queryByText("Yesterday only")).not.toBeInTheDocument();
   });
@@ -464,6 +495,8 @@ describe("quiet Codex usage view", () => {
     data.devices[0].daily = {};
     data.devices[0].ranges = { "30d": { ...day, start: dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)), end: dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) } };
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
+    const source = await getProjectUsage();
+    vi.mocked(getProjectUsage).mockResolvedValue({ ...source, tasks: undefined });
     render(<CodexUsagePanel zh />);
     const select = await screen.findByRole("combobox", { name: "统计时间" });
     fireEvent.change(screen.getByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });

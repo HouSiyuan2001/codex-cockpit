@@ -1,8 +1,9 @@
+import { chinaTime } from "../test/chinaTime";
 import { expect, it } from "vitest";
 import { COMFORT_CURVE_VERSION, comfortFeedbackWeight, normalizeComfortFeedbackRecord, personalizeComfortCurve } from "./comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
 
-const now = new Date(2026, 8, 9, 12);
+const now = chinaTime(2026, 8, 9, 12);
 const record = (localDate: string, comfort: ComfortFeedbackRecord["comfort"] = "comfortable", used = 35): ComfortFeedbackRecord => ({
   localDate, comfort, observedUsedPercent: used, observedAt: now.toISOString(), usageObservedAt: null,
   usageCoverage: "complete", usageSource: "official-snapshot", curveVersion: COMFORT_CURVE_VERSION,
@@ -34,7 +35,7 @@ it("ages confidence without new feedback and preserves the input observations", 
   const records = [record("2026-09-08", "comfortable", 40), record("2026-09-09", "overloaded", 55)];
   const saved = JSON.stringify(records);
   const fresh = personalizeComfortCurve(records, now);
-  const later = personalizeComfortCurve(records, new Date(2026, 9, 7, 12));
+  const later = personalizeComfortCurve(records, chinaTime(2026, 9, 7, 12));
   expect(later.weightedSampleCount).toBeLessThan(fresh.weightedSampleCount!);
   expect(later.confidence).toBeLessThan(fresh.confidence);
   expect(later.sampleCount).toBe(fresh.sampleCount);

@@ -2,7 +2,7 @@
 
 面向使用者的简介见[当前版本说明](RELEASE.md)。本文保留打包、扫描和校验的技术细节，供维护者参考。
 
-`0.3.2` is the three-platform stable desktop release. The v0.3.1 two-platform run was cancelled before publication; its tag is retained without replacing it. The repository is public; earlier beta records below are historical evidence, not validation of this package.
+`0.3.3` is the three-platform stable desktop release. The v0.3.1 two-platform run was cancelled before publication; its tag is retained without replacing it. The repository is public; earlier beta records below are historical evidence, not validation of this package.
 
 Artifacts: macOS universal DMG (arm64 + x86_64), Windows x64 NSIS setup EXE, Linux x64 AppImage and Debian package, and SHA256SUMS. All three platform jobs must pass before publication. No workflow changes repository visibility.
 

@@ -1,3 +1,4 @@
+import { USAGE_TIME_ZONE } from "../lib/usageDay";
 import { ArrowClockwise, ArrowsInSimple, ArrowsOutSimple, Bell, CaretRight, CheckCircle, ClockCounterClockwise, CloudArrowDown, CloudSlash, DotsSixVertical, Gauge, GearSix, Pulse, PushPin, PushPinSlash, SignIn, SpinnerGap, WarningCircle, X } from "@phosphor-icons/react";
 import { memo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { clampPercent, formatDateTime, formatResetDate, formatResetTime, quotaTier } from "../lib/format";
@@ -107,6 +108,7 @@ function quotaAvailableLabel(period: QuotaPeriod, remaining: number, language: L
 function focusResetDate(value: string | null, language: Language): string {
   if (!value || !Number.isFinite(Date.parse(value))) return "—";
   return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", {
+    timeZone: USAGE_TIME_ZONE,
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -778,7 +780,7 @@ export const QuotaCard = memo(function QuotaCard({
       ? (language === "en" ? "None" : "暂无")
       : snapshot.resetCredits;
     const firstObservedLabel = codexDailyUsage?.coverage === "partial" && codexDailyUsage.firstObservedAt
-      ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(codexDailyUsage.firstObservedAt))
+      ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(codexDailyUsage.firstObservedAt))
       : null;
     const usedLabel = dailyUsed === null
       ? (language === "en" ? "Not recorded today" : "今日未记录")

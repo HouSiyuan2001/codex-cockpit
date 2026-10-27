@@ -1,3 +1,5 @@
+import { localDateKey, dateAtBeijingNoon, calendarDate } from "./usageDay";
+export { localDateKey } from "./usageDay";
 export interface UsageMetrics {
   inputTokens: number;
   cachedInputTokens: number;
@@ -17,8 +19,10 @@ export function canonicalModelId(id: string): string {
 function addModel(models: Map<string, ModelUsage>, model: ModelUsage): void {
   const id = canonicalModelId(model.id);
   const aggregate = models.get(id) ?? { ...ZERO, id, name: /^gpt-\d/.test(id) ? id : model.name };
+  const known = models.has(id) ? aggregate.estimatedCostUsd : null;
   addMetrics(aggregate, model);
-  if (model.costIncomplete) aggregate.costIncomplete = true;
+  if (model.estimatedCostUsd === null || model.costIncomplete) aggregate.costIncomplete = true;
+  if (aggregate.costIncomplete) aggregate.estimatedCostUsd = known === null && model.estimatedCostUsd === null ? null : (known ?? 0) + (model.estimatedCostUsd ?? 0);
   models.set(id, aggregate);
 }
 export interface DailyModelUsage extends UsageMetrics { models: ModelUsage[] }
@@ -128,6 +132,8 @@ export function withLiveLocalUsage(data: TokeiUsage, projects: ProjectUsageSnaps
 
 export type TaskRelation = "root" | "subagent" | "fork" | "unlinked";
 export interface TaskUsage {
+  /** In-memory fallback for devices that only have aggregate usage. Never synced. */
+  summaryDevice?: TokeiDevice;
   id: string;
   name: string;
   projectName?: string;
@@ -190,8 +196,6 @@ export interface TaskUsageAggregate {
 }
 
 function aggregateTaskDetail(task: TaskUsage, period: UsagePeriod, now: Date): TaskUsageDetail & { hasData: boolean } {
-  const start = periodStart(period, now);
-  const today = localDateKey(now);
   const result: TaskUsageDetail & { hasData: boolean } = {
     ...ZERO,
     id: task.id,
@@ -205,8 +209,8 @@ function aggregateTaskDetail(task: TaskUsage, period: UsagePeriod, now: Date): T
   };
   const models = new Map<string, ModelUsage>();
   let knownCostUsd: number | null = null;
-  for (const [date, day] of Object.entries(task.daily)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < start || date > today) continue;
+  const selected = selectDeviceUsage(task.summaryDevice ?? { id: task.id, updatedAt: null, stale: false, liveLocal: true, daily: task.daily, ranges: {} }, period, now);
+  for (const day of selected.records) {
     result.hasData = true;
     addMetrics(result, day);
     const known = day.estimatedCostUsd !== null ? [day.estimatedCostUsd] : day.models.flatMap(model => model.estimatedCostUsd === null ? [] : [model.estimatedCostUsd]);
@@ -341,28 +345,25 @@ export interface GroupUsage extends UsageMetrics {
 const ZERO: UsageMetrics = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0, estimatedCostUsd: 0 };
 const COUNT_KEYS = ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens", "totalTokens"] as const;
 
-export function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 export function periodStart(period: UsagePeriod, now: Date): string {
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = dateAtBeijingNoon(localDateKey(now));
   if (period === "all") return "0000-00-00";
-  if (period === "7d") start.setDate(start.getDate() - 6);
-  if (period === "30d") start.setDate(start.getDate() - 29);
-  if (period === "week") start.setDate(start.getDate() - (start.getDay() + 6) % 7);
-  if (period === "month") start.setDate(1);
+  if (period === "7d") start.setUTCDate(start.getUTCDate() - 6);
+  if (period === "30d") start.setUTCDate(start.getUTCDate() - 29);
+  if (period === "week") start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
+  if (period === "month") start.setUTCDate(1);
   return localDateKey(start);
 }
 
 export function periodEndExclusive(period: UsagePeriod, now: Date): string {
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  if (period === "month") return localDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+  const end = dateAtBeijingNoon(localDateKey(now));
+  if (period === "month") return localDateKey(calendarDate(end.getUTCFullYear(), end.getUTCMonth() + 1));
   if (period === "week") {
-    const monday = new Date(`${periodStart("week", now)}T12:00:00`);
-    monday.setDate(monday.getDate() + 7);
+    const monday = dateAtBeijingNoon(periodStart("week", now));
+    monday.setUTCDate(monday.getUTCDate() + 7);
     return localDateKey(monday);
   }
+  end.setUTCDate(end.getUTCDate() + 1);
   return localDateKey(end);
 }
 

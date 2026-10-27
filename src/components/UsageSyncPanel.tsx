@@ -1,10 +1,11 @@
+import { USAGE_TIME_ZONE } from "../lib/usageDay";
 import { useEffect, useRef, useState } from "react";
 import { getUsageSyncStatus, saveUsageSyncSettings, syncUsageNow, type UsageSyncSettings, type UsageSyncStatus } from "../lib/usageSyncBridge";
 import type { TokeiDevice } from "../lib/tokeiUsage";
 import { getPreferences } from "../lib/bridge";
 import { savePersonPlan, planDateKey } from "../lib/personPlanSync";
 
-const timestamp = (value: string | null | undefined, zh: boolean) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(zh ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : (zh ? "尚无记录" : "No record");
+const timestamp = (value: string | null | undefined, zh: boolean) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(zh ? "zh-CN" : "en-US", { timeZone: USAGE_TIME_ZONE, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : (zh ? "尚无记录" : "No record");
 function errorText(code: string | null, zh: boolean): string {
   if (!code) return "";
   if (/shared_settings/.test(code)) return zh ? "人员分组或计划配置存在冲突或无效数据，已保留现有设置。请检查后重试。" : "Shared groups or plans have a conflict or invalid data; current settings are preserved.";

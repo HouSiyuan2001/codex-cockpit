@@ -44,7 +44,7 @@ describe("usage charts", () => {
     expect(screen.getByText("任务用量 · 已知成本")).toBeInTheDocument();
   });
   function fixture() {
-    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-10T12:00:00"));
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-10T12:00:00+08:00"));
     const data = createUsagePreview();
     return aggregateGroupUsage(data, data.defaultGroupId, "today");
   }

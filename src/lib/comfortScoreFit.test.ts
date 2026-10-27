@@ -1,7 +1,8 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import { comfortFeedbackScore, comfortFeedbackWeight, COMFORT_CURVE_VERSION, normalizeComfortFeedbackRecord, personalizeComfortCurve, selectComfortUsage, smoothKneeEfficiency } from "./comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
-const now = new Date(2026, 8, 11, 12);
+const now = chinaTime(2026, 8, 11, 12);
 const record = (comfort: ComfortFeedbackRecord["comfort"], used: number): ComfortFeedbackRecord => ({
   localDate: "2026-09-10", observedAt: now.toISOString(), comfort, observedUsedPercent: used,
   usageCoverage: "complete", usageObservedAt: now.toISOString(), usageSource: "official-snapshot", curveVersion: COMFORT_CURVE_VERSION,

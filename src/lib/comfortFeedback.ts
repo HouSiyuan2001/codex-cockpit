@@ -1,3 +1,5 @@
+import { localDateKey, dateAtBeijingNoon, beijingParts } from "./usageDay";
+export { localDateKey } from "./usageDay";
 import { MAX_DAILY_OBSERVED_PERCENT } from "../types";
 import type { CodexDailyUsage, ComfortCode, ComfortCurveObservation, ComfortCurvePoint, ComfortFeedbackRecord, ComfortPrompt, ComfortQuotaAllocation, ComfortTokenModelUsage, ComfortTokenSnapshot, ComfortUsageCoverage, ComfortUsageSource, DailyUsageSummary, PersonalizedComfortCurve } from "../types";
 
@@ -26,16 +28,8 @@ function round(value: number, digits = 2): number {
   return Math.round(value * scale) / scale;
 }
 
-export function localDateKey(value: Date): string {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function dateFromLocalDate(date: string): Date {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  return dateAtBeijingNoon(date);
 }
 
 function validLocalDate(value: unknown): value is string {
@@ -304,9 +298,9 @@ export function getPersonComfortPromptTarget(
 ): { localDate: string; isCatchUp: boolean } | null {
   if (normalizePersonId(personId) === undefined) return null;
   const today = localDateKey(now);
-  const target = new Date(now);
-  const isTodayEligible = now.getHours() >= reminderHour;
-  if (!isTodayEligible) target.setDate(target.getDate() - 1);
+  const target = dateAtBeijingNoon(today);
+  const isTodayEligible = beijingParts(now).hour >= reminderHour;
+  if (!isTodayEligible) target.setUTCDate(target.getUTCDate() - 1);
   const targetDate = localDateKey(target);
   if (records.some((record) => samePerson(record.personId, personId) && record.localDate === targetDate)
     || isPromptedForPerson(promptedDates, personId, targetDate)) return null;
@@ -314,9 +308,9 @@ export function getPersonComfortPromptTarget(
 }
 
 export function nextComfortReminderAt(now = new Date(), reminderHour = COMFORT_REMINDER_HOUR): Date {
-  const next = new Date(now);
-  next.setHours(reminderHour, 0, 0, 0);
-  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  const next = dateAtBeijingNoon(localDateKey(now));
+  next.setUTCHours(reminderHour - 8, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
   return next;
 }
 

@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -10,7 +11,7 @@ import type { ComfortFeedbackRecord } from "../types";
 import type { TokeiUsage } from "../lib/tokeiUsage";
 import { PersonComfortSection } from "./PersonComfortSection";
 
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 7, 14, 12)); });
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(chinaTime(2026, 7, 14, 12)); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function data(): TokeiUsage {

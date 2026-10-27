@@ -1,3 +1,4 @@
+import { chinaTime } from "../test/chinaTime";
 import { describe, expect, it } from "vitest";
 import {
   buildQuotaTrendGeometry,
@@ -49,8 +50,8 @@ describe("usage insights", () => {
   });
 
   it("aligns calendar rows to the Monday-first weekday labels", () => {
-    expect(mondayWeekdayIndex(new Date(2026, 7, 3, 12))).toBe(0);
-    expect(mondayWeekdayIndex(new Date(2026, 7, 9, 12))).toBe(6);
+    expect(mondayWeekdayIndex(chinaTime(2026, 7, 3, 12))).toBe(0);
+    expect(mondayWeekdayIndex(chinaTime(2026, 7, 9, 12))).toBe(6);
   });
 
   it("keeps the trajectory within the requested time window and extends a flat reading to now", () => {

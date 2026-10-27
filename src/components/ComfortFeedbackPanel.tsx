@@ -1,3 +1,4 @@
+import { USAGE_TIME_ZONE } from "../lib/usageDay";
 import { Smiley, SmileySad, SmileyWink } from "@phosphor-icons/react";
 import type { ComfortCode, ComfortPrompt, Language } from "../types";
 
@@ -18,7 +19,7 @@ const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
 export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null }: ComfortFeedbackPanelProps) {
   const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
   const observedTime = prompt.usageObservedAt
-    ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(prompt.usageObservedAt))
+    ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(prompt.usageObservedAt))
     : null;
   const labels = language === "en"
     ? { title: "How did today feel?", hint: prompt.isCatchUp ? `Catch up · ${prompt.localDate}` : "A tiny check-in", options: { overloaded: "Too much", comfortable: "Just right", idle: "Easy" }, usage: "Used today", missing: "Usage not available", observed: observedTime ? `at ${observedTime}` : "" }

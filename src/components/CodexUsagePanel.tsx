@@ -1,8 +1,9 @@
+import { unifiedUsage } from "../lib/unifiedUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GearSix } from "@phosphor-icons/react";
 import { isTauri } from "../lib/bridge";
 import { getProjectUsage, getTokeiUsage } from "../lib/tokeiBridge";
-import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, withLiveLocalUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage, type UsagePeriod } from "../lib/tokeiUsage";
+import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage, type UsagePeriod } from "../lib/tokeiUsage";
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { modelUsageColors, UNRANKED_MODEL_COLOR } from "../lib/modelUsageColors";
 import { TaskUsageRow } from "./TaskUsageRow";
@@ -80,9 +81,10 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
     return () => { active = false; mounted.current = false; window.clearInterval(timer); window.removeEventListener("codex-source-changed", sourceChanged); };
   }, []);
 
-  const liveData = useMemo(() => data && withLiveLocalUsage(data, projects), [data, projects]);
+  const unified = useMemo(() => data && unifiedUsage(data, projects), [data, projects]);
+  const liveData = unified?.data ?? null;
   const scopedData = useMemo(() => liveData && dateRange ? usageInRange(liveData, dateRange) : liveData, [liveData, dateRange]);
-  const scopedProjects = useMemo(() => projects && dateRange ? tasksInRange(projects, dateRange) : projects, [projects, dateRange]);
+  const scopedProjects = useMemo(() => unified && dateRange ? tasksInRange(unified.projects, dateRange) : unified?.projects ?? null, [unified, dateRange]);
   const selectedPeriod = dateRange ? "all" : period;
   const all = useMemo(() => scopedData ? aggregateGlobalUsage(scopedData, selectedPeriod) : null, [scopedData, selectedPeriod]);
   const summary = useMemo(() => global ? all : scopedData ? aggregateGroupUsage(scopedData, groupId, selectedPeriod) : null, [scopedData, groupId, selectedPeriod, global, all]);
@@ -116,7 +118,7 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
     const sourceChanged = () => { window.clearTimeout(timer); void refresh(); };
     window.addEventListener("codex-source-changed", sourceChanged);
     return () => { active = false; window.clearTimeout(timer); window.removeEventListener("codex-source-changed", sourceChanged); };
-  }, [view, period]);
+  }, []);
   const localScope = useMemo(() => global
     ? { groups: [{ id: "global", name: "global", deviceIds: summary?.devices.map(device => device.id) ?? [] }], defaultGroupId: "global" }
     : liveData, [liveData, global, summary]);
@@ -136,7 +138,6 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
   const colorIds = useMemo(() => view === "users" ? (all?.users.map(user => user.id) ?? []).sort() : view === "projects" ? [...(projects?.projects.map(project => project.id) ?? [])].sort() : view === "tasks" ? [...(projects?.tasks?.map(task => task.id) ?? [])].sort() : [...new Set(data?.devices.flatMap(device => Object.values(device.daily).flatMap(day => day.models.map(model => model.id))) ?? [])].sort(), [data, projects, view, all]);
   const knownTotal = rows.reduce((sum, row) => sum + (metricValue(row, metric) ?? 0), 0);
   const taskCostIncomplete = rows.some(row => row.estimatedCostUsd === null || row.costIncomplete);
-  const taskTotal = !projects || metric === "cost" && taskCostIncomplete ? null : knownTotal;
   const chartTotal = summary ? metricValue(summary, metric) : null;
   const denominator = Math.max(chartTotal ?? 0, metric === "cost" ? summary?.knownCostUsd ?? 0 : 0, knownTotal);
   const unknownCost = metric === "cost" && (chartTotal === null || rows.some(row => row.estimatedCostUsd === null));
@@ -193,9 +194,9 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
       : <CustomTaskStatistics key={[global ? "global" : groupId, period, dateRange?.start, dateRange?.end, view, metric].join("|")} rows={taskUsage?.rows ?? []} zh={zh} loading={!projects && !projectError} error={projectError} partial={projects?.status === "partial" || projects?.peerTasks?.some(peer => peer.partial)} periodLabel={dateRange ? rangeLabel(dateRange) : periodLabel(period, zh)} />}
 
     {!group && !global ? <p className="usage-empty">{zh ? "选择一名组员，或到设置中分配设备。" : "Choose a member, or assign devices in settings."}</p> : <>
-        <div className="usage-total">{!donut && <><span>{metric === "tokens" ? (zh ? "Token 用量" : "Token usage") : (zh ? "估算成本" : "Estimated cost")}</span><strong aria-label={totalCostUnavailable ? costLabel(null, zh) : undefined}>{summary?.hasData ? totalCostUnavailable ? "—" : metric === "cost" ? costLabel(chartTotal, zh) : formatTokens(summary.totalTokens, zh) : "—"}</strong></>}<small>{metric === "tokens" ? `${zh ? "估算成本" : "Estimated cost"} ${costLabel(summary?.estimatedCostUsd ?? null, zh)}` : `${totalCostUnavailable ? `${costLabel(null, zh)} · ` : ""}${(summary?.hasData ? formatTokens(summary.totalTokens, zh) : "—")} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button>{view === "tasks" && <small className="usage-inline-status">{[projects?.warnings.includes("scan_limit") ? (zh ? "补扫中" : "Scanning") : null, metric === "cost" && taskCostIncomplete ? (zh ? "成本不全" : "Partial cost") : null, taskReconciliation?.mismatch ? (zh ? "待对账" : "Ledger mismatch") : null].filter(Boolean).join(" · ")}</small>}</div>
+        <div className="usage-total">{!donut && <><span>{metric === "tokens" ? (zh ? "Token 用量" : "Token usage") : (zh ? "估算成本" : "Estimated cost")}</span><strong aria-label={totalCostUnavailable ? costLabel(null, zh) : undefined}>{summary?.hasData ? totalCostUnavailable ? "—" : metric === "cost" ? costLabel(chartTotal, zh) : formatTokens(summary.totalTokens, zh) : "—"}</strong></>}<small>{metric === "tokens" ? `${zh ? "估算成本" : "Estimated cost"} ${costLabel(summary?.estimatedCostUsd ?? null, zh)}` : `${totalCostUnavailable ? `${costLabel(null, zh)} · ` : ""}${(summary?.hasData ? formatTokens(summary.totalTokens, zh) : "—")} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button>{(view === "tasks" || view === "models") && <small className="usage-inline-status">{[projects?.warnings.includes("scan_limit") ? (zh ? "补扫中" : "Scanning") : null, metric === "cost" && taskCostIncomplete ? (zh ? "成本不全" : "Partial cost") : null, taskReconciliation?.mismatch ? (zh ? "待对账" : "Ledger mismatch") : null].filter(Boolean).join(" · ")}</small>}</div>
         <div className={donut ? `usage-model-today${view === "tasks" ? " usage-task-today" : ""}` : undefined}>
-        {view === "tasks" && (summary?.hasData || rows.length > 0) && <UsageChart rows={rows} total={taskTotal} knownTotal={knownTotal} period={period} devices={[]} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks colors={taskColors} />}
+        {view === "tasks" && (summary?.hasData || rows.length > 0) && <UsageChart rows={rows} total={chartTotal} knownTotal={knownTotal} period={period} devices={[]} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks colors={taskColors} />}
         {(view === "models" || view === "users") && summary?.hasData && <UsageChart rows={rows} total={chartTotal} knownTotal={metric === "cost" ? summary.knownCostUsd : undefined} period={period} devices={summary.devices} ids={colorIds} zh={zh} metric={metric} onToggle={toggleMetric} users={view === "users"} summaryOnly={summaryOnly} colors={modelColors} />}
         <div className="usage-ranking">
           {view === "tasks" ? (visibleRows as AggregatedTaskUsage[]).map((task) => <TaskUsageRow key={task.id} task={task} max={metricValue(rows[0], metric) ?? 0} color={taskColors[task.id]} zh={zh} metric={metric} total={knownTotal} />) : visibleRows.map((model) => <ModelRow key={model.id} model={model as ModelUsage} max={metricValue(rows[0], metric) ?? 0} color={modelColors ? modelColors[model.id] ?? UNRANKED_MODEL_COLOR : usageColor(model.id, colorIds)} zh={zh} metric={metric} total={view === "projects" ? knownTotal : denominator} />)}
@@ -211,6 +212,7 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
     {(error || stale || partial) && <p className="usage-note" role="status">{error ? (zh ? "刷新失败 · 上次快照" : "Refresh failed · Last snapshot") : stale ? (zh ? "含离线快照" : "Includes offline snapshots") : (zh ? "部分数据缺失" : "Partial data")}</p>}
     <footer className="usage-footer"><span>{!isTauri() ? (zh ? "示例数据" : "Sample data") : latest ? `${zh ? "数据更新" : "Data updated"} ${new Date(latest).toLocaleTimeString(zh ? "zh-CN" : "en-US", { hour: "2-digit", minute: "2-digit" })}` : !summary ? (zh ? "尚未选择分组" : "No group selected") : (zh ? "尚无用量记录" : "No usage records yet")}</span>
         <details className="usage-explanation"><summary>{zh ? "统计说明" : "Usage details"}</summary><div>
+        <p>{zh ? "模型与任务视图来自同一份明细快照；补扫期间均显示已扫描部分。缺少任务明细的日汇总列为未归属任务，旧范围汇总仅用于日期边界完全匹配的查询。跨设备统计统一使用中国时区（Asia/Shanghai）。Token 与金额按自然日，额度计划按凌晨 4 点换日。旧版设备需升级并完整重扫；尚未校准的旧缓存保留为部分数据。" : "Model and task views share one detail snapshot, including scan prefixes. Summary-only devices are explicitly unattributed; legacy ranges require exact date bounds. Cross-device statistics use China time (Asia/Shanghai). Token and cost days start at midnight; quota-plan days start at 04:00. Older devices need an update and full rescan; pending legacy caches remain partial."}</p>
         {unknownCost && <p className="usage-note">{zh ? "成本不完整 · 占比仅计已知金额" : "Incomplete costs · Shares use known amounts only"}</p>}
         {projects?.pricingSource === "bundled-catalog" && <p>{zh ? "使用 App 自带的参考价格，不需要云同步或旧配置。按标准 API 文本价格估算，不是订阅扣费。" : "Using the app's built-in reference prices, without cloud sync or legacy setup. Standard API-equivalent text estimates, not subscription charges."}{projects.pricingUpdatedAt ? ` ${zh ? "价格核对日期" : "Prices checked"}: ${projects.pricingUpdatedAt}` : ""}</p>}
         {projects?.warnings.includes("missing_model_price") && <p className="usage-note">{zh ? "部分模型没有可确认的价格：Token 已记录，未知金额不按 $0 计算。" : "Some models have no verified price: tokens are recorded, and unknown costs are not counted as $0."}</p>}

@@ -1,3 +1,4 @@
+import { USAGE_TIME_ZONE } from "../lib/usageDay";
 import { CalendarDots, ChartLineUp, Gauge, X } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import { clampPercent, formatResetTime } from "../lib/format";
@@ -73,7 +74,7 @@ export function UsageInsightsPanel({ snapshot, history, dailyUsage, paceBaseline
     : (english ? "Daily guide" : "每日建议");
   const cycleUsed = remaining === null ? null : 100 - remaining;
   const leadingCells = calendar[0] ? mondayWeekdayIndex(calendar[0].date) : 0;
-  const dateFormatter = new Intl.DateTimeFormat(english ? "en-US" : "zh-CN", { month: "short", day: "numeric" });
+  const dateFormatter = new Intl.DateTimeFormat(english ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, month: "short", day: "numeric" });
   const forecastWindow = resetForecast?.windowHours ?? 48;
   const forecastHistoryCount = resetForecast?.historySampleCount ?? resetForecast?.historyResetDates?.length ?? 0;
   const forecastMeta = resetForecast?.resetAnnounced

@@ -1,3 +1,4 @@
+import { calendarDate, dateAtBeijingNoon } from "../lib/usageDay";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { formatCost, formatTokens, localDateKey, metricValue, type TokeiDevice, type UsageMetric } from "../lib/tokeiUsage";
@@ -35,7 +36,7 @@ const GRANULARITIES: readonly TrendGranularity[] = ["day", "week", "month"];
 const DAY_MS = 86_400_000;
 
 function localNoon(date: string): Date {
-  return new Date(`${date}T12:00:00`);
+  return dateAtBeijingNoon(date);
 }
 
 function validDateKey(value: string | null | undefined): value is string {
@@ -45,20 +46,20 @@ function validDateKey(value: string | null | undefined): value is string {
 
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
-  next.setDate(next.getDate() + days);
+  next.setUTCDate(next.getUTCDate() + days);
   return next;
 }
 
 function addMonths(date: Date, months: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1, 12);
+  return calendarDate(date.getUTCFullYear(), date.getUTCMonth() + months, 1);
 }
 
 function startOfWeek(date: Date): Date {
-  return addDays(date, -((date.getDay() + 6) % 7));
+  return addDays(date, -((date.getUTCDay() + 6) % 7));
 }
 
 function endOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 12);
+  return calendarDate(date.getUTCFullYear(), date.getUTCMonth() + 1, 0);
 }
 
 function clampAnchor(value: string | null | undefined, today: string): string {
@@ -91,7 +92,7 @@ export function buildTrendBuckets(granularity: TrendGranularity, anchorDate: str
       return { key: start, start, end: [naturalEnd, today].sort()[0] };
     });
   }
-  const lastMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12);
+  const lastMonth = calendarDate(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1);
   const first = addMonths(lastMonth, -5);
   return Array.from({ length: 6 }, (_, index) => {
     const cursor = addMonths(first, index);
