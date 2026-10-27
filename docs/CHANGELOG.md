@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 - 2026-10-27
+
+- Add GPT-6.1 Terra reference pricing, including its long-context tier, while preserving unknown costs.
+- Use Beijing calendar days for token, cost and calendar views across host timezones; retain the separate 04:00 Beijing quota-plan boundary.
+- Project task and model totals from the same details, preserve unattributed peer summaries and avoid rescanning when switching views.
+- Improve incremental history scans for oversized non-usage events, recoverable cumulative-counter resets and already-covered directory aliases; continue background batches with the capsule collapsed.
+- Preserve older ledgers when rebuilt details cannot yet cover their totals; keep migration pending without shrinking or double-counting history.
+- Update Tokio and the Worker build toolchain for published security fixes.
+
 ## 0.3.2 - 2026-10-22
 
 Includes the changes prepared for v0.3.1, whose two-platform workflow was cancelled before publication. The v0.3.1 tag is retained unchanged.
