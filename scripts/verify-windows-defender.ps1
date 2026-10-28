@@ -41,7 +41,16 @@ if ($PrepareGitHubRunner) {
 
 if ($UpdateSignatures) {
     Write-Host "Updating Microsoft Defender signatures..."
-    Update-MpSignature
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Update-MpSignature -ErrorAction Stop
+            break
+        } catch {
+            if ($attempt -eq 3) { throw }
+            Write-Warning "Defender signature update failed; retrying ($attempt/3)."
+            Start-Sleep -Seconds 10
+        }
+    }
 }
 
 $status = Get-MpComputerStatus
