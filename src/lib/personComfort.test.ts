@@ -27,6 +27,18 @@ describe("percentage comfort presentation", () => {
     expect(display.quotaAllocation?.totalUsedPercent).toBe(60);
     expect(personalizeComfortCurve([display], now).observations[0]?.usedPercent).toBe(18);
   });
+  it("reconciles displayed token facts without replacing the original capture", () => {
+    const original = record();
+    const first = personalFeedbackView(original, usage(), [], [], now);
+    const stored = { ...original, tokenSnapshot: first.tokenSnapshot };
+    const before = structuredClone(stored);
+    const fresh = usage(); fresh.devices[0].daily[date].inputTokens = 900;
+    fresh.devices[0].daily[date].totalTokens = 900;
+    const view = personalFeedbackView(stored, fresh, [], [], now);
+    expect(view.tokenSnapshot?.totalTokens).toBe(900);
+    expect(stored).toEqual(before);
+    expect(personalFeedbackView(stored, null, [], [], now).tokenSnapshot).toEqual(stored.tokenSnapshot);
+  });
   it("backfills once without assigning legacy records or changing their feedback", () => {
     const legacy = record(null), assigned = record();
     const migrated = backfillPersonAllocations([legacy, assigned], usage(), [], [], now)!;
@@ -37,10 +49,10 @@ describe("percentage comfort presentation", () => {
     expect(backfillPersonAllocations(migrated, usage(), [], [], now)).toBeNull();
     expect(personalFeedbackView(migrated[1], usage(), [], [], now).observedUsedPercent).toBeCloseTo(18);
   });
-  it("never reapportions a saved allocation after costs change", () => {
+  it("reconciles saved allocations from fresh costs and retains the offline snapshot", () => {
     const stored = { ...record(), quotaAllocation: allocationForFeedback(record(), usage(), [], [], now) };
     const newer = usage(); newer.devices[0].daily[date].estimatedCostUsd = 90;
-    expect(personalFeedbackView(stored, newer, [], [], now).observedUsedPercent).toBeCloseTo(18);
+    expect(personalFeedbackView(stored, newer, [], [], now).observedUsedPercent).toBeCloseTo(33.75);
     expect(personalFeedbackView(stored, null, [], [], now).observedUsedPercent).toBeCloseTo(18);
   });
   it("shows partial estimates without permanently migrating them", () => {
@@ -54,4 +66,25 @@ describe("percentage comfort presentation", () => {
     expect(backfillPersonAllocations([record()], missing, [], [], now)).toBeNull();
     expect(personalFeedbackView(record(null), missing, [], [], now).observedUsedPercent).toBe(60);
   });
+  it("refits against revised daily quota and costs without modifying feeling identity or timestamps", () => {
+    const stored = { ...record(), updatedAt: now.toISOString(), quotaAllocation: allocationForFeedback(record(), usage(), [], [], now) };
+    const before = structuredClone(stored);
+    const official = [{ localDate: date, observedUsedPercent: 100, sampleCount: 4, firstObservedAt: "2026-09-07T16:00:00Z", lastObservedAt: "2026-09-08T15:59:00Z", coverage: "complete" as const, source: "official-snapshot" as const }];
+    const view = personalFeedbackView(stored, usage(), official, [], now);
+    expect(view.observedUsedPercent).toBe(30);
+    expect(personalizeComfortCurve([view], now).observations[0]?.usedPercent).toBe(30);
+    for (const key of ["comfort", "localDate", "personId", "observedAt", "updatedAt"] as const) expect(view[key]).toEqual(before[key]);
+    expect(stored).toEqual(before);
+  });
+
+  it("allows corrected daily quota to decrease and downgrades incomplete cost coverage", () => {
+    const stored = { ...record(), usageObservedAt: "2026-09-08T10:00:00Z", quotaAllocation: allocationForFeedback(record(), usage(), [], [], now) };
+    const partial = usage(); partial.devices[1].stale = true;
+    const official = [{ localDate: date, observedUsedPercent: 40, sampleCount: 4, firstObservedAt: "2026-09-07T16:00:00Z", lastObservedAt: "2026-09-08T15:59:00Z", coverage: "partial" as const, source: "official-snapshot" as const }];
+    const view = personalFeedbackView(stored, partial, official, [], now);
+    expect(view.observedUsedPercent).toBe(12);
+    expect(view.usageCoverage).toBe("partial");
+    expect(stored.quotaAllocation?.allocatedUsedPercent).toBe(18);
+  });
+
 });

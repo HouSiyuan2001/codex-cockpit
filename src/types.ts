@@ -337,6 +337,7 @@ export interface DailyRecommendationRecord {
 export interface RuntimeState {
   schemaVersion: 1;
   history: QuotaHistoryPoint[];
+  officialQuotaHistory?: QuotaHistoryPoint[];
   dailyUsage: DailyUsageSummary[];
   comfortFeedback: ComfortFeedbackRecord[];
   comfortPromptedDates: string[];

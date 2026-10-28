@@ -29,3 +29,12 @@ it("labels a partial amount and does not claim a complete percentage", () => {
   expect(screen.getByText("Known amount only")).toBeInTheDocument();
   expect(screen.queryByText("20.0%")).not.toBeInTheDocument();
 });
+
+it("shows a readable device summary while task details load without exposing the placeholder id", () => {
+  const placeholder = { ...task, rawName: "未归属任务 / Unattributed", self: { ...detail, id: "__unattributed" }, children: [], sourceDevice: "Work PC" };
+  const { container } = render(<TaskUsageRow task={placeholder} max={100} color="blue" zh metric="tokens" total={100} />);
+  const summary = container.querySelector("summary")!;
+  expect(summary).toHaveTextContent("设备用量汇总");
+  expect(summary).toHaveTextContent("来自 Work PC");
+  expect(summary.textContent).not.toContain("tributed");
+});

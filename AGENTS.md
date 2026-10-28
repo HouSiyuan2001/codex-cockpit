@@ -22,3 +22,7 @@ Prefer the installed release for ordinary installation. Do not turn a support qu
 - Keep missing costs distinct from zero, preserve shared-setting revision conflicts, and do not merge different people's manual plans.
 - Treat commit, push, tag, release, signing, and external submission as separate authorization boundaries.
 - Keep the repository private unless the maintainer explicitly approves changing visibility. A Skill is guidance, not permission to publish or change a user's security settings.
+
+## Daily quota control
+
+- Across Windows, macOS and Linux, the daily quota control contains only 个人上限 / Personal cap and 今日总建议 / Day total, plus the slider and restore icon. Keep synchronization status in Settings; do not add explanatory text to this block.

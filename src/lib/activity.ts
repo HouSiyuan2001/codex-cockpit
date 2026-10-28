@@ -9,6 +9,7 @@ import { usageDateKey } from "./usageDay";
 export const EMPTY_RUNTIME_STATE: RuntimeState = {
   schemaVersion: 1,
   history: [],
+  officialQuotaHistory: [],
   dailyUsage: [],
   comfortFeedback: [],
   comfortPromptedDates: [],
@@ -189,6 +190,7 @@ export function normalizeRuntimeState(value: unknown): RuntimeState {
   return {
     schemaVersion: 1,
     history: Array.isArray(candidate.history) ? candidate.history.map(historyPoint).filter((item): item is QuotaHistoryPoint => item !== null).slice(-1000) : [],
+    officialQuotaHistory: Array.isArray(candidate.officialQuotaHistory) ? candidate.officialQuotaHistory.map(historyPoint).filter((item): item is QuotaHistoryPoint => item !== null).slice(-1024) : [],
     dailyUsage: Array.isArray(candidate.dailyUsage) ? candidate.dailyUsage.map(dailyUsageSummary).filter((item): item is DailyUsageSummary => item !== null).slice(-600) : [],
     comfortFeedback: normalizeComfortFeedbackRecords(candidate.comfortFeedback),
     comfortPromptedDates: normalizeComfortPromptedKeys(candidate.comfortPromptedDates),

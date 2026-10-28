@@ -165,6 +165,7 @@ pub struct TaskUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectUsageSnapshot {
+    pub quota_history: Vec<OfficialQuotaPoint>,
     pub device_id: Option<String>,
     pub updated_at: String,
     pub status: String,
@@ -195,8 +196,35 @@ struct Payload {
     cwd: Option<String>,
     model: Option<String>,
     info: Option<Info>,
+    rate_limits: Option<OfficialRateLimits>,
     forked_from_id: Option<String>,
     parent_thread_id: Option<String>,
+}
+// Only rate-limit numbers and timestamps cross the native IPC boundary.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialQuotaPoint {
+    provider: &'static str,
+    captured_at: String,
+    metric: f64,
+    metric_kind: &'static str,
+    status: &'static str,
+    resets_at: String,
+}
+#[derive(Deserialize)]
+struct OfficialRateLimits {
+    limit_id: Option<String>,
+    primary: Option<OfficialWindow>,
+    secondary: Option<OfficialWindow>,
+}
+#[derive(Deserialize)]
+struct OfficialWindow {
+    #[serde(alias = "windowMinutes")]
+    window_minutes: Option<u64>,
+    #[serde(alias = "usedPercent")]
+    used_percent: Option<f64>,
+    #[serde(alias = "resetsAt")]
+    resets_at: Option<Value>,
 }
 #[derive(Deserialize)]
 struct Info {
@@ -665,7 +693,25 @@ impl Pricing {
         // Only an exact per-event increment identifies the high-context tier.
         // Aggregated/missing context counts cannot safely be charged at base rate.
         let context = last.filter(|v| v.valid() && *v == delta)?;
-        let high = context.input_tokens > 272_000;
+        // Apply this surcharge only to exact model families whose official
+        // Standard pricing specifies it. A 400K context window alone does not
+        // imply the 272K tier (for example GPT-5.2 and GPT-5.4 Mini).
+        let key = self.aliases.get(model).map(String::as_str).unwrap_or(model);
+        let key = key.strip_prefix("openai/").unwrap_or(key);
+        let high = context.input_tokens > 272_000
+            && matches!(
+                key,
+                "gpt-5.4"
+                    | "gpt-5.5"
+                    | "gpt-5.6-sol"
+                    | "gpt-5.6-terra"
+                    | "gpt-5.6-luna"
+                    | "gpt-6-sol"
+                    | "gpt-6-astra"
+                    | "gpt-6-luna"
+                    | "gpt-6.1-sol"
+                    | "gpt-6.1-terra"
+            );
         Some(
             ((delta.input_tokens - delta.cached_input_tokens) as f64
                 * input
@@ -968,6 +1014,7 @@ impl ThreadMetadataCatalog {
 
 #[derive(Default)]
 struct Collector {
+    quota: BTreeMap<(String, i64), Vec<OfficialQuotaPoint>>,
     pricing: Pricing,
     projects: BTreeMap<String, ProjectUsage>,
     tasks: BTreeMap<String, TaskAccumulator>,
@@ -1033,6 +1080,103 @@ struct Index {
     pricing_key: Option<PricingKey>,
 }
 impl Collector {
+    fn observe_quota(&mut self, record: &Record) {
+        let Some(limits) = &record.payload.rate_limits else {
+            return;
+        };
+        if limits
+            .limit_id
+            .as_deref()
+            .is_some_and(|id| !id.eq_ignore_ascii_case("codex"))
+        {
+            return;
+        }
+        let Some(window) = [&limits.primary, &limits.secondary]
+            .into_iter()
+            .flatten()
+            .find(|window| window.window_minutes == Some(10_080))
+        else {
+            return;
+        };
+        let Some(used) = window
+            .used_percent
+            .filter(|used| used.is_finite() && (0.0..=100.0).contains(used))
+        else {
+            return;
+        };
+        let Some(time) = record
+            .timestamp
+            .as_deref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        else {
+            return;
+        };
+        if time > Utc::now() + chrono::Duration::minutes(5) {
+            return;
+        }
+        let reset = window.resets_at.as_ref().and_then(|v| {
+            v.as_i64().or_else(|| {
+                v.as_str()
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|t| t.timestamp())
+            })
+        });
+        let Some(reset) = reset.and_then(|seconds| DateTime::from_timestamp(seconds, 0)) else {
+            return;
+        };
+        // Reject impossible cycle metadata instead of inventing a reset segment.
+        if reset.timestamp() < time.timestamp() - 300
+            || reset.timestamp() > time.timestamp() + 604_800 + 300
+        {
+            return;
+        }
+        let date = (time.with_timezone(&Utc) + chrono::Duration::hours(8))
+            .format("%Y-%m-%d")
+            .to_string();
+        let key = (date, (reset.timestamp() + 30) / 60);
+        let points = self.quota.entry(key).or_default();
+        let point = OfficialQuotaPoint {
+            provider: "codex",
+            captured_at: time.with_timezone(&Utc).to_rfc3339(),
+            metric: 100.0 - used,
+            metric_kind: "percent",
+            status: "ok",
+            resets_at: reset.to_rfc3339(),
+        };
+        if points
+            .iter()
+            .any(|p| p.captured_at == point.captured_at && p.metric == point.metric)
+        {
+            return;
+        }
+        points.push(point);
+        points.sort_by(|a, b| a.captured_at.cmp(&b.captured_at));
+        if points.len() > 4 {
+            let minimum = points
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.metric.total_cmp(&b.1.metric))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let maximum = points
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.metric.total_cmp(&b.1.metric))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let last = points.len() - 1;
+            *points = points
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i == 0 || *i == last || *i == minimum || *i == maximum)
+                .map(|(_, p)| p.clone())
+                .collect();
+        }
+        // 120 days times a small number of cycles, bounded even for malformed logs.
+        while self.quota.len() > 256 {
+            self.quota.pop_first();
+        }
+    }
     fn register_meta(&mut self, payload: &Payload) {
         if let Some(id) = payload.id.as_ref().filter(|s| safe_text(s)) {
             let entry = self.links.entry(id.clone()).or_default();
@@ -1270,6 +1414,7 @@ impl Collector {
                         .unwrap_or_else(|| "unknown".into());
                 }
                 "event_msg" if record.payload.kind.as_deref() == Some("token_count") => {
+                    self.observe_quota(&record);
                     let Some(info) = record.payload.info else {
                         continue;
                     };
@@ -1894,6 +2039,7 @@ fn collect_increment_with_catalog(
     let mut warnings: Vec<_> = c.warnings.iter().cloned().collect();
     warnings.sort();
     ProjectUsageSnapshot {
+        quota_history: c.quota.values().flatten().cloned().collect(),
         device_id,
         updated_at: Utc::now().to_rfc3339(),
         status: status.into(),
@@ -2005,6 +2151,71 @@ pub async fn get_codex_project_usage_from_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quota_history_is_bounded_and_keeps_first_minimum_maximum_and_last() {
+        let mut collector = Collector::default();
+        for minute in 0..100 {
+            let used = if minute == 10 { 90 } else { minute / 2 };
+            let record: Record = serde_json::from_value(serde_json::json!({"type":"event_msg", "timestamp": format!("2026-10-26T17:{:02}:00Z", minute % 60), "payload": {"type":"token_count", "rate_limits":{"limit_id":"codex", "secondary":{"window_minutes":10080,"used_percent":used,"resets_at":"2026-11-01T03:07:00Z"}}}})).unwrap();
+            collector.observe_quota(&record);
+        }
+        let points: Vec<_> = collector.quota.values().flatten().collect();
+        assert!(points.len() <= 4);
+        assert!(points.iter().any(|p| p.metric == 10.0));
+        assert!(points.iter().any(|p| p.metric == 100.0));
+        let serialized = serde_json::to_string(&points).unwrap();
+        assert!(!serialized.contains("rate_limits"));
+        assert!(serialized.contains("capturedAt"));
+    }
+    #[test]
+    fn quota_history_collects_observations_without_token_totals_and_rejects_other_limits() {
+        let valid = r#"{"type":"event_msg","timestamp":"2026-10-26T17:00:00Z","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","secondary":{"window_minutes":10080,"used_percent":25,"resets_at":1793502420}}}}"#;
+        let collector = run(&[
+            valid,
+            &valid.replace("codex", "other"),
+            &valid.replace("10080", "300"),
+        ]);
+        assert_eq!(collector.quota.values().flatten().count(), 1);
+        assert!(collector.projects.is_empty());
+    }
+    #[test]
+    #[ignore = "read-only local aggregate audit; requires COCKPIT_QUOTA_AUDIT_OUTPUT"]
+    fn audit_local_quota_history() {
+        let output = std::env::var("COCKPIT_QUOTA_AUDIT_OUTPUT").expect("explicit output path");
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let codex = home.join(".codex");
+        let catalog = std::env::var_os("COCKPIT_QUOTA_AUDIT_CATALOG").map(PathBuf::from);
+        let mut index = Index::default();
+        for iteration in 0..256 {
+            let snapshot =
+                collect_increment_with_catalog(&home, &codex, &mut index, catalog.as_deref());
+            let incomplete = snapshot.warnings.iter().any(|w| w == "scan_limit");
+            eprintln!(
+                "audit pass {}: {} files, {} compact observations, scan pending {}",
+                iteration + 1,
+                snapshot.scanned_files,
+                snapshot.quota_history.len(),
+                incomplete
+            );
+            fs::write(&output, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+            if !incomplete {
+                if let Some(ledger_output) = std::env::var_os("COCKPIT_QUOTA_AUDIT_LEDGER_OUTPUT") {
+                    let device_id =
+                        std::env::var("COCKPIT_QUOTA_AUDIT_DEVICE_ID").expect("explicit device id");
+                    assert!(
+                        safe_text(&device_id)
+                            && device_id.len() <= 128
+                            && !device_id.contains(['/', '\\'])
+                    );
+                    let ledger =
+                        crate::usage_sync_snapshot::build(&device_id, &snapshot, &[]).unwrap();
+                    fs::write(ledger_output, serde_json::to_vec(&ledger).unwrap()).unwrap();
+                }
+                return;
+            }
+        }
+        panic!("bounded scan still incomplete; output retains explicit warnings");
+    }
     #[test]
     fn standalone_sessions_collect_tokens_without_tokei_or_sync() {
         let home = metadata_fixture_dir("standalone");
@@ -2265,6 +2476,7 @@ mod tests {
         let third = r#"{"timestamp":"2026-09-22T00:02:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":550000,"output_tokens":0},"last_token_usage":{"input_tokens":250000,"output_tokens":0}}},"message":"DO_NOT_COPY"}"#;
         let collector = run_with_pricing(&[sol, first, luna, second, astra, third], pricing);
         let collected = ProjectUsageSnapshot {
+            quota_history: Vec::new(),
             device_id: Some("device".into()),
             updated_at: "2026-09-22T00:03:00Z".into(),
             status: "ready".into(),
@@ -2882,7 +3094,7 @@ mod tests {
             ..counts
         };
         let cost = pricing.estimate("model-test", high, Some(high)).unwrap();
-        assert!((cost - ((299_920.0 * 20.0 + 80.0 * 2.0 + 10.0 * 75.0) / 1e6)).abs() < 1e-10);
+        assert!((cost - ((299_920.0 * 10.0 + 80.0 * 1.0 + 10.0 * 50.0) / 1e6)).abs() < 1e-10);
     }
     #[test]
     fn new_gpt6_models_use_official_rates_without_overwriting_existing_catalog() {
@@ -3182,6 +3394,51 @@ mod tests {
             Some(0.0)
         );
         fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn legacy_models_without_long_context_pricing_keep_their_standard_rates() {
+        let mut pricing = Pricing::default();
+        let counts = Counts {
+            input_tokens: 300_000,
+            cached_input_tokens: 50_000,
+            output_tokens: 20_000,
+            reasoning_output_tokens: 10_000,
+        };
+        for (model, input, cached, output) in [
+            ("gpt-5.2", 1.75, 0.175, 14.0),
+            ("gpt-5.4-mini", 0.75, 0.075, 4.5),
+            ("gpt-5.1-codex-max", 1.25, 0.125, 10.0),
+            ("gpt-5.1-codex-mini", 0.25, 0.025, 2.0),
+        ] {
+            pricing.models.insert(
+                format!("openai/{model}"),
+                Rate {
+                    input: Some(input),
+                    cache_read: Some(cached),
+                    output: Some(output),
+                    canonical_slug: None,
+                },
+            );
+            let expected = (250_000.0 * input + 50_000.0 * cached + 20_000.0 * output) / 1e6;
+            for id in [model.to_string(), format!("openai/{model}")] {
+                assert!(
+                    (pricing.estimate(&id, counts, Some(counts)).unwrap() - expected).abs() < 1e-10,
+                    "{id}"
+                );
+            }
+        }
+        pricing
+            .aliases
+            .insert("local-legacy".into(), "openai/gpt-5.2".into());
+        assert!(
+            (pricing
+                .estimate("local-legacy", counts, Some(counts))
+                .unwrap()
+                - 0.72625)
+                .abs()
+                < 1e-10
+        );
     }
 
     #[test]

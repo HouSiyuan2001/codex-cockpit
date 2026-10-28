@@ -159,10 +159,10 @@ pub(crate) fn build_at(
     baselines: &[Value],
     today: NaiveDate,
 ) -> Result<Value, String> {
-    // Legacy daily aggregates have no event timestamps and cannot be shifted
-    // between timezones. Rebuild them atomically only after a complete rescan
-    // covers the old total. Until then return the old ledger, never a sum of
-    // China-dated records and host-dated records of the same events.
+    // Legacy dates cannot be shifted without event timestamps. Replace them
+    // atomically once source enumeration is finished; malformed historical lines
+    // remain partial coverage, but must not pin the calendar to an old ledger.
+    // The caller retains the original ledger locally before a migration write.
     let candidates: Vec<_> = baselines
         .iter()
         .filter(|value| value["_device"].as_str() == Some(device_id))
@@ -189,27 +189,47 @@ pub(crate) fn build_at(
         })
         .map(|(_, total)| *total)
         .max();
-    let migrating = candidates.iter().any(|(value, total)| {
-        value["_cockpit"]["timeZone"].as_str() != Some(crate::usage_time::TIME_ZONE)
-            && china_total.is_none_or(|known| *total > known)
+    // Once a rebuilt Beijing ledger exists, an inflated legacy total must
+    // never reopen migration after a restart or price-catalog invalidation.
+    let migrating = china_total.is_none()
+        && candidates.iter().any(|(value, _)| {
+            value["_cockpit"]["timeZone"].as_str() != Some(crate::usage_time::TIME_ZONE)
+        });
+    let source_blocked = collected.warnings.iter().any(|warning| {
+        matches!(
+            warning.as_str(),
+            "scan_limit"
+                | "file_limit"
+                | "directory_entry_limit"
+                | "directory_depth_limit"
+                | "source_permission_denied"
+                | "codex_directory_missing"
+                | "unsafe_source"
+                | "source_changed"
+                | "file_unavailable"
+        )
     });
-    if let Some((previous, old_total)) = candidates
+    let scanned_partial = collected.warnings.iter().any(|warning| {
+        matches!(
+            warning.as_str(),
+            "invalid_record"
+                | "line_limit"
+                | "incomplete_record"
+                | "missing_totals"
+                | "fork_initial_coverage"
+                | "counter_reset"
+                | "invalid_timestamp"
+        )
+    });
+    let scan_complete = !source_blocked
+        && !collected.projects.is_empty()
+        && (collected.status == "ready" || scanned_partial);
+    if let Some((previous, _old_total)) = candidates
         .iter()
         .filter(|_| migrating)
         .max_by_key(|(_, total)| *total)
     {
-        let new_total: u128 = collected
-            .projects
-            .iter()
-            .flat_map(|project| project.daily.values())
-            .map(|day| u128::from(day.metrics.total_tokens))
-            .sum();
-        let complete = collected.status == "ready"
-            && !collected
-                .warnings
-                .iter()
-                .any(|warning| affects_token_coverage(warning));
-        if !complete || new_total < *old_total {
+        if !scan_complete {
             // Feed the held ledger through the normal allowlist serializer;
             // never echo arbitrary fields from a previous snapshot.
             let mut baseline = (*previous).clone();
@@ -224,6 +244,16 @@ pub(crate) fn build_at(
             let mut retained = build_at(device_id, &empty, &[baseline], today)?;
             retained["_cockpit"]["timeZone"] = original_zone;
             retained["_cockpit"]["timeZonePending"] = json!(true);
+            retained["_cockpit"]["collectedAt"] = previous["_cockpit"]["collectedAt"]
+                .as_str()
+                .map(|s| json!(s))
+                .unwrap_or_else(|| {
+                    previous["_ts"]
+                        .as_i64()
+                        .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+                        .map(|t| json!(t.to_rfc3339()))
+                        .unwrap_or(Value::Null)
+                });
             return Ok(retained);
         }
     }
@@ -285,7 +315,13 @@ pub(crate) fn build_at(
         }
     }
     let mut retained_days = 0;
-    let mut retained_mismatch = false;
+    let native_total: u128 = collected
+        .projects
+        .iter()
+        .flat_map(|project| project.daily.values())
+        .map(|day| u128::from(day.metrics.total_tokens))
+        .sum();
+    let mut retained_mismatch = migrating && candidates.iter().any(|(_, old)| *old > native_total);
     for (date, records) in native {
         let day = combine(records.into_iter())?;
         let mut identity_refined = false;
@@ -425,6 +461,7 @@ mod tests {
             ..zero()
         };
         ProjectUsageSnapshot {
+            quota_history: Vec::new(),
             device_id: None,
             updated_at: "2026-09-10T07:00:00Z".into(),
             status: "partial".into(),
@@ -500,7 +537,28 @@ mod tests {
     }
 
     #[test]
-    fn timezone_migration_retains_missing_history_even_after_a_complete_scan() {
+    fn catalog_rescan_cannot_reopen_legacy_migration_after_completion() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 10).unwrap();
+        let mut legacy = build_at("device", &fixture(200), &[], today).unwrap();
+        legacy["_cockpit"]
+            .as_object_mut()
+            .unwrap()
+            .remove("timeZone");
+        let mut finished = fixture(100);
+        finished.status = "ready".into();
+        let rebuilt = build_at("device", &finished, &[legacy.clone()], today).unwrap();
+        let mut prefix = fixture(10);
+        prefix.warnings = vec!["scan_limit".into()];
+        let held = build_at("device", &prefix, &[legacy, rebuilt], today).unwrap();
+        let parsed = tokei_usage::parse_device(&held, "device", None).unwrap();
+        assert_eq!(parsed.daily["2026-09-10"].metrics.total_tokens, 100);
+        assert_eq!(held["_cockpit"]["timeZone"], "Asia/Shanghai");
+        assert_ne!(held["_cockpit"]["timeZonePending"], true);
+        assert!(parsed.collection_partial);
+    }
+
+    #[test]
+    fn timezone_migration_does_not_pin_a_finished_rescan_to_a_larger_legacy_total() {
         let today = NaiveDate::from_ymd_opt(2026, 9, 10).unwrap();
         let mut legacy = build_at("device", &fixture(200), &[], today).unwrap();
         legacy["_cockpit"]
@@ -510,10 +568,30 @@ mod tests {
         let mut smaller = fixture(100);
         smaller.status = "ready".into();
         let retained = build_at("device", &smaller, &[legacy], today).unwrap();
-        assert_eq!(retained["_cockpit"]["timeZonePending"], true);
+        assert_eq!(retained["_cockpit"]["timeZone"], "Asia/Shanghai");
         let parsed = tokei_usage::parse_device(&retained, "device", None).unwrap();
-        assert_eq!(parsed.ranges["all"].metrics.total_tokens, 200);
+        assert_eq!(parsed.ranges["all"].metrics.total_tokens, 100);
         assert!(parsed.collection_partial);
+    }
+
+    #[test]
+    fn malformed_old_lines_keep_coverage_partial_but_do_not_freeze_calendar_migration() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 10).unwrap();
+        let mut legacy = build_at("device", &fixture(200), &[], today).unwrap();
+        legacy["_cockpit"]
+            .as_object_mut()
+            .unwrap()
+            .remove("timeZone");
+        let mut native = fixture(100);
+        native.warnings = vec!["invalid_record".into(), "line_limit".into()];
+        let result = build_at("device", &native, &[legacy.clone()], today).unwrap();
+        let parsed = tokei_usage::parse_device(&result, "device", None).unwrap();
+        assert_eq!(result["_cockpit"]["timeZone"], "Asia/Shanghai");
+        assert_eq!(parsed.daily["2026-09-10"].metrics.total_tokens, 100);
+        assert!(parsed.collection_partial);
+        native.warnings.push("scan_limit".into());
+        let pending = build_at("device", &native, &[legacy], today).unwrap();
+        assert_eq!(pending["_cockpit"]["timeZonePending"], true);
     }
 
     #[test]

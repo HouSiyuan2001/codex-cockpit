@@ -25,7 +25,7 @@ import { trackedQuotaWindows } from "./lib/quotaPace";
 import { estimateCarryInPercent, upsertDailyRecommendation, type DailyRecommendation } from "./lib/dynamicQuota";
 import { calibratePersonalUsage } from "./lib/personalUsageModel";
 import { buildTodayQuotaAdvice, dailyUsageRatio } from "./lib/todayQuota";
-import { buildOfficialDailyUsageHistory } from "./lib/officialUsage";
+import { buildOfficialDailyUsageHistory, compactOfficialQuotaHistory } from "./lib/officialUsage";
 import { mergeSnapshots } from "./lib/snapshots";
 import { canSendNotification, EMPTY_RUNTIME_STATE, isQuietHour, normalizeRuntimeState, recordSnapshotActivity } from "./lib/activity";
 import { DEFAULT_WIDGET_PREFERENCES, effectiveCompactLayout, effectiveStayExpanded, normalizeWidgetPreferences } from "./lib/preferences";
@@ -37,7 +37,7 @@ import { buildTokenComfortSnapshot } from "./lib/tokenComfort";
 import { useComfortUsage } from "./lib/useComfortUsage";
 import { loadStartupState } from "./lib/startup";
 import { measureSurfaceHeight } from "./lib/windowMetrics";
-import { usageDateKey } from "./lib/usageDay";
+import { localDateKey } from "./lib/usageDay";
 import { CODEX_RESETS_URL } from "./lib/externalLinks";
 import { useWebsiteResetProbability } from "./lib/useWebsiteResetProbability";
 import { activeResetWatch } from "./lib/resetWatch";
@@ -90,13 +90,13 @@ export default function App() {
   const [comfortSaveError, setComfortSaveError] = useState<string | null>(null);
   const [comfortSyncError, setComfortSyncError] = useState(false);
   const comfortSaveBusy = useRef(false);
-  const { data: comfortUsage, error: comfortUsageError, refresh: refreshComfortUsage } = useComfortUsage(startupReady);
+  const { data: comfortUsage, error: comfortUsageError, refresh: refreshComfortUsage, quotaHistory } = useComfortUsage(startupReady);
   const comfortPersonId = runtimeState.comfortPersonId === undefined ? comfortUsage?.localGroupId ?? null : runtimeState.comfortPersonId;
   const comfortPerson = comfortUsage?.groups.find(group => group.id === comfortPersonId);
   const [appDiagnostics, setAppDiagnostics] = useState<AppDiagnostics | null>(null);
   const [autostartEnabled, setAutostartState] = useState(false);
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
-  const [usageDay, setUsageDay] = useState(() => usageDateKey(new Date()));
+  const [usageDay, setUsageDay] = useState(() => localDateKey(new Date()));
   const [planningNow, setPlanningNow] = useState(() => new Date());
   const failures = useRef(0);
   const snapshotsRef = useRef<ProviderSnapshot[]>([]);
@@ -124,8 +124,8 @@ export default function App() {
   const resolvedAppearance = resolveAppearanceMode(preferences.appearanceMode, systemDark);
   const codexDailyUsageHistory = useMemo(() => {
     const now = new Date();
-    return buildOfficialDailyUsageHistory(runtimeState.history, snapshots.find((item) => item.provider === "codex") ?? null, now);
-  }, [runtimeState.history, snapshots, usageDay]);
+    return buildOfficialDailyUsageHistory([...runtimeState.history, ...(runtimeState.officialQuotaHistory ?? []), ...(quotaHistory ?? [])], snapshots.find((item) => item.provider === "codex") ?? null, now);
+  }, [runtimeState.history, runtimeState.officialQuotaHistory, snapshots, usageDay, quotaHistory]);
   const codexDailyUsage = useMemo(
     () => codexDailyUsageHistory.find((item) => item.localDate === usageDay) ?? null,
     [codexDailyUsageHistory, usageDay],
@@ -159,7 +159,7 @@ export default function App() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       setPlanningNow(new Date());
-      const next = usageDateKey(new Date());
+      const next = localDateKey(new Date());
       setUsageDay((current) => current === next ? current : next);
     }, 30_000);
     return () => window.clearInterval(timer);
@@ -170,6 +170,15 @@ export default function App() {
     setRuntimeState(next);
     void updateRuntimeState(next).catch(() => setOperationError("Activity history could not be saved."));
   }, []);
+
+  useEffect(() => {
+    if (!startupReady || !quotaHistory?.length) return;
+    const current = runtimeStateRef.current;
+    const compact = compactOfficialQuotaHistory([...(current.officialQuotaHistory ?? []), ...current.history, ...quotaHistory]);
+    if (JSON.stringify(compact) !== JSON.stringify(current.officialQuotaHistory ?? [])) {
+      commitRuntimeState({ ...current, officialQuotaHistory: compact });
+    }
+  }, [startupReady, quotaHistory, commitRuntimeState]);
 
   useEffect(() => {
     if (!startupReady) return;
@@ -648,13 +657,11 @@ export default function App() {
   const allocation = allocateSharedPlan(dailyRecommendation?.targetPercent ?? 0, planPeople.map(group=>group.id), sharedPlan.plan?.people ?? localPlanOverrides);
   const personalPlanBudget = planPerson ? allocation.allocations[planPerson.id] : preferences.dailyBudgetPercent;
   const totalPlanBudget = planPeople.length ? allocation.total : dailyRecommendation?.targetPercent ?? preferences.dailyBudgetPercent;
-  const planStatus = sharedPlan.conflict ? (language === "en" ? "Changed on another device; confirm your edit again" : "其他设备已修改，请重新确认此设置") : sharedPlan.error ? (language === "en" ? "Not synced; local draft retained" : "同步未完成，保留本地设置") : sharedPlan.pending ? (language === "en" ? "Plan pending sync" : "计划待同步") : sharedPlan.plan ? (language === "en" ? "Shared plan synced" : "共享计划已同步") : (language === "en" ? "Local reference plan" : "本地参考计划");
-  const planningNote = `${planPerson?.name ?? (language === "en" ? "Unassigned device" : "未分配组员")} · ${planStatus}${allocation.total > (dailyRecommendation?.targetPercent ?? 0) + 0.05 ? ` · ${language === "en" ? "Total exceeds recommendation by" : "合计超出共享建议"} ${(allocation.total-(dailyRecommendation?.targetPercent??0)).toFixed(1)}%` : ""}`;
 
   useEffect(() => {
     if (!startupReady || current?.provider !== "codex" || !dailyRecommendation) return;
     const now = new Date();
-    const localDate = dailyRecommendation.dayPlan?.localDate ?? usageDateKey(now);
+    const localDate = dailyRecommendation.dayPlan?.localDate ?? localDateKey(now);
     const record = {
       provider: "codex" as const,
       localDate,
@@ -1112,7 +1119,6 @@ export default function App() {
       snapshots={orderedSnapshots}
       preferences={{...preferences,dailyBudgetPercent:personalPlanBudget,resetRiskManualEnabled:sharedPlan.plan ? sharedPlan.plan.risk.value!==null : preferences.resetRiskManualEnabled}}
       sharedBudgetPercent={totalPlanBudget}
-      planningNote={planningNote}
       codexDailyUsage={codexDailyUsage}
       dailyPersonCosts={dailyPersonCosts}
       dailyRecommendation={dailyRecommendation}

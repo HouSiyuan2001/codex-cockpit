@@ -32,7 +32,6 @@ interface Props {
   snapshots: ProviderSnapshot[];
   preferences: WidgetPreferences;
   sharedBudgetPercent?: number;
-  planningNote?: string;
   codexDailyUsage?: CodexDailyUsage | null;
   dailyPersonCosts?: DailyPersonCosts;
   dailyRecommendation?: DailyRecommendation | null;
@@ -205,8 +204,8 @@ function QuotaRing({ label, value, progress, tone, caption, detail, footer, over
   value: string;
   progress: number;
   tone: "weekly" | "daily";
-  caption: string;
-  detail: string;
+  caption?: string;
+  detail?: string;
   footer?: ReactNode;
   overPace?: boolean;
   innerProgress?: number | null;
@@ -238,7 +237,7 @@ function QuotaRing({ label, value, progress, tone, caption, detail, footer, over
         </svg>
         <div className="codex-ring-value" ref={readoutRef}><strong>{value}</strong>{value === "—" ? null : <span>%</span>}</div>
       </div>
-      <div className="codex-ring-caption"><span>{caption}</span><strong>{detail}</strong></div>
+      {caption || detail ? <div className="codex-ring-caption">{caption ? <span>{caption}</span> : null}{detail ? <strong>{detail}</strong> : null}</div> : null}
       {footer ? <footer className="codex-ring-footer">{footer}</footer> : null}
     </section>
   );
@@ -532,7 +531,6 @@ export const QuotaCard = memo(function QuotaCard({
   snapshots,
   preferences,
   sharedBudgetPercent,
-  planningNote,
   codexDailyUsage = null,
   dailyPersonCosts,
   dailyRecommendation = null,
@@ -765,30 +763,14 @@ export const QuotaCard = memo(function QuotaCard({
     const dailySuggested = todayAdvice.todaySuggestedPercent;
     const dailyBudget = preferences.dailyBudgetPercent;
     const accountBudget = sharedBudgetPercent ?? dailyBudget;
-    const budgetLeftLabel = sharedBudgetPercent === undefined ? (language === "en" ? "Budget left today" : "今天还可用") : (language === "en" ? "Shared budget left today" : "今天合计还可用");
     const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
     const dailyBudgetUsageRatio = dailyUsageRatio(dailyUsed, accountBudget);
     const dailyBudgetExhausted = dailyBudgetUsageRatio !== null && dailyBudgetUsageRatio >= 100;
-    const dailyBudgetDetail = dailyBudgetExhausted
-      ? `${language === "en" ? "Over cap" : "超出上限"} ${number.format(Math.max(0, (dailyBudgetUsageRatio ?? 100) - 100))}%`
-      : dailyUsed === null
-        ? (language === "en" ? "No usage recorded" : "今日未记录用量")
-        : `${budgetLeftLabel} ${number.format(Math.max(0, accountBudget - dailyUsed))}%`;
     const weeklyLabel = language === "en" ? "Weekly remaining" : "本周剩余";
     const dailyLabel = language === "en" ? "Today's used" : "今日已用";
     const resetCreditsLabel = snapshot.resetCredits === null || snapshot.resetCredits <= 0
       ? (language === "en" ? "None" : "暂无")
       : snapshot.resetCredits;
-    const firstObservedLabel = codexDailyUsage?.coverage === "partial" && codexDailyUsage.firstObservedAt
-      ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(codexDailyUsage.firstObservedAt))
-      : null;
-    const usedLabel = dailyUsed === null
-      ? (language === "en" ? "Not recorded today" : "今日未记录")
-      : dailyRecommendation?.dayPlan
-        ? `${language === "en" ? "Used since baseline" : "基准后已用"} ${number.format(dailyUsed)}%`
-      : codexDailyUsage?.coverage === "partial"
-        ? `${language === "en" ? "Recorded" : "已记录"} ${number.format(dailyUsed)}%${firstObservedLabel ? ` · ${firstObservedLabel} ${language === "en" ? "onward" : "起"}` : ""}`
-        : `${language === "en" ? "Used" : "已用"} ${number.format(dailyUsed)}%`;
 
     return (
       <main
@@ -841,19 +823,10 @@ export const QuotaCard = memo(function QuotaCard({
                   tone="daily"
                   personCosts={dailyPersonCosts}
                   overPace={dailyBudgetExhausted}
-                  caption={dailyUsed === null || dailySuggested === null
-                    ? (language === "en" ? "Waiting for today's guide" : "等待今日建议")
-                    : codexDailyUsage?.coverage === "partial" && !dailyRecommendation?.dayPlan
-                      ? usedLabel
-                      : `${language === "en" ? "Used today" : "今天已用"} ${number.format(dailyUsed)}%`}
-                  detail={dailyBudgetDetail}
                   footer={(
-                    <div className="daily-budget-control" title={[planningNote, usedLabel, dailySuggested !== null ? `${language === "en" ? "Suggested today" : "今日建议"} ${number.format(dailySuggested)}%` : null, todayAdvice.safetyCapPercent !== null ? `${language === "en" ? "Cycle cap" : "周期上限"} ${number.format(todayAdvice.safetyCapPercent)}%` : null].filter(Boolean).join(" · ")} onMouseDown={(event) => event.stopPropagation()}>
-                      <small className="daily-budget-recommendation">
-                        <span>{language === "en" ? "Total daily budget" : "今日总额度"} {dailySuggested === null ? "—" : `${number.format(dailySuggested)}%`}</span>
-                      </small>
+                    <div className="daily-budget-control" onMouseDown={(event) => event.stopPropagation()}>
                       <div className="daily-budget-heading">
-                        <label htmlFor="daily-budget-range"><span>{language === "en" ? "My daily budget" : "我的今日额度"}</span><output>{number.format(dailyBudget)}%</output></label>
+                        <label htmlFor="daily-budget-range"><span>{language === "en" ? "Personal cap" : "个人上限"}</span><output>{number.format(dailyBudget)}%</output></label>
                         <button
                           type="button"
                           className="daily-budget-refresh"
@@ -865,17 +838,19 @@ export const QuotaCard = memo(function QuotaCard({
                           <ArrowClockwise weight="bold" />
                         </button>
                       </div>
+                      <small className="daily-budget-recommendation">
+                          <span>{language === "en" ? "Day total" : "今日总建议"} {dailySuggested === null ? "—" : `${number.format(dailySuggested)}%`}</span>
+                      </small>
                       <RangeSlider
                         id="daily-budget-range"
                         min="1"
                         max="100"
                         step="0.1"
                         value={dailyBudget}
-                        aria-label={language === "en" ? "My daily budget" : "我的今日额度"}
+                        aria-label={language === "en" ? "Personal cap" : "个人上限"}
                         onChange={(event) => onDailyBudgetChange(Number(event.target.value))}
                         onInteractionChange={onSliderInteraction}
                       />
-                      <small>{language === "en" ? "Planned share of weekly quota" : "计划额度，占每周额度的比例"}</small>
                     </div>
                   )}
                 />

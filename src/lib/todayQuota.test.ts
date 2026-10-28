@@ -44,9 +44,9 @@ describe("today quota advice", () => {
     expect(advice.state).toBe("live");
     expect(advice.usedPercent).toBe(20);
     expect(advice.remainingPercent).toBe(80);
-    expect(advice.todaySuggestedPercent).toBeCloseTo(10.9, 1);
+    expect(advice.todaySuggestedPercent).toBeCloseTo(7.3, 1);
     expect(advice.todayUsedPercent).toBe(3);
-    expect(advice.todayRemainingPercent).toBeCloseTo(7.9, 1);
+    expect(advice.todayRemainingPercent).toBeCloseTo(4.3, 1);
   });
 
   it("falls back to the legacy weekly window when the official snapshot is missing", () => {
@@ -79,11 +79,11 @@ describe("today quota advice", () => {
 
     expect(advice.state).toBe("stale");
     expect(advice.usedPercent).toBe(60);
-    expect(advice.todaySuggestedPercent).toBeCloseTo(5.5, 1);
+    expect(advice.todaySuggestedPercent).toBeCloseTo(3.6, 1);
     expect(advice.todayRemainingPercent).toBeNull();
   });
 
-  it("keeps the previous usage day until 4:00 and starts a new one at 4:00", () => {
+  it("starts the calendar day at midnight independently of the legacy 04:00 boundary", () => {
     const beforeFour = buildTodayQuotaAdvice({
       status,
       weeklyWindow: { remainingPercent: 70, resetsAt: weeklyReset, windowSeconds: 604_800 },
@@ -97,7 +97,7 @@ describe("today quota advice", () => {
       now: chinaTime(2026, 7, 14, 4, 0),
     });
 
-    expect(beforeFour.todayUsedPercent).toBe(3);
+    expect(beforeFour.todayUsedPercent).toBeNull();
     expect(atFour.todayUsedPercent).toBeNull();
   });
 

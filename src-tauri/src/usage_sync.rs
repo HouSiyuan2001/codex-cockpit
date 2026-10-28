@@ -294,7 +294,7 @@ async fn collect_local_usage(
     // must never manufacture an empty snapshot or replace a last-good ledger.
     if !result.projects.is_empty() && result.status != "unavailable" {
         let baselines = read_baselines(data, &home, &id);
-        let payload = usage_sync_snapshot::build(&id, &result, &baselines)?;
+        let payload = build_local_snapshot(data, &id, &result, &baselines)?;
         write_json(&data.join("local-usage-cache.json"), &payload)?;
     }
     Ok(result)
@@ -366,6 +366,36 @@ pub fn save_usage_sync_settings(
     }
     get_usage_sync_status(app)
 }
+fn build_local_snapshot(
+    data: &Path,
+    device_id: &str,
+    collected: &codex_project_usage::ProjectUsageSnapshot,
+    baselines: &[Value],
+) -> Result<Value, String> {
+    let payload = usage_sync_snapshot::build(device_id, collected, baselines)?;
+    let legacy: Vec<_> = baselines
+        .iter()
+        .filter(|value| {
+            value["_device"].as_str() == Some(device_id)
+                && value["_cockpit"]["timeZone"].as_str() != Some(crate::usage_time::TIME_ZONE)
+        })
+        .cloned()
+        .collect();
+    if payload["_cockpit"]["timeZone"].as_str() == Some(crate::usage_time::TIME_ZONE)
+        && !legacy.is_empty()
+    {
+        // Local recovery only. This filename is never a sync source.
+        let archive = data.join("local-usage-legacy-calendar.json");
+        if !archive.exists() {
+            write_json(
+                &archive,
+                &serde_json::json!({"schemaVersion":1,"snapshots":legacy}),
+            )?;
+        }
+    }
+    Ok(payload)
+}
+
 fn read_baselines(data: &Path, home: &Path, device_id: &str) -> Vec<Value> {
     let mut paths = vec![
         data.join("local-usage-cache.json"),
@@ -422,7 +452,7 @@ pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String>
         if crate::cloud_sync::config(&data)?.is_some() {
             let baselines = read_baselines(&data, &home, &settings.device_id);
             let mut payload =
-                usage_sync_snapshot::build(&settings.device_id, &collected, &baselines)?;
+                build_local_snapshot(&data, &settings.device_id, &collected, &baselines)?;
             payload["_cockpit"]["protocolVersion"] = serde_json::json!(2);
             payload["_cockpit"]["appVersion"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
             payload["_cockpit"]["settingsRevision"] =
@@ -453,7 +483,7 @@ pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String>
             );
             let baselines = read_baselines(&data, &home, &settings.device_id);
             let mut payload =
-                usage_sync_snapshot::build(&settings.device_id, &collected, &baselines)?;
+                build_local_snapshot(&data, &settings.device_id, &collected, &baselines)?;
             comfort_sync::attach_local_feedback(
                 &mut payload,
                 &data.join("runtime-state.json"),
@@ -643,6 +673,7 @@ mod tests {
     use super::*;
     fn unidentified_snapshot() -> codex_project_usage::ProjectUsageSnapshot {
         codex_project_usage::ProjectUsageSnapshot {
+            quota_history: Vec::new(),
             device_id: None,
             updated_at: Utc::now().to_rfc3339(),
             status: "partial".into(),
@@ -746,6 +777,42 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn calendar_migration_archives_original_local_ledger_once() {
+        let f = Fixture::new();
+        let mut source = unidentified_snapshot();
+        source.status = "ready".into();
+        source.warnings.clear();
+        let day = crate::tokei_usage::UsagePeriod {
+            start: None,
+            end: None,
+            metrics: crate::tokei_usage::Metrics {
+                input_tokens: 100,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                reasoning_tokens: 0,
+                total_tokens: 100,
+                estimated_cost_usd: Some(1.0),
+            },
+            models: vec![],
+        };
+        source.projects[0].daily.insert("2026-09-10".into(), day);
+        let mut legacy = usage_sync_snapshot::build("device", &source, &[]).unwrap();
+        legacy["_cockpit"]
+            .as_object_mut()
+            .unwrap()
+            .remove("timeZone");
+        let expected = legacy.clone();
+        let payload = build_local_snapshot(&f.0, "device", &source, &[legacy]).unwrap();
+        let path = f.0.join("local-usage-legacy-calendar.json");
+        let archive = fs::read(&path).unwrap();
+        let value: Value = serde_json::from_slice(&archive).unwrap();
+        assert_eq!(value["snapshots"][0], expected);
+        assert_eq!(payload["_cockpit"]["timeZone"], "Asia/Shanghai");
+        build_local_snapshot(&f.0, "device", &source, &[expected]).unwrap();
+        assert_eq!(fs::read(path).unwrap(), archive);
+    }
+
     #[test]
     fn local_cache_is_readable_without_sync_and_cannot_spoof_another_device() {
         let f = Fixture::new();

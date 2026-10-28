@@ -395,6 +395,13 @@ describe("activity timeline and notification policy", () => {
     expect(normalized).toEqual(EMPTY_RUNTIME_STATE);
   });
 
+  it("restores compact official history independently of the rolling activity samples", () => {
+    const saved = { provider: "codex", capturedAt: "2026-10-26T16:00:00Z", metric: 40, metricKind: "percent", status: "ok", resetsAt: "2026-11-02T06:00:00Z" };
+    const restored = normalizeRuntimeState({ ...EMPTY_RUNTIME_STATE, history: [], officialQuotaHistory: [saved, { ...saved, provider: "unknown" }] });
+    expect(restored.officialQuotaHistory).toEqual([saved]);
+    expect(restored.history).toEqual([]);
+  });
+
   it("preserves valid multi-cycle daily usage while bounding imported values", () => {
     const base = {
       schemaVersion: 1,

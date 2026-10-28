@@ -117,6 +117,19 @@ describe("person quota allocation", () => {
     expect(blair).toEqual(expect.objectContaining({ coverage: "partial", personCostUsd: null, costShare: null, allocatedUsedPercent: null }));
   });
 
+  it("retains priced models when one unknown model makes the device total unavailable", () => {
+    const mac = device("Mac", null);
+    mac.daily[targetDate].models = [
+      { ...day(90), id: "priced", name: "Priced" },
+      { ...day(null), id: "unknown", name: "Unknown" },
+    ];
+    const data = usage([mac, device("PC", 10)]);
+    const allocation = buildPersonQuotaAllocation(data, "sisi", targetDate, total, now)!;
+    expect(allocation).toEqual(expect.objectContaining({ personCostUsd: 90, totalCostUsd: 100,
+      allocatedUsedPercent: 54, coverage: "partial", missingDeviceIds: [], deviceIds: ["Mac", "PC"] }));
+    expect(buildPersonQuotaAllocation(data, "jelly", targetDate, total, now)!.allocatedUsedPercent).toBe(6);
+  });
+
   it("keeps a zero or missing denominator strictly unavailable, including shared zero percent", () => {
     const zero = buildPersonQuotaAllocation(usage([device("Mac", 0), device("PC", 0)]), "alex", targetDate, total, now)!;
     expect(zero).toEqual(expect.objectContaining({ coverage: "unavailable", totalCostUsd: null, allocatedUsedPercent: null }));

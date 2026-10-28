@@ -333,10 +333,12 @@ describe("QuotaCard platform ledger", () => {
 
       expect(screen.getByText("Codex 驾驶舱")).toBeInTheDocument();
       expect(screen.getByText("本周剩余")).toBeInTheDocument();
-      const observedTime = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date("2026-07-20T14:24:00+08:00"));
-      expect(screen.getByText(`已记录 6% · ${observedTime} 起`)).toBeInTheDocument();
+      expect(screen.queryByText("已记录 6% · 14:24 起")).not.toBeInTheDocument();
       const dailyRing = screen.getByRole("group", { name: "今日已用 42%" });
-      expect(dailyRing).toHaveTextContent("今天还可用 8.3%");
+      expect(dailyRing).toHaveTextContent("个人上限");
+      expect(dailyRing).toHaveTextContent("今日总建议");
+      expect(dailyRing.querySelector(".codex-ring-caption")).not.toBeInTheDocument();
+      expect(dailyRing.querySelector(".daily-budget-control")?.textContent).toMatch(/^个人上限14\.3%今日总建议 [\d.]+%$/);
       expect(dailyRing.querySelector(".daily-usage-track")).not.toBeInTheDocument();
       expect(dailyRing.querySelector(".codex-ring-value strong")).toHaveTextContent("42");
       expect(Number(dailyRing.querySelector(".codex-ring-progress")?.getAttribute("stroke-dasharray")?.split(" ")[0])).toBeCloseTo(42, 6);
@@ -346,7 +348,7 @@ describe("QuotaCard platform ledger", () => {
       expect(weeklyRing).toHaveTextContent("暂无");
       expect(screen.queryByText("当前套餐")).not.toBeInTheDocument();
       expect(screen.queryByText("Pro Lite")).not.toBeInTheDocument();
-      const slider = screen.getByRole("slider", { name: "我的今日额度" });
+      const slider = screen.getByRole("slider", { name: "个人上限" });
       expect(slider).toHaveValue("14.3");
       expect(screen.getByText("官方额度快照")).toBeInTheDocument();
       expect(screen.queryByText("官方 App Server")).not.toBeInTheDocument();
@@ -469,10 +471,8 @@ describe("QuotaCard platform ledger", () => {
 
       const dailyRing = screen.getByRole("group", { name: "今日已用 120%" });
       expect(dailyRing).toHaveClass("codex-ring-card--over_pace");
-      expect(dailyRing).toHaveTextContent("超出上限 20%");
-      expect(dailyRing).toHaveTextContent("已记录 12%");
-      expect(dailyRing.querySelector(".daily-budget-recommendation")).toHaveTextContent("今日总额度");
-      expect(dailyRing.querySelector(".daily-budget-control p")).toBeNull();
+      expect(dailyRing).not.toHaveTextContent("超出上限");
+      expect(dailyRing).not.toHaveTextContent("周期上限");
       expect(dailyRing.querySelector(".codex-ring-value strong")).toHaveTextContent("120");
       expect(Number(dailyRing.querySelector(".codex-ring-progress")?.getAttribute("stroke-dasharray")?.split(" ")[0])).toBe(100);
     } finally {
@@ -553,7 +553,7 @@ describe("QuotaCard platform ledger", () => {
       />,
     );
 
-    const slider = screen.getByRole("slider", { name: "My daily budget" });
+    const slider = screen.getByRole("slider", { name: "Personal cap" });
     Object.assign(slider, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
     fireEvent.pointerDown(slider, { button: 0, pointerId: 3 });
     fireEvent.pointerUp(slider, { pointerId: 3 });
@@ -586,8 +586,8 @@ describe("QuotaCard platform ledger", () => {
       />,
     );
 
-    expect(screen.getByRole("group", { name: "今日已用" })).toHaveTextContent("等待今日建议");
-    expect(screen.getByText("今日未记录用量")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "今日已用" })).toHaveTextContent("今日总建议 —");
+    expect(screen.queryByText("今日未记录用量")).not.toBeInTheDocument();
   });
 
   it("shows the evening feedback choices without duplicating the comfort curve", () => {

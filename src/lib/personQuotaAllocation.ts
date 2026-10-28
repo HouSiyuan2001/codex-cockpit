@@ -98,8 +98,8 @@ function uniqueDevices(data: TokeiUsage, expected: ReadonlySet<string>, now: Dat
 
 /**
  * Estimate one person's share of a shared quota percentage from exact calendar-day
- * costs. Cost and quota use different day boundaries, so partial coverage remains
- * explicit and the result is descriptive rather than an exact provider allocation.
+ * costs and calendar-day quota. Partial coverage remains explicit and the result
+ * is descriptive rather than an exact provider allocation.
  */
 export function buildPersonQuotaAllocation(
   data: TokeiUsage,
@@ -139,13 +139,17 @@ export function buildPersonQuotaAllocation(
   for (const id of expectedIds) {
     const device = devices.get(id);
     const day = device?.daily[localDate];
-    if (!device || !day || !validCost(day.estimatedCostUsd)) {
+    const knownModelCosts = day?.models.filter(model => validCost(model.estimatedCostUsd)).map(model => model.estimatedCostUsd as number) ?? [];
+    const cost = validCost(day?.estimatedCostUsd) ? day.estimatedCostUsd
+      : knownModelCosts.length ? knownModelCosts.reduce((sum, value) => sum + value, 0) : null;
+    if (!device || !day || !validCost(cost)) {
       missingDeviceIds.push(id);
       continue;
     }
     const updatedAt = Date.parse(device.updatedAt ?? "");
-    if (device.stale || device.collectionPartial || updatedAt < dayEnd) sourceIncomplete = true;
-    costByDevice.set(id, day.estimatedCostUsd);
+    if (device.stale || device.collectionPartial || updatedAt < dayEnd
+      || !validCost(day.estimatedCostUsd) || day.models.some(model => model.costIncomplete)) sourceIncomplete = true;
+    costByDevice.set(id, cost);
     deviceIds.push(id);
   }
 

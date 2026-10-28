@@ -65,6 +65,7 @@ pub struct DeviceUsage {
     pub updated_at: Option<String>,
     pub stale: bool,
     pub collection_partial: bool,
+    pub time_zone_pending: bool,
     pub daily: BTreeMap<String, UsagePeriod>,
     pub ranges: BTreeMap<String, UsagePeriod>,
 }
@@ -415,11 +416,22 @@ pub(crate) fn parse_device(
     if !safe_id(id) {
         return None;
     }
-    let updated = v["_ts"]
+    let transport_time = v["_ts"]
         .as_i64()
         .and_then(|ts| DateTime::from_timestamp(ts, 0))
         .or(fallback_time);
     let now = Utc::now();
+    let time_zone_pending = v["_cockpit"]["timeZonePending"].as_bool().unwrap_or(false);
+    let updated = if time_zone_pending {
+        v["_cockpit"]["collectedAt"]
+            .as_str()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|t| t.with_timezone(&Utc))
+            .filter(|t| *t <= now + chrono::Duration::minutes(5))
+            .or(transport_time)
+    } else {
+        transport_time
+    };
     let stale = updated
         .is_none_or(|t| (now - t).num_seconds() > 900 || t > now + chrono::Duration::minutes(5));
     let mut daily = BTreeMap::new();
@@ -468,6 +480,7 @@ pub(crate) fn parse_device(
         stale,
         collection_partial: v["_cockpit"].is_object()
             && v["_cockpit"]["status"].as_str() != Some("ready"),
+        time_zone_pending: v["_cockpit"]["timeZonePending"].as_bool().unwrap_or(false),
         daily,
         ranges,
     })
@@ -600,6 +613,18 @@ fn local_group_id(groups: &[UsageGroup], device_id: Option<&str>) -> Option<Stri
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    #[ignore = "read-only local aggregate audit; requires explicit config and output paths"]
+    fn audit_local_shared_usage() {
+        let data =
+            PathBuf::from(std::env::var("COCKPIT_USAGE_AUDIT_CONFIG").expect("explicit config"));
+        let output = std::env::var("COCKPIT_USAGE_AUDIT_OUTPUT").expect("explicit output");
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let settings = local_groups(&data).unwrap();
+        let mut usage = load_usage(&home, settings);
+        crate::usage_sync::merge_managed_usage(&data, &mut usage);
+        fs::write(output, serde_json::to_vec(&usage).unwrap()).unwrap();
+    }
     #[test]
     fn retained_snapshot_is_read_even_without_device_configuration() {
         let f = Fixture::new();

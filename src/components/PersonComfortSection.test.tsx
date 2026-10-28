@@ -46,7 +46,7 @@ it("switches people without showing the other person's feedback or assigning leg
   expect(records[2].personId).toBeNull();
 });
 
-it("shows the saved snapshot instead of silently replacing it with a newer daily total", () => {
+it("updates the allocation from the current ledger while preserving the saved feeling", () => {
   const stored = record("alex", "comfortable");
   const newer = data();
   newer.devices[0].daily["2026-08-12"].totalTokens = 10e6;
@@ -54,11 +54,13 @@ it("shows the saved snapshot instead of silently replacing it with a newer daily
   newer.devices[0].daily["2026-08-12"].estimatedCostUsd = 300;
   const refresh = vi.fn();
   render(<PersonComfortSection data={newer} personId="alex" records={[stored]} language="zh-CN" onPersonChange={vi.fn()} onChange={vi.fn()} onRefreshSnapshot={refresh} />);
-  fireEvent.click(screen.getByRole("gridcell", { name: /8月12日.*≈3.6%/ }));
+  fireEvent.click(screen.getByRole("gridcell", { name: /8月12日.*≈9.7%/ }));
   expect(screen.queryByText("分摊明细")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "更新分摊" })).not.toBeInTheDocument();
   expect(screen.getByRole("radio", { name: "刚刚好" })).toBeInTheDocument();
   expect(refresh).not.toHaveBeenCalled();
+  expect(stored.quotaAllocation?.allocatedUsedPercent).toBe(3.6);
+  expect(stored.comfort).toBe("comfortable");
 });
 
 it("shows fixed-form efficiency with directly labeled percentage axes", () => {

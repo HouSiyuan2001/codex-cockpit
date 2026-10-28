@@ -27,6 +27,21 @@ describe("personal Codex usage", () => {
     expect(withPeer.devices[0]).toBe(retained.devices[0]);
     expect(withPeer.devices[1].id).toBe(projects.deviceId);
   });
+  it("replaces a repeatedly timestamped legacy calendar with native scanned dates without mixing the old day", () => {
+    const data = createUsagePreview(now);
+    const local = data.devices[0];
+    local.timeZonePending = true;
+    local.updatedAt = now.toISOString();
+    const day = structuredClone(local.daily["2026-09-10"]);
+    day.totalTokens *= 3;
+    const projects: ProjectUsageSnapshot = { deviceId: local.id, updatedAt: "2026-09-10T01:00:00Z", status: "partial", coverage: "local", scannedFiles: 1, pricingSource: "test", pricingUpdatedAt: null, warnings: ["scan_limit"], projects: [{ id: "one", name: "One", daily: { "2026-09-10": day } }] };
+    const merged = withLiveLocalUsage(data, projects);
+    expect(merged.devices[0].daily["2026-09-10"].totalTokens).toBe(day.totalTokens);
+    expect(Object.keys(merged.devices[0].daily)).toEqual(["2026-09-10"]);
+    expect(merged.devices[0].collectionPartial).toBe(true);
+    expect(merged.devices[0].timeZonePending).toBe(false);
+    expect(local.timeZonePending).toBe(true);
+  });
   it("creates a live local ledger on fresh installs without an older sync device", () => {
     const data = createUsagePreview(now);
     const daily = data.devices[0].daily;

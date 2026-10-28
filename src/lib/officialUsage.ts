@@ -1,6 +1,6 @@
 import type { CodexDailyUsage, ProviderSnapshot, QuotaHistoryPoint } from "../types";
 import { trackedQuotaWindows } from "./quotaPace";
-import { usageDateKey } from "./usageDay";
+import { localDateKey } from "./usageDay";
 
 const BEIJING_OFFSET_HOURS = 8;
 const DAY_MS = 24 * 60 * 60_000;
@@ -11,7 +11,7 @@ type OfficialQuotaPoint = Pick<QuotaHistoryPoint, "provider" | "capturedAt" | "m
 
 function usageDayStartMs(localDate: string): number {
   const [year, month, day] = localDate.split("-").map(Number);
-  return Date.UTC(year, month - 1, day, 4 - BEIJING_OFFSET_HOURS);
+  return Date.UTC(year, month - 1, day, -BEIJING_OFFSET_HOURS);
 }
 
 function parseTimestamp(value: string | null): number {
@@ -91,7 +91,7 @@ export function buildOfficialDailyUsageForDate(
   const observationEnd = Math.min(dayEnd, now.getTime());
   if (observationEnd < dayStart) return null;
 
-  const usable = deduplicatePoints(points).filter((point) => {
+  const usable = deduplicatePoints(points.filter(isUsablePoint)).filter((point) => {
     const capturedAt = parseTimestamp(point.capturedAt);
     return capturedAt <= observationEnd;
   });
@@ -118,6 +118,9 @@ export function buildOfficialDailyUsageForDate(
   for (let index = 1; index < sequence.length; index += 1) {
     const current = sequence[index];
     const currentCycle = cycleKey(current.resetsAt);
+    // A delayed session can repeat its old cycle after a reset was observed.
+    // It must never reopen that cycle or count the new cycle twice.
+    if (currentCycle < activeCycle) continue;
     if (currentCycle === activeCycle) {
       segmentMinimum = Math.min(segmentMinimum, current.metric ?? segmentMinimum);
       continue;
@@ -143,6 +146,7 @@ export function buildOfficialDailyUsageForDate(
   const firstObservedAt = inDay[0].capturedAt;
   const lastObservedAt = inDay[inDay.length - 1].capturedAt;
   const coverage = !missingBaseline && parseTimestamp(firstObservedAt) <= dayStart + COMPLETE_DAY_GRACE_MS
+    && (now.getTime() < dayEnd || parseTimestamp(lastObservedAt) >= dayEnd - COMPLETE_DAY_GRACE_MS)
     ? "complete"
     : "partial";
   return {
@@ -161,13 +165,29 @@ export function buildOfficialDailyUsageHistory(
   currentSnapshot: ProviderSnapshot | null = null,
   now = new Date(),
 ): CodexDailyUsage[] {
-  const currentPoint = currentSnapshot ? officialPointFromSnapshot(currentSnapshot, now.toISOString()) : null;
+  const currentPoint = currentSnapshot ? officialPointFromSnapshot(currentSnapshot, currentSnapshot.updatedAt) : null;
   const points = deduplicatePoints([
     ...history.filter(isUsablePoint),
     ...(currentPoint ? [currentPoint] : []),
   ]).filter((point) => parseTimestamp(point.capturedAt) <= now.getTime());
-  const dates = [...new Set(points.map((point) => usageDateKey(new Date(point.capturedAt))))].sort().reverse();
+  const dates = [...new Set(points.map((point) => localDateKey(new Date(point.capturedAt))))].sort().reverse();
   return dates
     .map((localDate) => buildOfficialDailyUsageForDate(localDate, points, now))
     .filter((item): item is CodexDailyUsage => item !== null);
+}
+
+/** Keep daily cycle endpoints and extrema so polling cannot evict old day anchors. */
+export function compactOfficialQuotaHistory(history: readonly QuotaHistoryPoint[]): QuotaHistoryPoint[] {
+  const groups = new Map<string, QuotaHistoryPoint[]>();
+  for (const point of deduplicatePoints(history.filter(isUsablePoint))) {
+    const key = `${localDateKey(new Date(point.capturedAt))}:${cycleKey(point.resetsAt)}`;
+    const group = groups.get(key) ?? [];
+    group.push(point);
+    groups.set(key, group);
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-256).flatMap(([, points]) => {
+    const minimum = points.reduce((a, b) => (a.metric ?? 100) <= (b.metric ?? 100) ? a : b);
+    const maximum = points.reduce((a, b) => (a.metric ?? 0) >= (b.metric ?? 0) ? a : b);
+    return [...new Set([points[0], minimum, maximum, points[points.length - 1]])];
+  }).sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt));
 }

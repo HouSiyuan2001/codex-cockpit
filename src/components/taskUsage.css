@@ -9,13 +9,15 @@
 .task-usage-heading {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 3px;
+  line-height: 1.4;
 }
 
 .task-usage-heading > small {
   overflow: hidden;
   color: var(--glass-muted, rgba(224, 232, 245, 0.62));
-  font-size: 9px;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

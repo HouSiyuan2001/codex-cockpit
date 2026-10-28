@@ -1,6 +1,6 @@
 import type { CodexDailyUsage, RateLimitSnapshot, SnapshotStatus, UsageWindow } from "../types";
 import type { DailyRecommendation } from "./dynamicQuota";
-import { endOfUsageDay, usageDateKey } from "./usageDay";
+import { beijingParts, localDateKey } from "./usageDay";
 
 export type TodayQuotaAdviceState = "live" | "fallback" | "stale" | "missing";
 
@@ -16,6 +16,11 @@ export interface TodayQuotaAdvice {
   resetRiskPercent: number | null;
   recommendationSource: DailyRecommendation["source"] | "linear-fallback" | "none";
   resetsAt: string | null;
+}
+
+function calendarDayEnd(now: Date): number {
+  const { year, month, day } = beijingParts(now);
+  return Date.UTC(year, month - 1, day + 1, -8);
 }
 
 function clampPercent(value: number): number {
@@ -67,7 +72,7 @@ export function buildTodayQuotaAdvice({
   const nowMs = now.getTime();
   const remainingWindowMs = Number.isFinite(resetMs) ? resetMs - nowMs : Number.NaN;
   const todayWindowMs = Number.isFinite(resetMs)
-    ? Math.max(0, Math.min(resetMs, endOfUsageDay(now)) - nowMs)
+    ? Math.max(0, Math.min(resetMs, calendarDayEnd(now)) - nowMs)
     : Number.NaN;
   const linearSuggestedPercent = remainingPercent !== null
     && Number.isFinite(remainingWindowMs)
@@ -80,14 +85,12 @@ export function buildTodayQuotaAdvice({
   const todaySuggestedPercent = hasPlan && dynamicRecommendation
     ? roundPercent(dynamicRecommendation.targetPercent)
     : linearSuggestedPercent;
-  const todayUsedPercent = dynamicRecommendation?.dayPlan
-    ? dynamicRecommendation.todayUsedPercent ?? null
-    : dailyUsage
+  const todayUsedPercent = dailyUsage
     && dailyUsage.coverage !== "unavailable"
-    && dailyUsage.localDate === usageDateKey(now)
+    && dailyUsage.localDate === localDateKey(now)
     && Number.isFinite(dailyUsage.observedUsedPercent)
     ? roundPercent(Math.max(0, dailyUsage.observedUsedPercent))
-    : null;
+    : dynamicRecommendation?.dayPlan ? dynamicRecommendation.todayUsedPercent ?? null : null;
   const todayRemainingPercent = todaySuggestedPercent === null || todayUsedPercent === null
     ? null
     : roundPercent(Math.max(0, todaySuggestedPercent - todayUsedPercent));

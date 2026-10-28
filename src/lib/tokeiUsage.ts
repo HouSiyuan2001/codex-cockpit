@@ -33,6 +33,7 @@ export interface TokeiDevice {
   updatedAt: string | null;
   stale: boolean;
   collectionPartial?: boolean;
+  timeZonePending?: boolean;
   /** A newer, in-memory local scan supersedes this device's synced ranges. */
   liveLocal?: boolean;
   daily: Record<string, DailyModelUsage>;
@@ -78,6 +79,8 @@ export function aggregateGlobalUsage(data: TokeiUsage, period: UsagePeriod, now 
   return { ...summary, users };
 }
 export interface ProjectUsageSnapshot {
+  /** Local-only official quota observations from the bounded session scan. */
+  quotaHistory?: import("../types").QuotaHistoryPoint[];
   deviceId: string | null;
   updatedAt: string;
   status: "ready" | "partial" | "unavailable";
@@ -98,8 +101,8 @@ export function withLiveLocalUsage(data: TokeiUsage, projects: ProjectUsageSnaps
   if (!projects?.deviceId || projects.status === "unavailable" || !projects.projects.length) return data;
   const existing = data.devices.find(device => device.id === projects.deviceId);
   // Never replace a saved complete ledger with a partial history-scan prefix.
-  if (existing && projects.warnings.includes("scan_limit")) return data;
-  if (!Number.isFinite(Date.parse(projects.updatedAt)) || existing && Date.parse(projects.updatedAt) <= Date.parse(existing.updatedAt ?? "")) return data;
+  if (existing && !existing.timeZonePending && projects.warnings.includes("scan_limit")) return data;
+  if (!Number.isFinite(Date.parse(projects.updatedAt)) || existing && !existing.timeZonePending && Date.parse(projects.updatedAt) <= Date.parse(existing.updatedAt ?? "")) return data;
   const daily = new Map<string, DailyModelUsage>();
   for (const project of projects.projects) for (const [date, source] of Object.entries(project.daily)) {
     const target = daily.get(date) ?? { ...ZERO, models: [] };
@@ -112,12 +115,12 @@ export function withLiveLocalUsage(data: TokeiUsage, projects: ProjectUsageSnaps
   if (!daily.size) return data;
   for (const [date, observed] of daily) {
     const cached = existing?.daily[date];
-    if (cached && cached.totalTokens > observed.totalTokens) daily.set(date, cached);
+    if (!existing?.timeZonePending && cached && cached.totalTokens > observed.totalTokens) daily.set(date, cached);
   }
   const local = {
     ...(existing ?? { id: projects.deviceId, daily: {}, ranges: {} }),
     updatedAt: projects.updatedAt, stale: false, collectionPartial: projects.status !== "ready",
-    liveLocal: true, daily: { ...existing?.daily, ...Object.fromEntries(daily) },
+    timeZonePending: false, liveLocal: true, daily: { ...(!existing?.timeZonePending ? existing?.daily : {}), ...Object.fromEntries(daily) },
   };
   const firstLocalRead = !data.devices.length;
   // No Tokei or cloud setup is needed once native collection identifies and

@@ -220,6 +220,13 @@ describe("quiet Codex usage view", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "用量分组" }), { target: { value: "group:other" } });
     expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:other");
   });
+  it("waits for task details instead of flashing device summaries on first expansion", () => {
+    vi.mocked(getProjectUsage).mockReturnValue(new Promise(() => undefined));
+    const { container } = render(<CodexUsagePanel zh initialUsage={createUsagePreview()} />);
+    expect(screen.getByText("正在读取任务统计…")).toBeInTheDocument();
+    expect(container.querySelector(".task-usage-row")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "任务用量占比" })).not.toBeInTheDocument();
+  });
   it("shows the previous aggregate immediately while a fresh read is still pending", () => {
     const cached = createUsagePreview();
     vi.mocked(getTokeiUsage).mockReturnValue(new Promise(() => undefined));
