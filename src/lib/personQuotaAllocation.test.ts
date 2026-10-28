@@ -124,10 +124,10 @@ describe("person quota allocation", () => {
       { ...day(null), id: "unknown", name: "Unknown" },
     ];
     const data = usage([mac, device("PC", 10)]);
-    const allocation = buildPersonQuotaAllocation(data, "sisi", targetDate, total, now)!;
+    const allocation = buildPersonQuotaAllocation(data, "alex", targetDate, total, now)!;
     expect(allocation).toEqual(expect.objectContaining({ personCostUsd: 90, totalCostUsd: 100,
       allocatedUsedPercent: 54, coverage: "partial", missingDeviceIds: [], deviceIds: ["Mac", "PC"] }));
-    expect(buildPersonQuotaAllocation(data, "jelly", targetDate, total, now)!.allocatedUsedPercent).toBe(6);
+    expect(buildPersonQuotaAllocation(data, "blair", targetDate, total, now)!.allocatedUsedPercent).toBe(6);
   });
 
   it("keeps a zero or missing denominator strictly unavailable, including shared zero percent", () => {
