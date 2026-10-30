@@ -2,6 +2,8 @@ import type { AppDiagnostics, CodexDailyUsage, ProviderSnapshot, ResetForecast, 
 import { EMPTY_RUNTIME_STATE, normalizeRuntimeState } from "./activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
 import { usageDateKey } from "./usageDay";
+import { animateWidgetMorph, clearWidgetMorph, usesWidgetMorph } from "./widgetMorph";
+import type { WidgetMorphGeometry } from "./widgetMorph";
 
 const defaultPreferences = DEFAULT_WIDGET_PREFERENCES;
 
@@ -402,8 +404,18 @@ export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompac
     if (intent !== widgetIntent) return;
     if (!expanded) {
       try {
+        if (usesWidgetMorph()) {
+          const geometry = await invoke<WidgetMorphGeometry | null>("collapse_widget", {
+            compactLayout, preview: true,
+            ...(Number.isFinite(compactWidth) && (compactWidth ?? 0) > 0 ? { compactWidth } : {}),
+          });
+          if (intent !== widgetIntent) return;
+          await animateWidgetMorph(geometry, false);
+          if (intent !== widgetIntent) return;
+        }
         await invoke("collapse_widget", {
           compactLayout,
+          ...(usesWidgetMorph() ? { compositorMotion: true } : {}),
           ...(Number.isFinite(compactWidth) && (compactWidth ?? 0) > 0 ? { compactWidth } : {}),
         });
       } finally {
@@ -415,16 +427,39 @@ export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompac
     if (intent !== widgetIntent) return;
     widgetAnchorWorkArea = workArea;
     const measuredContentHeight = Number.isFinite(contentHeight) && (contentHeight ?? 0) > 0 ? contentHeight : undefined;
-    await invoke("expand_widget", {
+    const geometry = await invoke<WidgetMorphGeometry | null>("expand_widget", {
       workArea: widgetAnchorWorkArea,
       compactLayout,
+      ...(usesWidgetMorph() ? { compositorMotion: true } : {}),
       ...(measuredContentHeight === undefined ? {} : { contentHeight: measuredContentHeight }),
     });
+    let revealed = false;
+    const revealFrame = async () => {
+      if (geometry?.frameTicket != null && !revealed) {
+        await invoke("reveal_widget_frame", { frameTicket: geometry.frameTicket });
+        revealed = true;
+      }
+    };
+    try {
+      if (intent === widgetIntent && usesWidgetMorph()) {
+        if (geometry?.frameTicket != null) await animateWidgetMorph(geometry, true, revealFrame);
+        else await animateWidgetMorph(geometry, true);
+      }
+    } finally {
+      // Covers stale intents, missing surfaces, reduced motion and JS errors.
+      await revealFrame();
+    }
   })();
   // Native animation cancels its predecessor. Other geometry operations can
   // still await the latest transition without serializing hover reversals.
-  widgetTransition = next.catch(() => undefined);
-  return next;
+  const settled = next.catch((error) => {
+    // Also covers a failed native invoke before a renderer/reveal callback was
+    // available. Never let an old failure clear a newer transition's surface.
+    if (intent === widgetIntent) clearWidgetMorph();
+    throw error;
+  });
+  widgetTransition = settled.catch(() => undefined);
+  return settled;
 }
 
 export function resizeWidgetToContent(contentHeight: number): Promise<void> {
@@ -435,7 +470,7 @@ export function resizeWidgetToContent(contentHeight: number): Promise<void> {
     const { invoke } = await import("@tauri-apps/api/core");
     const workArea = widgetAnchorWorkArea ?? await readCurrentWorkArea();
     if (intent !== widgetResizeIntent) return;
-    await invoke("resize_expanded_widget", { contentHeight, workArea });
+    await invoke("resize_expanded_widget", { contentHeight, workArea, ...(usesWidgetMorph() ? { compositorMotion: true } : {}) });
   });
 }
 

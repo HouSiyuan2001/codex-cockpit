@@ -19,6 +19,7 @@ import type { AppUpdateInfo } from "./lib/appUpdate";
 import { copy, nextLanguage, normalizeLanguage } from "./lib/i18n";
 import { normalizeProviderOrder } from "./lib/providers";
 import { prepareSurfaceCrossfade, waitForSurfacePaint } from "./lib/windowTransition";
+import { clearWidgetMorph, usesWidgetMorph } from "./lib/widgetMorph";
 import { detectRecentCodexReset, isRecentCodexReset } from "./lib/resetDetection";
 import type { RecentCodexReset } from "./lib/resetDetection";
 import { trackedQuotaWindows } from "./lib/quotaPace";
@@ -58,8 +59,13 @@ function measureExpandedContentHeight(): number | undefined {
 }
 
 function setWidgetSurfaceSizing(active: boolean): void {
-  if (active) document.documentElement.dataset.widgetResizing = "true";
+  if (active) {
+    if (usesWidgetMorph() && !document.documentElement.dataset.widgetMorphPreparing
+      && document.querySelector("#root > .quota-orb, #root > .quota-island")) prepareSurfaceCrossfade();
+    document.documentElement.dataset.widgetResizing = "true";
+  }
   else {
+    clearWidgetMorph();
     delete document.documentElement.dataset.widgetResizing;
     delete document.documentElement.dataset.widgetCollapsing;
   }
@@ -852,7 +858,10 @@ export default function App() {
       .catch(() => setOperationError(language === "en" ? "Could not copy the diagnostic report." : "无法复制诊断报告。"));
   }, [appDiagnostics, language, runtimeState.events, runtimeState.history.length, snapshots]);
 
-  const handleHover = useCallback((value: boolean) => {
+  const handleHover = useCallback((value: boolean): void => {
+    // Native resize can synthesize leave/enter while the pointer has not moved.
+    // The compositor owns the surface until the current morph settles.
+    if (usesWidgetMorph() && widgetTransitioning.current) return;
     if (!value && sliderInteracting.current) {
       sliderOutsideCard.current = true;
       return;
@@ -867,9 +876,15 @@ export default function App() {
     // Re-centering the native control-center window can fire a fresh mouse
     // enter event. Keep that event from enqueueing a normal widget resize.
     if (value && (controlOpen || controlOpenRef.current)) return;
+    // Re-entering during the collapse grace period only cancels the timer;
+    // it must not replay a capsule-to-panel morph on an already-open panel.
+    if (value && !compact && usesWidgetMorph()) {
+      hoverTargetExpanded.current = true;
+      return;
+    }
     if (value && !compact && hoverTargetExpanded.current) return;
     hoverTargetExpanded.current = value;
-    if (value) void refresh(true);
+    if (value && !usesWidgetMorph()) void refresh(true);
     if (value) {
       const sequence = ++hoverSequence.current;
       widgetTransitioning.current = true;
@@ -888,6 +903,14 @@ export default function App() {
           widgetTransitioning.current = false;
           setWidgetSurfaceSizing(false);
           window.dispatchEvent(new Event("resize"));
+          // Keep quota/network-driven React updates out of the opening tween.
+          if (usesWidgetMorph()) void refresh(true);
+          // A genuine exit during the morph still collapses after settling;
+          // synthesized resize events cannot reverse a half-painted surface.
+          if (usesWidgetMorph()) window.requestAnimationFrame(() => {
+            if (hoverSequence.current === sequence && !widgetTransitioning.current
+              && !document.querySelector("#root > .quota-card")?.matches(":hover")) handleHover(false);
+          });
         })
         .catch(() => {
           if (hoverSequence.current === sequence) {
@@ -928,7 +951,7 @@ export default function App() {
           }
           setOperationError("Widget collapse failed.");
         });
-    }, 60);
+    }, usesWidgetMorph() ? 280 : 60);
   }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refresh, stayExpanded, updateOpen]);
 
   const comfortPromptKey = comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
