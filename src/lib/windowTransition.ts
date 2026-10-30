@@ -1,10 +1,12 @@
+import { prepareWidgetMorph } from "./widgetMorph";
+
 type FrameScheduler = (callback: FrameRequestCallback) => number;
 
-/** Keep the transition hook stable for App while leaving the painted surface
- * untouched. Cloning and opacity-fading the compact surface makes text and
- * rings look soft while Windows is already doing expensive native resizes. */
+/** Keep App's transition hook stable. Windows retains a small outgoing capsule
+ * while preparing the new frame; other platforms keep the existing no-op hook.
+ * The expanded dashboard and its live controls are never cloned. */
 export function prepareSurfaceCrossfade(): { start: () => void; cancel: () => void } {
-  return { start: () => {}, cancel: () => {} };
+  return prepareWidgetMorph();
 }
 
 export function waitForSurfacePaint(scheduleFrame: FrameScheduler = window.requestAnimationFrame.bind(window)): Promise<void> {
