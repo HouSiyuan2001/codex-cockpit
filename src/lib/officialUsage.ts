@@ -6,6 +6,8 @@ const BEIJING_OFFSET_HOURS = 8;
 const DAY_MS = 24 * 60 * 60_000;
 const WEEKLY_WINDOW_MS = 7 * DAY_MS;
 const COMPLETE_DAY_GRACE_MS = 15 * 60_000;
+// Different devices may report the same weekly reset a few minutes apart.
+const RESET_TIME_TOLERANCE_MS = 15 * 60_000;
 
 type OfficialQuotaPoint = Pick<QuotaHistoryPoint, "provider" | "capturedAt" | "metric" | "metricKind" | "status" | "resetsAt">;
 
@@ -120,8 +122,9 @@ export function buildOfficialDailyUsageForDate(
     const currentCycle = cycleKey(current.resetsAt);
     // A delayed session can repeat its old cycle after a reset was observed.
     // It must never reopen that cycle or count the new cycle twice.
-    if (currentCycle < activeCycle) continue;
-    if (currentCycle === activeCycle) {
+    const cycleDifferenceMs = (currentCycle - activeCycle) * 60_000;
+    if (cycleDifferenceMs < -RESET_TIME_TOLERANCE_MS) continue;
+    if (Math.abs(cycleDifferenceMs) <= RESET_TIME_TOLERANCE_MS) {
       segmentMinimum = Math.min(segmentMinimum, current.metric ?? segmentMinimum);
       continue;
     }
@@ -178,14 +181,15 @@ export function buildOfficialDailyUsageHistory(
 
 /** Keep daily cycle endpoints and extrema so polling cannot evict old day anchors. */
 export function compactOfficialQuotaHistory(history: readonly QuotaHistoryPoint[]): QuotaHistoryPoint[] {
-  const groups = new Map<string, QuotaHistoryPoint[]>();
+  const groups: { date: string; cycle: number; points: QuotaHistoryPoint[] }[] = [];
   for (const point of deduplicatePoints(history.filter(isUsablePoint))) {
-    const key = `${localDateKey(new Date(point.capturedAt))}:${cycleKey(point.resetsAt)}`;
-    const group = groups.get(key) ?? [];
-    group.push(point);
-    groups.set(key, group);
+    const date = localDateKey(new Date(point.capturedAt));
+    const cycle = cycleKey(point.resetsAt);
+    const group = groups.find((item) => item.date === date && Math.abs(item.cycle - cycle) * 60_000 <= RESET_TIME_TOLERANCE_MS);
+    if (group) group.points.push(point);
+    else groups.push({ date, cycle, points: [point] });
   }
-  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-256).flatMap(([, points]) => {
+  return groups.sort((a, b) => a.date.localeCompare(b.date) || a.cycle - b.cycle).slice(-256).flatMap(({ points }) => {
     const minimum = points.reduce((a, b) => (a.metric ?? 100) <= (b.metric ?? 100) ? a : b);
     const maximum = points.reduce((a, b) => (a.metric ?? 0) >= (b.metric ?? 0) ? a : b);
     return [...new Set([points[0], minimum, maximum, points[points.length - 1]])];

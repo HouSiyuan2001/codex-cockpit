@@ -11,6 +11,28 @@ function point(capturedAt: string, metric: number, resetsAt = RESET): QuotaHisto
 }
 
 describe("official daily usage", () => {
+  it("treats small reset-time drift as the same weekly cycle", () => {
+    const points = [
+      point("2026-08-14T00:20:00Z", 70, "2026-08-20T12:00:00Z"),
+      point("2026-08-14T01:40:00Z", 50, "2026-08-20T12:02:00Z"),
+      point("2026-08-14T02:30:00Z", 40, "2026-08-20T12:04:00Z"),
+      point("2026-08-14T03:22:00Z", 20, "2026-08-20T12:00:00Z"),
+    ];
+    expect(buildOfficialDailyUsageForDate("2026-08-14", points, new Date("2026-08-14T04:30:00Z")))
+      .toMatchObject({ observedUsedPercent: 50, coverage: "partial" });
+    expect(buildOfficialDailyUsageForDate("2026-08-14", compactOfficialQuotaHistory(points), new Date("2026-08-14T04:30:00Z")))
+      .toMatchObject({ observedUsedPercent: 50, coverage: "partial" });
+    expect(compactOfficialQuotaHistory(points)).toHaveLength(2);
+  });
+
+  it("keeps a real weekly reset distinct even when timestamps drift", () => {
+    const old = "2026-10-27T03:00:00Z", next = "2026-11-03T03:02:00Z";
+    const points = [point("2026-10-26T16:00:00Z", 40, old), point("2026-10-27T02:59:00Z", 20, old),
+      point("2026-10-27T03:03:00Z", 90, next), point("2026-10-27T03:04:00Z", 20, "2026-10-27T03:01:00Z"),
+      point("2026-10-27T04:00:00Z", 80, "2026-11-03T03:00:00Z")];
+    expect(buildOfficialDailyUsageForDate("2026-10-27", points, new Date("2026-10-27T04:00:00Z")))
+      .toMatchObject({ observedUsedPercent: 40 });
+  });
   it("uses Beijing midnight official remaining-percent drops", () => {
     const history = [
       point("2026-08-13T15:55:00.000Z", 90, RESET),
