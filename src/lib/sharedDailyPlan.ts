@@ -7,10 +7,15 @@ export function sharedRecommendation(basis: SharedPlanBasis, riskPercent: number
   const days = (Date.parse(basis.resetsAt) - anchor) / day;
   if (!Number.isFinite(days) || days <= 0) return 0;
   const remaining = Math.max(0, Math.min(100, basis.remainingPercent));
-  const fraction = Math.max(0, Math.min(1, (end - anchor) / day));
-  const uniform = Math.min(remaining, remaining / days * fraction);
+  const today = Math.min(days, Math.max(0, Math.min(1, (end - anchor) / day)));
+  if (today === 0) return 0;
+
+  // Each future hour gets less weight as the chance of retaining this quota falls.
   const risk = Math.max(0, Math.min(100, riskPercent)) / 100;
-  return Math.round(Math.min(remaining, uniform + (remaining - uniform) * risk ** 2 * fraction) * 10) / 10;
+  const logSurvival = Math.log1p(-risk);
+  const share = risk === 0 ? today / days
+    : Math.expm1(logSurvival * today) / Math.expm1(logSurvival * days);
+  return Math.round(remaining * share * 10) / 10;
 }
 export function allocateSharedPlan(total: number, people: readonly string[], overrides: SharedDailyPlan["people"]) {
   const ids = [...new Set(people)];

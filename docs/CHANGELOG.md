@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 - 2026-11-05
+
+- Base the daily quota recommendation on recent Codex Resets history across macOS, Windows and Linux.
+
 ## 0.3.3 - 2026-10-27
 
 - Add GPT-6.1 Terra reference pricing, including its long-context tier, while preserving unknown costs.

@@ -69,6 +69,7 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<ProviderSnapshot[]>([]);
   const [recentCodexReset, setRecentCodexReset] = useState<RecentCodexReset | null>(null);
   const [codexResetForecast, setCodexResetForecast] = useState<ResetForecast | null>(null);
+  const [historyResetForecast, setHistoryResetForecast] = useState<ResetForecast | null>(null);
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -397,6 +398,7 @@ export default function App() {
       ]);
       if (refreshSequence.current !== sequence) return;
       setCodexResetForecast(forecast);
+      if ((forecast?.historySampleCount ?? 0) >= 2) setHistoryResetForecast(forecast);
       const hasFailure = values.some((item) => item.status !== "ok");
       if (hasFailure) failures.current += 1;
       else failures.current = 0;
@@ -598,10 +600,12 @@ export default function App() {
   // Announced schedules light the bell, but never become a probability input.
   const resetWatch = forecastAlert?.signalKind === "scheduled"
     ? forecastAlert : websiteResetWatch ?? forecastAlert;
-  // User-selected planning scenario; website votes are not a calibrated 24h forecast.
-  // Legacy overrides stay dormant until the user moves the restored slider.
-  const planningRisk = (preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent : null)
-    ?? websiteResetWatch?.resetChancePercent ?? null;
+  // Keep the last usable history estimate through transient tracker failures.
+  const forecastAge = planningNow.getTime() - Date.parse(historyResetForecast?.fetchedAt ?? "");
+  const automaticRisk = forecastAge >= -60_000 && forecastAge < 86_400_000
+    ? historyResetForecast?.tomorrowRiskPercent ?? null : null;
+  const manualRisk = preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent : null;
+  const planningRisk = manualRisk ?? automaticRisk ?? 10;
   const effectiveResetForecast = codexResetForecast;
   const carryUsageHistory = useMemo(
     () => [...codexDailyUsageHistory, ...runtimeState.dailyUsage.filter((item) => item.provider === "codex")],
@@ -641,7 +645,7 @@ export default function App() {
   } : null;
   const sharedPlan = useSharedDailyPlan(planBasis,preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent ?? null : null);
   const sharedBasis = sharedPlan.plan?.basis ?? planBasis;
-  const sharedRisk = sharedPlan.plan ? sharedPlan.plan.risk.value ?? websiteResetWatch?.resetChancePercent ?? 10 : planningRisk ?? 10;
+  const sharedRisk = (sharedPlan.plan ? sharedPlan.plan.risk.value : manualRisk) ?? automaticRisk ?? 10;
   const dailyRecommendation: DailyRecommendation | null = localRecommendation && sharedBasis ? (() => {
     const target = sharedRecommendation(sharedBasis, sharedRisk);
     const used = Math.max(0, sharedBasis.remainingPercent - (current?.weeklyWindow?.remainingPercent ?? sharedBasis.remainingPercent));
@@ -649,7 +653,7 @@ export default function App() {
       futureDays: (Date.parse(sharedBasis.resetsAt)-Date.parse(sharedBasis.anchorAt))/86400000,
       todayFractionRemaining: Math.max(0,Math.min(1,(Date.parse(`${sharedBasis.localDate}T00:00:00+08:00`)+86400000-Date.parse(sharedBasis.anchorAt))/86400000)),
       todayUsedPercent: used, additionalUsagePercent: Math.max(0,target-used), resetRiskPercent: sharedRisk,
-      policyVersion: "shared-account-plan-v1", dayPlan: {...localRecommendation.dayPlan!,...sharedBasis} };
+      policyVersion: "shared-account-plan-v2", dayPlan: {...localRecommendation.dayPlan!,...sharedBasis} };
   })() : null;
   const planPeople = comfortUsage?.groups.filter(group => group.deviceIds.length > 0) ?? [];
   const planPerson = sharedPlan.deviceId ? planPeople.find(group => group.deviceIds.includes(sharedPlan.deviceId!)) : planPeople.find(group => group.id === comfortUsage?.localGroupId);
@@ -1170,7 +1174,7 @@ export default function App() {
       reconnecting={reconnecting}
       recentCodexReset={recentCodexReset}
       resetWatch={resetWatch}
-      resetRiskSource={websiteResetWatch?.resetChancePercent != null ? "website" : "fallback"}
+      resetRiskSource={automaticRisk !== null ? "website" : "fallback"}
       resetForecast={effectiveResetForecast}
       onOpenResetForecast={(url) => {
         // Opening a browser can hide the widget without firing mouseleave.

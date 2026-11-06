@@ -178,8 +178,8 @@ function TodayQuotaAdvicePanel({
       ? "No website risk value is available. Using the default planning reference; you can adjust it manually. This is not an official reset probability."
       : "暂无网站风险数据，使用默认规划参考值；可手动调整。这不是官方重置概率。")
     : (language === "en"
-      ? "Planning scenario: website community vote by default, with manual adjustment; not an official or calibrated 24h probability."
-      : "配额规划情景：默认网站公众投票，可手动微调；不是官方或校准后的24小时概率。");
+      ? "Planning estimate based on recent Codex Resets history."
+      : "根据 Codex Resets 的近期重置记录估算。");
   return (
     <section className={`today-quota-advice today-quota-advice--${advice.state}`} aria-label={t.officialSnapshot}>
       <header>

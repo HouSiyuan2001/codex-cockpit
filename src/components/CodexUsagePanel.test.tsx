@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aggregateGroupUsage, createUsagePreview } from "../lib/tokeiUsage";
 import { getProjectUsage, getTokeiUsage, saveTokeiGroups } from "../lib/tokeiBridge";
+import { localDateKey } from "../lib/usageDay";
 import { CodexUsagePanel } from "./CodexUsagePanel";
 
 vi.mock("../lib/tokeiBridge", () => ({ getProjectUsage: vi.fn(), getTokeiUsage: vi.fn(), saveTokeiGroups: vi.fn() }));
@@ -302,9 +303,9 @@ describe("quiet Codex usage view", () => {
   it("anchors the trend to the calendar without discarding the underlying historical ledger", async () => {
     const data = createUsagePreview();
     const today = new Date();
-    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12);
-    const older = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3, 12);
-    const key = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    const yesterday = new Date(today.getTime() - 86_400_000);
+    const older = new Date(today.getTime() - 3 * 86_400_000);
+    const key = localDateKey;
     const day = Object.values(data.devices[0].daily)[0];
     data.devices[0].daily[key(older)] = day;
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
@@ -498,9 +499,12 @@ describe("quiet Codex usage view", () => {
     const data = createUsagePreview();
     const day = Object.values(data.devices[0].daily)[0];
     const now = new Date();
-    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     data.devices[0].daily = {};
-    data.devices[0].ranges = { "30d": { ...day, start: dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)), end: dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) } };
+    data.devices[0].ranges = { "30d": {
+      ...day,
+      start: localDateKey(new Date(now.getTime() - 29 * 86_400_000)),
+      end: localDateKey(new Date(now.getTime() + 86_400_000)),
+    } };
     vi.mocked(getTokeiUsage).mockResolvedValue(data);
     const source = await getProjectUsage();
     vi.mocked(getProjectUsage).mockResolvedValue({ ...source, tasks: undefined });

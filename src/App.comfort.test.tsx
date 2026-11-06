@@ -248,20 +248,20 @@ describe("App comfort persistence regressions", () => {
     await expandApp();
     expect(document.documentElement.dataset.backgroundBlur).toBe("false");
   });
-  it.each([null, 83])("shows a scheduled bell without replacing the planning probability %s", async (websiteChance) => {
+  it.each([null, 83])("shows a scheduled bell without replacing the history estimate %s", async (websiteChance) => {
     const now = Date.now();
     mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: new Date(now).toISOString(), weeklyWindow: { remainingPercent: 26, windowSeconds: 604800, resetsAt: new Date(now + 5 * 86_400_000).toISOString() } }]);
-    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, windowHours: 24, fetchedAt: new Date(now).toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
+    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, historySampleCount: 12, windowHours: 24, fetchedAt: new Date(now).toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
       watchCheckedAt: new Date(now).toISOString(), activeWatch: { signalKind: "scheduled", level: "strong", resetChancePercent: null, observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 3_600_000).toISOString() } });
     if (websiteChance !== null) vi.mocked(fetchWebsiteResetProbability).mockResolvedValue({ level: "elevated", resetChancePercent: websiteChance, checkedAt: new Date(now).toISOString(), observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 86_400_000).toISOString(), episodeId: "test-ballot" });
     await expandApp();
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"signalKind":"scheduled"');
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"website":null');
-    expect(screen.getByTestId("reset-sources")).toHaveTextContent(`"planning":${websiteChance ?? 10}`);
+    expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6');
   });
   it("does not leave an expired scheduled bell visible", async () => {
     const now = Date.now();
-    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, windowHours: 24, fetchedAt: new Date(now).toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
+    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, historySampleCount: 12, windowHours: 24, fetchedAt: new Date(now).toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
       watchCheckedAt: new Date(now).toISOString(), activeWatch: { signalKind: "scheduled", level: "strong", resetChancePercent: null, observedAt: new Date(now - 3_600_000).toISOString(), expiresAt: new Date(now - 60_000).toISOString() } });
     await expandApp();
     expect(screen.getByTestId("reset-sources")).not.toHaveTextContent('"signalKind":"scheduled"');
@@ -300,20 +300,20 @@ describe("App comfort persistence regressions", () => {
     await new Promise(resolve => setTimeout(resolve, 150));
     expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === false)).toBe(false);
   });
-  it("defaults to website risk, supports a persisted manual scenario, and restores website risk", async () => {
+  it("defaults to the history estimate, supports a persisted manual scenario, and restores the estimate", async () => {
     mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: new Date().toISOString(), weeklyWindow: { remainingPercent: 26, windowSeconds: 604800, resetsAt: new Date(Date.now() + 5 * 86_400_000).toISOString() } }]);
     mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskOverridePercent: 10 });
-    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, windowHours: 24, fetchedAt: new Date().toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/" });
+    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, historySampleCount: 12, windowHours: 24, fetchedAt: new Date().toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/" });
     vi.mocked(fetchWebsiteResetProbability).mockResolvedValue({ level: "elevated", resetChancePercent: 83, checkedAt: new Date().toISOString(), observedAt: new Date(Date.now() - 60_000).toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString(), episodeId: "test-ballot" });
     await expandApp();
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"model":67.6');
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"website":83');
-    expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":83');
+    expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6');
     fireEvent.click(screen.getByRole("button", { name: "manual risk" }));
     await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":70'));
     expect(savePersonPlan).toHaveBeenLastCalledWith(planDateKey(new Date()), "resetRiskOverridePercent", 70);
     fireEvent.click(screen.getByRole("button", { name: "website risk" }));
-    await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":83'));
+    await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6'));
     expect(savePersonPlan).toHaveBeenLastCalledWith(planDateKey(new Date()), "resetRiskOverridePercent", null);
   });
   it("reports a failed sync read without clearing feedback", async () => {

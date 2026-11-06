@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration as ChronoDuration, SecondsFormat, Utc, Weekday};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -52,14 +52,10 @@ pub struct ResetWatch {
 struct StatusResponse {
     #[serde(default)]
     data: StatusData,
-    #[serde(default)]
-    meta: Meta,
 }
 
 #[derive(Default, Deserialize)]
 struct StatusData {
-    #[serde(default)]
-    latest_reset: Option<ResetRecord>,
     #[serde(default)]
     active_watch: Option<Watch>,
     #[serde(default)]
@@ -74,6 +70,8 @@ struct ResetListResponse {
 
 #[derive(Default, Deserialize)]
 struct ResetRecord {
+    #[serde(default)]
+    reset_type: String,
     #[serde(default)]
     announced_at: String,
 }
@@ -116,12 +114,6 @@ struct AnnouncementSource {
     url: String,
 }
 
-#[derive(Default, Deserialize)]
-struct Meta {
-    #[serde(default)]
-    generated_at: String,
-}
-
 fn round_tenth(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
 }
@@ -133,142 +125,36 @@ fn parse_utc(value: &str) -> Option<DateTime<Utc>> {
 }
 
 fn sanitize_history(
-    values: impl IntoIterator<Item = String>,
-    latest: Option<&ResetRecord>,
+    records: impl IntoIterator<Item = ResetRecord>,
     as_of: DateTime<Utc>,
-) -> Vec<String> {
-    let mut parsed: Vec<DateTime<Utc>> = values
+) -> Vec<DateTime<Utc>> {
+    let mut dates: Vec<_> = records
         .into_iter()
-        .chain(latest.into_iter().map(|item| item.announced_at.clone()))
-        .filter_map(|value| parse_utc(&value))
-        .filter(|value| *value <= as_of + ChronoDuration::minutes(FUTURE_TOLERANCE_MINUTES))
+        .filter(|record| record.reset_type == "regular")
+        .filter_map(|record| parse_utc(&record.announced_at))
+        .filter(|date| *date <= as_of)
         .collect();
-    parsed.sort_by(|left, right| right.cmp(left));
-    let mut clean: Vec<DateTime<Utc>> = Vec::with_capacity(parsed.len());
-    for value in parsed {
-        let duplicate = clean.last().is_some_and(|previous| {
-            previous
-                .signed_duration_since(value)
-                .num_seconds()
-                .unsigned_abs()
-                <= (DUPLICATE_WINDOW_MINUTES * 60) as u64
-        });
-        if !duplicate {
-            clean.push(value);
-        }
-    }
-    clean
-        .into_iter()
-        .map(|value| value.to_rfc3339_opts(SecondsFormat::Millis, true))
-        .collect()
+    dates.sort_unstable();
+    dates.dedup_by(|later, earlier| {
+        (*later - *earlier).num_seconds() <= DUPLICATE_WINDOW_MINUTES * 60
+    });
+    dates
 }
 
-fn calibrated_risk(
-    dates: &[String],
-    watch_percent: Option<u8>,
-    as_of: DateTime<Utc>,
-) -> (f64, Vec<RiskFactor>) {
-    let target_weekday = (as_of + ChronoDuration::hours(24) + ChronoDuration::hours(8)).weekday();
-    let base = if matches!(target_weekday, Weekday::Tue | Weekday::Sat) {
-        70.0
-    } else {
-        10.0
-    };
-    let mut probability = base;
-    let mut factors = vec![RiskFactor {
-        id: "base".into(),
-        label: "星期启发式基线".into(),
-        delta_pct: base,
-        note: "普通日 10%；周二、周六 70%。".into(),
-    }];
-
-    let parsed: Vec<DateTime<Utc>> = dates.iter().filter_map(|value| parse_utc(value)).collect();
-    let age_days = parsed
-        .first()
-        .map(|latest| as_of.signed_duration_since(*latest).num_seconds().max(0) as f64 / 86_400.0)
-        .unwrap_or(0.0);
-    if !parsed.is_empty() && age_days <= 1.5 && probability < 40.0 {
-        let delta = 40.0 - probability;
-        probability += delta;
-        factors.push(RiskFactor {
-            id: "consecutive-reset".into(),
-            label: "连续重置效应".into(),
-            delta_pct: round_tenth(delta),
-            note: "前一次 reset 后 36 小时内，将 24 小时风险至少抬到 40%。".into(),
-        });
+fn history_risk(dates: &[DateTime<Utc>], as_of: DateTime<Utc>) -> f64 {
+    if dates.len() < 2 {
+        return 10.0;
     }
-
-    let mut ascending = parsed.clone();
-    ascending.sort();
-    let intervals: Vec<f64> = ascending
-        .windows(2)
-        .map(|pair| pair[1].signed_duration_since(pair[0]).num_seconds() as f64 / 86_400.0)
-        .filter(|value| value.is_finite() && *value >= 0.25)
-        .collect();
-    if intervals.len() >= 5 {
-        let at_risk = intervals.iter().filter(|value| **value >= age_days).count();
-        let events = intervals
-            .iter()
-            .filter(|value| **value >= age_days && **value < age_days + 1.0)
-            .count();
-        let empirical = (events as f64 + 1.0) / (at_risk as f64 + 2.0) * 100.0;
-        let delta = ((empirical - probability) * 0.25).clamp(-12.0, 12.0);
-        probability += delta;
-        factors.push(RiskFactor {
-            id: "interval-hazard".into(),
-            label: "历史间隔条件风险".into(),
-            delta_pct: round_tenth(delta),
-            note: format!("在已等待 {age_days:.1} 天的条件下，用清洗后的历史间隔校准。"),
-        });
-    }
-
-    if parsed.len() >= 8 {
-        let recent = parsed
-            .iter()
-            .filter(|value| as_of.signed_duration_since(**value).num_days() < 30)
-            .count() as f64;
-        let span_days = parsed
-            .last()
-            .map(|oldest| as_of.signed_duration_since(*oldest).num_seconds() as f64 / 86_400.0)
-            .unwrap_or(0.0)
-            .max(1.0);
-        let long_term_30d = parsed.len() as f64 / span_days * 30.0;
-        if recent > long_term_30d * 1.25 {
-            probability += 12.0;
-            factors.push(RiskFactor {
-                id: "recent-regime".into(),
-                label: "最近 30 天频率".into(),
-                delta_pct: 12.0,
-                note: "近期 reset 频率高于长期基线。".into(),
-            });
-        }
-
-        let matching = parsed
-            .iter()
-            .filter(|value| (**value + ChronoDuration::hours(8)).weekday() == target_weekday)
-            .count() as f64;
-        let smoothed_share = (matching + 2.0) / (parsed.len() as f64 + 14.0);
-        let delta = ((smoothed_share - 1.0 / 7.0) * 20.0).clamp(-6.0, 6.0);
-        probability += delta;
-        factors.push(RiskFactor {
-            id: "weekday-empirical".into(),
-            label: "历史星期分布".into(),
-            delta_pct: round_tenth(delta),
-            note: "用清洗后的 reset 星期分布做平滑校准。".into(),
-        });
-    }
-
-    if let Some(watch) = watch_percent {
-        let delta = (watch as f64 - probability) * 0.25;
-        probability += delta;
-        factors.push(RiskFactor {
-            id: "tracker-watch".into(),
-            label: "codex-resets.com watch".into(),
-            delta_pct: round_tenth(delta),
-            note: format!("上游公开 watch 信号约 {watch}%，以 25% 权重融入。"),
-        });
-    }
-    (round_tenth(probability.clamp(2.0, 95.0)), factors)
+    let decay = std::f64::consts::LN_2 / 30.0;
+    let age_days = |date: DateTime<Utc>| (as_of - date).num_seconds() as f64 / 86_400.0;
+    let weighted_count: f64 = dates
+        .iter()
+        .map(|date| (-decay * age_days(*date)).exp())
+        .sum();
+    let exposure = -(-decay * age_days(dates[0])).exp_m1() / decay;
+    // Smooth sparse histories with one prior event per ten days of exposure.
+    let rate = (weighted_count + 1.0) / (exposure + 10.0);
+    round_tenth(-(-rate).exp_m1() * 100.0)
 }
 
 fn normalize(status: StatusResponse, resets: ResetListResponse) -> ResetForecast {
@@ -335,25 +221,27 @@ fn normalize_at(
 ) -> ResetForecast {
     let active_watch = scheduled_signal(status.data.scheduled_reset.as_ref(), now)
         .or_else(|| active_watch(status.data.active_watch.as_ref(), now));
-    let as_of = parse_utc(&status.meta.generated_at).unwrap_or_else(Utc::now);
-    let history_reset_dates = sanitize_history(
-        resets.data.into_iter().map(|item| item.announced_at),
-        status.data.latest_reset.as_ref(),
-        as_of,
-    );
-    let (tomorrow_risk_percent, risk_factors) = calibrated_risk(
-        &history_reset_dates,
-        status
-            .data
-            .active_watch
-            .as_ref()
-            .and_then(|value| value.reset_chance_percent),
-        as_of,
-    );
+    let dates = sanitize_history(resets.data, now);
+    let tomorrow_risk_percent = history_risk(&dates, now);
+    let history_reset_dates: Vec<_> = dates
+        .iter()
+        .rev()
+        .map(|date| date.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .collect();
+    let risk_factors = if dates.len() >= 2 {
+        vec![RiskFactor {
+            id: "recent-regular-resets".into(),
+            label: "近期实际重置".into(),
+            delta_pct: tomorrow_risk_percent,
+            note: "只统计直接刷新的重置记录，按 30 天半衰期加权。".into(),
+        }]
+    } else {
+        Vec::new()
+    };
     ResetForecast {
         score: tomorrow_risk_percent,
         window_hours: 24,
-        fetched_at: as_of.to_rfc3339_opts(SecondsFormat::Millis, true),
+        fetched_at: now.to_rfc3339_opts(SecondsFormat::Millis, true),
         reset_announced: false,
         reset_at: None,
         source_url: FORECAST_SOURCE_URL.into(),
@@ -385,7 +273,10 @@ pub async fn fetch(client: &reqwest::Client) -> Option<ResetForecast> {
                 .error_for_status()
         };
         let (status_response, resets_response) = tokio::join!(status_request, resets_request);
-        let status = status_response.ok()?.json::<StatusResponse>().await.ok()?;
+        let status = match status_response {
+            Ok(response) => response.json::<StatusResponse>().await.unwrap_or_default(),
+            Err(_) => StatusResponse::default(),
+        };
         let resets = match resets_response {
             Ok(response) => response
                 .json::<ResetListResponse>()
@@ -405,7 +296,7 @@ pub async fn fetch(client: &reqwest::Client) -> Option<ResetForecast> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize, ResetListResponse, StatusResponse};
+    use super::{ResetListResponse, StatusResponse};
 
     #[test]
     fn exposes_valid_public_watch_without_changing_calibration() {
@@ -523,67 +414,35 @@ mod tests {
     }
 
     #[test]
-    fn prefers_the_public_watch_probability_and_keeps_history() {
-        let status: StatusResponse = serde_json::from_str(
-            r#"{"data":{"latest_reset":{"announced_at":"2026-08-13T01:01:37Z"},"active_watch":{"reset_chance_percent":58,"forecast_window":"within 24 hours"},"stats":{"total":43,"days_since_last":2.7,"avg_interval_days":7.9}},"meta":{"generated_at":"2026-08-15T16:43:13.430Z"}}"#,
-        )
-        .expect("Codex Resets status should parse");
-        let resets: ResetListResponse = serde_json::from_str(
-            r#"{"data":[{"announced_at":"2026-08-13T01:01:37Z"},{"announced_at":"2026-08-11T00:28:16Z"}]}"#,
-        )
-        .expect("Codex Resets list should parse");
-        let forecast = normalize(status, resets);
-
-        assert!(forecast.score > 10.0 && forecast.score < 80.0);
-        assert!(forecast
-            .risk_factors
-            .iter()
-            .any(|factor| factor.id == "tracker-watch"));
-        assert_eq!(forecast.tomorrow_risk_percent, forecast.score);
-        assert_eq!(forecast.window_hours, 24);
-        assert_eq!(forecast.history_sample_count, 2);
-        assert_eq!(
-            forecast.source_url,
-            "https://codex-reset-risk-dashboard.xr08255920.workers.dev/"
+    fn forecasts_from_recent_regular_events_without_using_the_watch() {
+        let now = super::parse_utc("2026-11-06T06:34:00Z").unwrap();
+        let history = |extra| {
+            serde_json::from_str::<ResetListResponse>(&format!(
+                r#"{{"data":[
+                {{"reset_type":"regular","announced_at":"2026-10-28T06:29:38Z"}},
+                {{"reset_type":"regular","announced_at":"2026-10-26T07:00:00Z"}},
+                {{"reset_type":"regular","announced_at":"2026-07-01T07:00:00Z"}},
+                {{"reset_type":"banked","announced_at":"2026-11-01T23:27:20Z"}},
+                {{"reset_type":"regular","announced_at":"2026-10-28T06:30:00Z"}},
+                {{"reset_type":"regular","announced_at":"2026-11-07T07:00:00Z"}}
+                {extra}
+            ]}}"#
+            ))
+            .unwrap()
+        };
+        let baseline = super::normalize_at(StatusResponse::default(), history(""), now);
+        let status =
+            serde_json::from_str(r#"{"data":{"active_watch":{"reset_chance_percent":99}}}"#)
+                .unwrap();
+        let recent = super::normalize_at(
+            status,
+            history(r#",{"reset_type":"regular","announced_at":"2026-11-05T07:00:00Z"}"#),
+            now,
         );
-        assert!(forecast.reset_at.is_none());
-    }
 
-    #[test]
-    fn estimates_a_bounded_risk_from_history_when_no_watch_is_active() {
-        let status: StatusResponse = serde_json::from_str(
-            r#"{"data":{"latest_reset":null,"active_watch":null,"stats":{"total":43,"days_since_last":2.7,"avg_interval_days":7.9}},"meta":{"generated_at":"2026-08-15T16:43:13.430Z"}}"#,
-        )
-        .expect("status should parse");
-        let resets: ResetListResponse = serde_json::from_str(
-            r#"{"data":[{"announced_at":"2026-08-13T01:01:37Z"},{"announced_at":"2026-08-11T00:28:16Z"}]}"#,
-        )
-        .expect("history should parse");
-        let forecast = normalize(status, resets);
-
-        assert!(forecast.score > 0.0 && forecast.score < 100.0);
-        assert_eq!(forecast.history_sample_count, 2);
-        assert_eq!(forecast.window_hours, 24);
-    }
-
-    #[test]
-    fn removes_future_and_near_duplicate_reset_records_before_calibration() {
-        let status: StatusResponse = serde_json::from_str(
-            r#"{"data":{"latest_reset":{"announced_at":"2026-08-27T16:35:05Z"},"active_watch":{"reset_chance_percent":80}},"meta":{"generated_at":"2026-08-29T08:29:33Z"}}"#,
-        )
-        .expect("status should parse");
-        let resets: ResetListResponse = serde_json::from_str(
-            r#"{"data":[{"announced_at":"2026-08-30T07:00:00Z"},{"announced_at":"2026-08-27T16:35:05Z"},{"announced_at":"2026-08-27T16:35:00Z"},{"announced_at":"2026-08-24T00:46:51Z"}]}"#,
-        )
-        .expect("history should parse");
-        let forecast = normalize(status, resets);
-
-        assert_eq!(forecast.history_sample_count, 2);
-        assert_eq!(forecast.history_reset_dates[0], "2026-08-27T16:35:05.000Z");
-        assert_eq!(forecast.history_reset_dates[1], "2026-08-24T00:46:51.000Z");
-        assert!(forecast
-            .history_reset_dates
-            .iter()
-            .all(|value| !value.starts_with("2026-08-30")));
+        assert_eq!(baseline.history_sample_count, 3);
+        assert_eq!(baseline.tomorrow_risk_percent, 5.0);
+        assert_eq!(recent.history_sample_count, 4);
+        assert_eq!(recent.tomorrow_risk_percent, 6.8);
     }
 }
