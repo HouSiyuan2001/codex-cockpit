@@ -144,10 +144,178 @@ impl DockState {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize)]
 struct WidgetRect {
     position: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetMorphGeometry {
+    from: WidgetRect,
+    to: WidgetRect,
+    scale_factor: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame_ticket: Option<u64>,
+}
+
+#[cfg(target_os = "windows")]
+fn set_widget_frame_cloaked(window: &tauri::WebviewWindow, cloaked: bool) -> Result<(), String> {
+    use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_CLOAK};
+    let handle = window
+        .hwnd()
+        .map_err(|_| "widget handle unavailable".to_string())?;
+    let value = i32::from(cloaked);
+    // JS coordinates do not invalidate a DWM-cached WebView surface. Cloak
+    // before moving the HWND; uncloak only after the new masked frame paints.
+    if !cloaked {
+        unsafe {
+            DwmFlush();
+        }
+    }
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            handle.0 as _,
+            DWMWA_CLOAK as u32,
+            (&value as *const i32).cast(),
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+    if result < 0 {
+        return Err("failed to mask widget frame".to_string());
+    }
+    unsafe {
+        DwmFlush();
+    }
+    Ok(())
+}
+
+fn release_widget_frame(window: &tauri::WebviewWindow, ticket: u64) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = window.state::<AppState>();
+        let mut pending = state
+            .frame_mask
+            .lock()
+            .map_err(|_| "widget frame unavailable".to_string())?;
+        if *pending == Some(ticket) {
+            set_widget_frame_cloaked(window, false)?;
+            *pending = None;
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = (window, ticket);
+    Ok(())
+}
+
+fn mask_widget_frame(window: &tauri::WebviewWindow, ticket: u64) -> Result<Option<u64>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = window.state::<AppState>();
+        let mut pending = state
+            .frame_mask
+            .lock()
+            .map_err(|_| "widget frame unavailable".to_string())?;
+        set_widget_frame_cloaked(window, true)?;
+        *pending = Some(ticket);
+        // Native recovery is independent of JS timers/rAF: a crashed or stopped
+        // renderer must not leave the widget permanently cloaked. Ticket checks
+        // prevent an old watchdog from revealing a newer frame swap.
+        let recovery_window = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1_200));
+            let _ = release_widget_frame(&recovery_window, ticket);
+        });
+        Ok(Some(ticket))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, ticket);
+        Ok(None)
+    }
+}
+
+#[tauri::command(async)]
+fn reveal_widget_frame(frame_ticket: u64, app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("widget")
+        .ok_or_else(|| "widget window missing".to_string())?;
+    release_widget_frame(&window, frame_ticket)
+}
+
+fn apply_compositor_bounds(window: &tauri::WebviewWindow, rect: WidgetRect) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
+        };
+        let handle = window
+            .hwnd()
+            .map_err(|_| "widget handle unavailable".to_string())?;
+        // Set both origin and extent atomically. The WebView animates its own
+        // rounded mask; native resize/repaint never runs on every visual frame.
+        let changed = unsafe {
+            SetWindowPos(
+                handle.0 as _,
+                std::ptr::null_mut(),
+                rect.position.x,
+                rect.position.y,
+                rect.size.width as i32,
+                rect.size.height as i32,
+                SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOZORDER,
+            )
+        };
+        if changed == 0 {
+            return Err("failed to set widget bounds".to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_size(rect.size)
+            .map_err(|_| "failed to resize widget".to_string())?;
+        window
+            .set_position(rect.position)
+            .map_err(|_| "failed to position widget".to_string())?;
+    }
+    Ok(())
+}
+
+fn finish_widget_motion(
+    window: &tauri::WebviewWindow,
+    from: WidgetRect,
+    to: WidgetRect,
+    generation: &AtomicU64,
+    ticket: u64,
+    compositor_motion: bool,
+    preview: bool,
+) -> Result<Option<WidgetMorphGeometry>, String> {
+    if generation.load(Ordering::SeqCst) != ticket {
+        return Ok(None);
+    }
+    let mut frame_ticket = None;
+    if !preview {
+        if compositor_motion {
+            if to.size.width > from.size.width {
+                frame_ticket = mask_widget_frame(window, ticket)?;
+            }
+            if let Err(error) = apply_compositor_bounds(window, to) {
+                if let Some(ticket) = frame_ticket {
+                    let _ = release_widget_frame(window, ticket);
+                }
+                return Err(error);
+            }
+        } else {
+            animate_window_to(window, from, to, generation, ticket)?;
+        }
+    }
+    Ok(Some(WidgetMorphGeometry {
+        from,
+        to,
+        scale_factor: window.scale_factor().unwrap_or(1.0),
+        frame_ticket,
+    }))
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -252,6 +420,8 @@ struct AppState {
     simulate_short_window_for_testing: Mutex<bool>,
     window_geometry_lock: Mutex<()>,
     transition_generation: AtomicU64,
+    #[cfg(target_os = "windows")]
+    frame_mask: Mutex<Option<u64>>,
     control_center_owner: Mutex<bool>,
     geometry: Mutex<Option<WidgetGeometryState>>,
     drag_mode: Mutex<Option<WidgetMode>>,
@@ -1375,23 +1545,24 @@ fn expand_widget(
     work_area: Option<WorkAreaPayload>,
     compact_layout: Option<String>,
     content_height: Option<f64>,
+    compositor_motion: Option<bool>,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<Option<WidgetMorphGeometry>, String> {
     let Some(ticket) = reserve_geometry_transition(
         &state.control_center_owner,
         &state.transition_generation,
         false,
     )?
     else {
-        return Ok(());
+        return Ok(None);
     };
     let _window_geometry_guard = state
         .window_geometry_lock
         .lock()
         .map_err(|_| "window geometry unavailable".to_string())?;
     if state.transition_generation.load(Ordering::SeqCst) != ticket {
-        return Ok(());
+        return Ok(None);
     }
     let window = app
         .get_webview_window("widget")
@@ -1414,7 +1585,7 @@ fn expand_widget(
         ),
     );
     let Some(monitor) = monitor else {
-        return animate_window_to(
+        return finish_widget_motion(
             &window,
             current,
             WidgetRect {
@@ -1423,6 +1594,8 @@ fn expand_widget(
             },
             &state.transition_generation,
             ticket,
+            compositor_motion.unwrap_or(false),
+            false,
         );
     };
     let threshold = logical_to_physical(SNAP_THRESHOLD_LOGICAL, scale_factor) as i32;
@@ -1482,12 +1655,14 @@ fn expand_widget(
         });
     }
 
-    animate_window_to(
+    finish_widget_motion(
         &window,
         current,
         expanded_rect,
         &state.transition_generation,
         ticket,
+        compositor_motion.unwrap_or(false),
+        false,
     )
 }
 
@@ -1495,6 +1670,7 @@ fn expand_widget(
 fn resize_expanded_widget(
     content_height: f64,
     work_area: Option<WorkAreaPayload>,
+    compositor_motion: Option<bool>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
@@ -1573,16 +1749,21 @@ fn resize_expanded_widget(
         (_, None) => current.position,
     };
 
-    animate_window_to(
-        &window,
-        current,
-        WidgetRect {
-            position: next_position,
-            size: expanded_size,
-        },
-        &state.transition_generation,
-        ticket,
-    )?;
+    let target = WidgetRect {
+        position: next_position,
+        size: expanded_size,
+    };
+    if compositor_motion.unwrap_or(false) {
+        apply_compositor_bounds(&window, target)?;
+    } else {
+        animate_window_to(
+            &window,
+            current,
+            target,
+            &state.transition_generation,
+            ticket,
+        )?;
+    }
 
     if state.transition_generation.load(Ordering::SeqCst) != ticket {
         return Ok(());
@@ -2402,23 +2583,25 @@ mod geometry_tests {
 fn collapse_widget(
     compact_layout: Option<String>,
     compact_width: Option<f64>,
+    compositor_motion: Option<bool>,
+    preview: Option<bool>,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<Option<WidgetMorphGeometry>, String> {
     let Some(ticket) = reserve_geometry_transition(
         &state.control_center_owner,
         &state.transition_generation,
         false,
     )?
     else {
-        return Ok(());
+        return Ok(None);
     };
     let _window_geometry_guard = state
         .window_geometry_lock
         .lock()
         .map_err(|_| "window geometry unavailable".to_string())?;
     if state.transition_generation.load(Ordering::SeqCst) != ticket {
-        return Ok(());
+        return Ok(None);
     }
     let window = app
         .get_webview_window("widget")
@@ -2430,7 +2613,7 @@ fn collapse_widget(
     let collapsed_size =
         collapsed_physical_size_with_width(compact_mode, scale_factor, safe_inset, compact_width);
     let Some(monitor) = monitor else {
-        return animate_window_to(
+        return finish_widget_motion(
             &window,
             current,
             WidgetRect {
@@ -2439,6 +2622,8 @@ fn collapse_widget(
             },
             &state.transition_generation,
             ticket,
+            compositor_motion.unwrap_or(false),
+            preview.unwrap_or(false),
         );
     };
     let threshold = logical_to_physical(SNAP_THRESHOLD_LOGICAL, scale_factor) as i32;
@@ -2475,6 +2660,17 @@ fn collapse_widget(
             dock,
         )
     };
+    if preview.unwrap_or(false) {
+        return finish_widget_motion(
+            &window,
+            current,
+            collapsed_rect,
+            &state.transition_generation,
+            ticket,
+            false,
+            true,
+        );
+    }
     if let Ok(mut geometry) = state.geometry.lock() {
         *geometry = Some(WidgetGeometryState {
             mode: WidgetMode::Collapsed,
@@ -2485,7 +2681,7 @@ fn collapse_widget(
             user_moved_expanded: false,
         });
     }
-    animate_window_to(
+    finish_widget_motion(
         &window,
         current,
         WidgetRect {
@@ -2494,6 +2690,8 @@ fn collapse_widget(
         },
         &state.transition_generation,
         ticket,
+        compositor_motion.unwrap_or(false),
+        false,
     )
 }
 
@@ -3145,6 +3343,8 @@ pub fn run() {
                 simulate_short_window_for_testing: Mutex::new(false),
                 window_geometry_lock: Mutex::new(()),
                 transition_generation: AtomicU64::new(0),
+                #[cfg(target_os = "windows")]
+                frame_mask: Mutex::new(None),
                 control_center_owner: Mutex::new(false),
                 geometry: Mutex::new(None),
                 drag_mode: Mutex::new(None),
@@ -3237,6 +3437,7 @@ pub fn run() {
             get_volcengine_diagnostics,
             reconnect_volcengine,
             expand_widget,
+            reveal_widget_frame,
             resize_expanded_widget,
             open_control_center,
             set_control_center_calendar_open,
