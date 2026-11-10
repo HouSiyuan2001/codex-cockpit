@@ -272,6 +272,9 @@ pub struct ClaudeModelUsage {
     pub output_tokens: u64,
     /// `None` when the model is missing from the price list; never coerced to zero.
     pub cost_usd: Option<f64>,
+    /// For a task row: the project folder name it ran in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -286,6 +289,10 @@ pub struct ClaudeDailyUsage {
     pub cost_usd: f64,
     pub unpriced_requests: u64,
     pub models: Vec<ClaudeModelUsage>,
+    /// Claude Code sessions, titled as in Claude Code; `name` is empty when untitled.
+    pub tasks: Vec<ClaudeModelUsage>,
+    /// Working folders; `id` is the local path and never leaves this device.
+    pub projects: Vec<ClaudeModelUsage>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -311,6 +318,8 @@ struct UsageEntry {
     output: u64,
     fast: bool,
     us_geo: bool,
+    session: Option<String>,
+    cwd: Option<String>,
 }
 
 impl UsageEntry {
@@ -349,7 +358,33 @@ struct RawLine {
     #[serde(rename = "requestId")]
     request_id: Option<String>,
     uuid: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    cwd: Option<String>,
     message: Option<RawMessage>,
+}
+
+#[derive(Deserialize)]
+struct RawTitle {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(rename = "customTitle")]
+    custom_title: Option<String>,
+}
+
+/// Session titles are short metadata lines, separate from the conversation.
+fn parse_title(line: &str) -> Option<(String, String)> {
+    if !line.contains("\"custom-title\"") {
+        return None;
+    }
+    let raw: RawTitle = serde_json::from_str(line).ok()?;
+    if raw.kind.as_deref() != Some("custom-title") {
+        return None;
+    }
+    let title: String = raw.custom_title?.trim().chars().take(120).collect();
+    (!title.is_empty()).then_some((raw.session_id?, title))
 }
 
 #[derive(Deserialize)]
@@ -418,18 +453,30 @@ fn parse_line(line: &str) -> Option<UsageEntry> {
         output: usage.output_tokens.unwrap_or(0),
         fast: usage.speed.as_deref() == Some("fast"),
         us_geo: usage.inference_geo.as_deref() == Some("us"),
+        session: raw.session_id,
+        cwd: raw.cwd.filter(|value| !value.is_empty()),
     })
 }
 
-fn read_file_entries(path: &Path) -> Vec<UsageEntry> {
+#[derive(Clone, Default)]
+struct ParsedFile {
+    entries: Vec<UsageEntry>,
+    titles: Vec<(String, String)>,
+}
+
+fn read_file_entries(path: &Path) -> ParsedFile {
+    let mut parsed = ParsedFile::default();
     let Ok(file) = fs::File::open(path) else {
-        return Vec::new();
+        return parsed;
     };
-    BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| parse_line(&line))
-        .collect()
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        if let Some(entry) = parse_line(&line) {
+            parsed.entries.push(entry);
+        } else if let Some(title) = parse_title(&line) {
+            parsed.titles.push(title);
+        }
+    }
+    parsed
 }
 
 pub fn config_roots() -> Vec<PathBuf> {
@@ -479,10 +526,10 @@ fn collect_jsonl(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-type FileCache = HashMap<PathBuf, (SystemTime, u64, Vec<UsageEntry>)>;
+type FileCache = HashMap<PathBuf, (SystemTime, u64, ParsedFile)>;
 static FILE_CACHE: Mutex<Option<FileCache>> = Mutex::new(None);
 
-fn load_entries(roots: &[PathBuf]) -> (Vec<UsageEntry>, bool) {
+fn load_entries(roots: &[PathBuf]) -> (Vec<UsageEntry>, HashMap<String, String>, bool) {
     let mut files = Vec::new();
     let mut found_root = false;
     for root in roots {
@@ -498,6 +545,7 @@ fn load_entries(roots: &[PathBuf]) -> (Vec<UsageEntry>, bool) {
     let cache = guard.get_or_insert_with(HashMap::new);
     let mut next: FileCache = HashMap::with_capacity(files.len());
     let mut entries = Vec::new();
+    let mut titles = HashMap::new();
     for path in files {
         let Ok(meta) = fs::metadata(&path) else {
             continue;
@@ -514,11 +562,12 @@ fn load_entries(roots: &[PathBuf]) -> (Vec<UsageEntry>, bool) {
             }
             _ => read_file_entries(&path),
         };
-        entries.extend(parsed.iter().cloned());
+        entries.extend(parsed.entries.iter().cloned());
+        titles.extend(parsed.titles.iter().cloned());
         next.insert(path, (modified, meta.len(), parsed));
     }
     *cache = next;
-    (entries, found_root)
+    (entries, titles, found_root)
 }
 
 /// Streaming can log one message several times; keep the most complete copy.
@@ -547,26 +596,80 @@ fn canonical_model_id(model: &str) -> String {
         .unwrap_or_else(|| model.to_string())
 }
 
-fn aggregate(entries: Vec<UsageEntry>, today: NaiveDate, days: u32) -> Vec<ClaudeDailyUsage> {
+fn folder_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
+}
+
+fn add_usage(
+    rows: &mut BTreeMap<String, ClaudeModelUsage>,
+    id: String,
+    name: impl FnOnce() -> String,
+    detail: Option<String>,
+    entry: &UsageEntry,
+    cost: Option<f64>,
+) {
+    let row = rows.entry(id.clone()).or_insert_with(|| ClaudeModelUsage {
+        id,
+        name: name(),
+        cost_usd: Some(0.0),
+        detail,
+        ..Default::default()
+    });
+    row.requests += 1;
+    row.input_tokens += entry.input;
+    row.cache_write_tokens += entry.cache_write();
+    row.cache_read_tokens += entry.cache_read;
+    row.output_tokens += entry.output;
+    row.cost_usd = match (row.cost_usd, cost) {
+        (Some(total), Some(value)) => Some(total + value),
+        _ => None,
+    };
+}
+
+fn sorted_rows(rows: BTreeMap<String, ClaudeModelUsage>) -> Vec<ClaudeModelUsage> {
+    let mut rows: Vec<ClaudeModelUsage> = rows.into_values().collect();
+    rows.sort_by(|a, b| {
+        b.cost_usd
+            .unwrap_or(f64::MAX)
+            .total_cmp(&a.cost_usd.unwrap_or(f64::MAX))
+    });
+    rows
+}
+
+#[derive(Default)]
+struct DayRows {
+    day: ClaudeDailyUsage,
+    models: BTreeMap<String, ClaudeModelUsage>,
+    tasks: BTreeMap<String, ClaudeModelUsage>,
+    projects: BTreeMap<String, ClaudeModelUsage>,
+}
+
+fn aggregate(
+    entries: Vec<UsageEntry>,
+    titles: &HashMap<String, String>,
+    today: NaiveDate,
+    days: u32,
+) -> Vec<ClaudeDailyUsage> {
     let days = days.clamp(1, MAX_HISTORY_DAYS);
     let first = today - ChronoDuration::days(i64::from(days) - 1);
-    let mut by_day: BTreeMap<NaiveDate, (ClaudeDailyUsage, BTreeMap<String, ClaudeModelUsage>)> =
-        BTreeMap::new();
+    let mut by_day: BTreeMap<NaiveDate, DayRows> = BTreeMap::new();
     for entry in dedupe(entries) {
         let date = usage_time::calendar_day(&entry.at);
         if date < first || date > today {
             continue;
         }
         let cost = entry.cost_usd();
-        let (day, models) = by_day.entry(date).or_insert_with(|| {
-            (
-                ClaudeDailyUsage {
-                    local_date: date.to_string(),
-                    ..Default::default()
-                },
-                BTreeMap::new(),
-            )
+        let rows = by_day.entry(date).or_insert_with(|| DayRows {
+            day: ClaudeDailyUsage {
+                local_date: date.to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
         });
+        let day = &mut rows.day;
         day.requests += 1;
         day.input_tokens += entry.input;
         day.cache_write_tokens += entry.cache_write();
@@ -576,36 +679,36 @@ fn aggregate(entries: Vec<UsageEntry>, today: NaiveDate, days: u32) -> Vec<Claud
             Some(value) => day.cost_usd += value,
             None => day.unpriced_requests += 1,
         }
-        let id = canonical_model_id(&entry.model);
-        let model = models
-            .entry(id.clone())
-            .or_insert_with(|| ClaudeModelUsage {
-                id,
-                name: model_name(&entry.model),
-                cost_usd: Some(0.0),
-                ..Default::default()
-            });
-        model.requests += 1;
-        model.input_tokens += entry.input;
-        model.cache_write_tokens += entry.cache_write();
-        model.cache_read_tokens += entry.cache_read;
-        model.output_tokens += entry.output;
-        model.cost_usd = match (model.cost_usd, cost) {
-            (Some(total), Some(value)) => Some(total + value),
-            _ => None,
-        };
+        add_usage(
+            &mut rows.models,
+            canonical_model_id(&entry.model),
+            || model_name(&entry.model),
+            None,
+            &entry,
+            cost,
+        );
+        let project = entry.cwd.as_deref().map(folder_name);
+        if let Some(session) = entry.session.clone() {
+            add_usage(
+                &mut rows.tasks,
+                session.clone(),
+                || titles.get(&session).cloned().unwrap_or_default(),
+                project.clone(),
+                &entry,
+                cost,
+            );
+        }
+        if let (Some(path), Some(name)) = (entry.cwd.clone(), project) {
+            add_usage(&mut rows.projects, path, || name, None, &entry, cost);
+        }
     }
     by_day
         .into_values()
-        .map(|(mut day, models)| {
-            let mut models: Vec<ClaudeModelUsage> = models.into_values().collect();
-            models.sort_by(|a, b| {
-                b.cost_usd
-                    .unwrap_or(f64::MAX)
-                    .total_cmp(&a.cost_usd.unwrap_or(f64::MAX))
-            });
-            day.models = models;
-            day
+        .map(|rows| ClaudeDailyUsage {
+            models: sorted_rows(rows.models),
+            tasks: sorted_rows(rows.tasks),
+            projects: sorted_rows(rows.projects),
+            ..rows.day
         })
         .collect()
 }
@@ -624,7 +727,7 @@ pub fn price_list() -> Vec<ClaudeModelPrice> {
 pub fn read_usage(days: u32) -> ClaudeUsageReport {
     let now = Utc::now();
     let roots = config_roots();
-    let (entries, found) = load_entries(&roots);
+    let (entries, titles, found) = load_entries(&roots);
     let latest_activity_at = entries
         .iter()
         .map(|entry| entry.at)
@@ -636,7 +739,7 @@ pub fn read_usage(days: u32) -> ClaudeUsageReport {
         observed_at: now.to_rfc3339(),
         latest_activity_at,
         price_checked_at: PRICE_TABLE_CHECKED_AT,
-        days: aggregate(entries, today, days),
+        days: aggregate(entries, &titles, today, days),
         prices: price_list(),
     }
 }
@@ -751,7 +854,7 @@ mod tests {
         .iter()
         .filter_map(|value| parse_line(value))
         .collect();
-        let days = aggregate(entries, today, 7);
+        let days = aggregate(entries, &HashMap::new(), today, 7);
         assert_eq!(days.len(), 2, "UTC+8 midnight splits 15:59Z and 17:00Z");
         let latest = days.last().unwrap();
         assert_eq!(latest.local_date, "2026-11-10");
@@ -801,10 +904,54 @@ mod tests {
             .join("\n"),
         )
         .unwrap();
-        let (entries, found) = load_entries(std::slice::from_ref(&root));
+        let (entries, _, found) = load_entries(std::slice::from_ref(&root));
         let _ = fs::remove_dir_all(&root);
         assert!(found);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].model, "claude-haiku-5-5");
+    }
+
+    #[test]
+    fn groups_usage_by_titled_session_and_working_folder() {
+        let usage_line = |id: &str, session: &str, cwd: &str| {
+            format!(
+                r#"{{"type":"assistant","timestamp":"2026-11-10T02:00:00Z","requestId":"r-{id}","sessionId":"{session}","cwd":"{cwd}","message":{{"id":"{id}","model":"claude-opus-5-5","content":[{{"type":"text","text":"secret"}}],"usage":{{"input_tokens":1000000,"output_tokens":0}}}}}}"#
+            )
+        };
+        let lines = [
+            usage_line("a", "s1", "/work/alpha"),
+            usage_line("b", "s1", "/work/alpha"),
+            usage_line("c", "s2", "/work/beta"),
+            r#"{"type":"custom-title","customTitle":"  Fix capsule  ","sessionId":"s1"}"#
+                .to_string(),
+        ];
+        let entries: Vec<UsageEntry> = lines.iter().filter_map(|line| parse_line(line)).collect();
+        let titles: HashMap<String, String> =
+            lines.iter().filter_map(|line| parse_title(line)).collect();
+        assert_eq!(titles.get("s1").map(String::as_str), Some("Fix capsule"));
+        let day = aggregate(
+            entries,
+            &titles,
+            NaiveDate::from_ymd_opt(2026, 11, 10).unwrap(),
+            1,
+        )
+        .pop()
+        .unwrap();
+        assert_eq!(day.tasks.len(), 2);
+        assert_eq!(day.tasks[0].id, "s1");
+        assert_eq!(day.tasks[0].name, "Fix capsule");
+        assert_eq!(day.tasks[0].detail.as_deref(), Some("alpha"));
+        assert!((day.tasks[0].cost_usd.unwrap() - 8.0).abs() < 1e-9);
+        assert_eq!(
+            day.tasks[1].name, "",
+            "untitled sessions are named by the UI"
+        );
+        assert_eq!(
+            day.projects
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
     }
 }

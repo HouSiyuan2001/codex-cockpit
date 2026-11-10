@@ -51,7 +51,7 @@ interface ModeHandlers {
 }
 
 function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota) {
-  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode };
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode, claudeEnabled: true };
   const claudeView = buildClaudeCockpitView(usage, claudeQuota, now);
   return render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={preferences}
     claudeView={claudeView} {...handlers}
@@ -112,4 +112,13 @@ it("falls back to today's use when the plan reports no 5-hour window", () => {
   expect(screen.getByRole("group", { name: /^今日已用/ })).toHaveClass("codex-ring-card--claude");
   const { container } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourRemaining={null} claudeTodayRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
   expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/今日已用\/今日建议 50%/);
+});
+
+it("keeps a Codex-only cockpit when Claude is switched off", () => {
+  render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={{ ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true }}
+    claudeView={null}
+    onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
+  expect(screen.getByText("Codex 驾驶舱")).toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: "Claude 驾驶舱" })).not.toBeInTheDocument();
+  expect(DEFAULT_WIDGET_PREFERENCES.claudeEnabled).toBe(false);
 });

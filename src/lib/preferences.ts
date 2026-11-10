@@ -48,6 +48,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   updateChannel: "stable",
   automaticUpdates: true,
   cockpitMode: "codex",
+  claudeEnabled: false,
 };
 
 export function effectiveCompactLayout(preferences: WidgetPreferences, provider: ProviderId | null): WindowCompactLayout {
@@ -165,6 +166,8 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     updateChannel: candidate.updateChannel === "stable" ? "stable" : candidate.updateChannel === "beta" ? "beta" : DEFAULT_WIDGET_PREFERENCES.updateChannel,
     automaticUpdates: booleanValue(candidate.automaticUpdates, DEFAULT_WIDGET_PREFERENCES.automaticUpdates),
     cockpitMode: normalizeCockpitMode(candidate.cockpitMode),
+    // Earlier builds had no switch: keep a chosen Claude/AI cockpit enabled.
+    claudeEnabled: candidate.claudeEnabled === true || normalizeCockpitMode(candidate.cockpitMode) !== "codex",
   };
 }
 

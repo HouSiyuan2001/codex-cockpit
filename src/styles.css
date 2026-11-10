@@ -4058,3 +4058,35 @@ textarea {
 /* Clip without a scroll container: a resize or focus can no longer leave the
    cockpit scrolled sideways. Engines without `clip` keep `hidden`. */
 .quota-card.codex-focus-card { overflow: clip; }
+
+/* Usage page: Codex / Claude source switch (only with Claude enabled). */
+.usage-source-switch {
+  display: inline-flex;
+  width: max-content;
+  justify-self: start;
+  align-self: flex-start;
+  gap: 2px;
+  margin: 0 0 10px;
+  padding: 3px;
+  border: 1px solid var(--glass-edge, rgba(105, 83, 157, .2));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .35);
+}
+.usage-source-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--glass-muted, rgba(53, 59, 91, .68));
+  background: transparent;
+  font: inherit;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-weight: 720;
+  cursor: pointer;
+}
+.usage-source-option .provider-mark { width: 16px; height: 16px; margin: 0; padding: 0; border-radius: 0; color: currentColor; background: transparent; }
+.usage-source-option.is-active { color: #fff; background: #5f7fd8; }
+.usage-source-option--claude.is-active { background: var(--claude-orange); }
+.claude-usage-detail { display: block; overflow: hidden; color: var(--glass-muted, rgba(53, 59, 91, .6)); font-size: .82em; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }

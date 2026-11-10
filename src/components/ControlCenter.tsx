@@ -12,6 +12,8 @@ import type { TokeiUsage } from "../lib/tokeiUsage";
 import { RangeSlider } from "./RangeSlider";
 import { ResetRiskQuotaHeatmap } from "./ResetRiskQuotaHeatmap";
 import { CodexUsagePanel } from "./CodexUsagePanel";
+import { ClaudeUsagePanel } from "./ClaudeUsagePanel";
+import { ProviderMark } from "./ProviderMark";
 import { TeamMemberSettings } from "./TeamMemberSettings";
 import { CloudSyncSettings } from "./CloudSyncSettings";
 import { LocalUsageSourceSettings } from "./LocalUsageSourceSettings";
@@ -116,6 +118,7 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     source: "Quota comes from the official local snapshot",
     done: "Done",
   };
+  const [usageSource, setUsageSource] = useState<"codex" | "claude">(() => preferences.cockpitMode === "claude" ? "claude" : "codex");
   const updatePreferences = (patch: Partial<WidgetPreferences>) => onPreferences({ ...preferences, ...patch });
   const fontNeedsLocalInstallation = UI_FONT_OPTIONS.find(option => option.id === preferences.fontFamily)?.localOnly === true;
   const productName = zh ? "Codex 驾驶舱" : "Codex Cockpit";
@@ -162,7 +165,14 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
       </nav>
       <div className="control-body control-body--minimal">
-        {page === "usage" ? <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} /> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
+        {page === "usage" ? <>
+          {preferences.claudeEnabled ? <div className="usage-source-switch" role="radiogroup" aria-label={zh ? "用量来源" : "Usage source"}>
+            {(["codex", "claude"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => setUsageSource(source)}><ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />{source === "codex" ? "Codex" : "Claude"}</button>)}
+          </div> : null}
+          {preferences.claudeEnabled && usageSource === "claude"
+            ? <ClaudeUsagePanel zh={zh} />
+            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} />}
+        </> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>
           <div className="minimal-font-field">
@@ -227,6 +237,10 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
             <label className="minimal-toggle-row">
               <span><strong>{labels.stayExpanded}</strong><small>{labels.stayExpandedHint}</small></span>
               <span className="switch"><input type="checkbox" aria-label={labels.stayExpanded} checked={preferences.stayExpanded} onChange={(event) => updatePreferences({ stayExpanded: event.target.checked })} /><i /></span>
+            </label>
+            <label className="minimal-toggle-row">
+              <span><strong>Claude</strong><small>{zh ? "显示 Claude 与 AI 驾驶舱及 Claude 用量" : "Show Claude and AI cockpits and Claude usage"}</small></span>
+              <span className="switch"><input type="checkbox" aria-label="Claude" checked={preferences.claudeEnabled} onChange={(event) => updatePreferences(event.target.checked ? { claudeEnabled: true } : { claudeEnabled: false, cockpitMode: "codex" })} /><i /></span>
             </label>
             <label className="minimal-toggle-row">
               <span><strong>{labels.autostart}</strong><small>{labels.autostartHint}</small></span>

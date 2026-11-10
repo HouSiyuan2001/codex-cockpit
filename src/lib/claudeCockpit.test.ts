@@ -41,6 +41,8 @@ describe("cockpit mode", () => {
     expect(normalizeCockpitMode("gemini")).toBe("codex");
     expect(normalizeWidgetPreferences({ language: "en" }).cockpitMode).toBe("codex");
     expect(normalizeWidgetPreferences({ cockpitMode: "ai" }).cockpitMode).toBe("ai");
+    expect(normalizeWidgetPreferences({ cockpitMode: "ai" }).claudeEnabled).toBe(true);
+    expect(normalizeWidgetPreferences({ language: "en" }).claudeEnabled).toBe(false);
   });
 });
 

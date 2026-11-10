@@ -255,6 +255,8 @@ function mockClaudeUsage(): ClaudeUsageReport {
       costUsd: opus + sonnet,
       unpricedRequests: 0,
       models,
+      tasks: models.map((model, rank) => ({ ...model, id: `session-${index}-${rank}`, name: rank === 0 ? "示例会话 · 审稿回复" : "", detail: rank === 0 ? "Rcusp" : "Second brain" })),
+      projects: models.map((model, rank) => ({ ...model, id: rank === 0 ? "/demo/Rcusp" : "/demo/Second brain", name: rank === 0 ? "Rcusp" : "Second brain" })),
     };
   }).filter((day) => day.costUsd > 0);
   return {

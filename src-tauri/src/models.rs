@@ -143,6 +143,9 @@ pub struct WidgetPreferences {
     pub automatic_updates: bool,
     #[serde(default = "default_cockpit_mode")]
     pub cockpit_mode: String,
+    /// Shows the Claude/AI cockpits and Claude usage; off means a Codex-only app.
+    #[serde(default)]
+    pub claude_enabled: bool,
 }
 
 fn default_cockpit_mode() -> String {
@@ -265,6 +268,7 @@ impl Default for WidgetPreferences {
             update_channel: default_update_channel(),
             automatic_updates: false,
             cockpit_mode: default_cockpit_mode(),
+            claude_enabled: false,
         }
     }
 }
@@ -385,6 +389,8 @@ impl WidgetPreferences {
         if !matches!(self.cockpit_mode.as_str(), "codex" | "claude" | "ai") {
             self.cockpit_mode = default_cockpit_mode();
         }
+        // Earlier builds had no switch: keep a chosen Claude/AI cockpit enabled.
+        self.claude_enabled |= self.cockpit_mode != "codex";
         self.alert_threshold = self.alert_threshold.clamp(1, 99);
         self.quiet_hours_start = self.quiet_hours_start.min(23);
         self.quiet_hours_end = self.quiet_hours_end.min(23);
@@ -423,6 +429,8 @@ mod claude_preference_tests {
         }
         .normalized();
         assert_eq!(mode.cockpit_mode, "ai");
+        assert!(mode.claude_enabled);
+        assert!(!WidgetPreferences::default().normalized().claude_enabled);
         let legacy: WidgetPreferences = serde_json::from_str(
             r#"{"locked":false,"pinnedProvider":null,"autoRotateSeconds":12,"claudeDailyCapUsd":2}"#,
         )

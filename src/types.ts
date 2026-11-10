@@ -263,6 +263,8 @@ export interface WidgetPreferences {
   updateChannel: UpdateChannel;
   automaticUpdates: boolean;
   cockpitMode: CockpitMode;
+  /** Shows the Claude/AI cockpits and Claude usage; off means a Codex-only app. */
+  claudeEnabled: boolean;
 }
 
 export interface ClaudeQuotaWindow {
@@ -300,6 +302,8 @@ export interface ClaudeModelUsage {
   outputTokens: number;
   /** null when the model is not in the price list. */
   costUsd: number | null;
+  /** Task rows: the project folder the session ran in. */
+  detail?: string;
 }
 
 export interface ClaudeDailyUsage {
@@ -312,6 +316,10 @@ export interface ClaudeDailyUsage {
   costUsd: number;
   unpricedRequests: number;
   models: ClaudeModelUsage[];
+  /** Claude Code sessions; an empty name means untitled. */
+  tasks?: ClaudeModelUsage[];
+  /** Working folders; the id is a local path. */
+  projects?: ClaudeModelUsage[];
 }
 
 export interface ClaudeUsageReport {

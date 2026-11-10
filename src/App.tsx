@@ -704,14 +704,15 @@ export default function App() {
     });
     return dailyUsageRatio(todayAdvice.todayUsedPercent, totalPlanBudget);
   }, [codexDailyUsage, current, dailyRecommendation, totalPlanBudget]);
-  const claudeUsage = useClaudeUsage(startupReady && preferences.cockpitMode !== "codex");
+  const claudeUsage = useClaudeUsage(startupReady && preferences.claudeEnabled && preferences.cockpitMode !== "codex");
   const refreshClaudeUsage = claudeUsage.refresh;
   const claudeView = useMemo(
     () => buildClaudeCockpitView(claudeUsage.report, claudeUsage.quota, planningNow, claudeUsage.baseline),
     [claudeUsage.baseline, claudeUsage.quota, claudeUsage.report, planningNow],
   );
   const compactCapsuleWidth = compactLayout === "capsule"
-    ? preferences.cockpitMode === "claude"
+    ? !preferences.claudeEnabled ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
+    : preferences.cockpitMode === "claude"
       ? capsuleLogicalWidth(claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
       : preferences.cockpitMode === "ai"
         ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
@@ -1150,7 +1151,7 @@ export default function App() {
         dailyRecommendation={dailyRecommendation}
         dailyBudgetPercent={totalPlanBudget}
         fontScale={preferences.fontScale}
-        cockpitMode={preferences.cockpitMode}
+        cockpitMode={preferences.claudeEnabled ? preferences.cockpitMode : "codex"}
         claudeWeeklyRemaining={claudeView.weeklyRemaining}
         claudeFiveHourRemaining={claudeView.fiveHourRemaining}
         claudeTodayRatio={claudeView.todayRatio}
@@ -1174,7 +1175,7 @@ export default function App() {
       comfortSaving={comfortSaving}
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
-      claudeView={claudeView}
+      claudeView={preferences.claudeEnabled ? claudeView : null}
       onCockpitModeChange={handleCockpitModeChange}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
       onResetRiskChange={(value) => { if (sharedPlan.connected) sharedPlan.change("risk", value); else if (sharedPlan.scopeReady) saveManualPlan("resetRiskOverridePercent", value); }}
