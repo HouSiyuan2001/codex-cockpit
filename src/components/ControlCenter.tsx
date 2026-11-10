@@ -13,6 +13,7 @@ import { RangeSlider } from "./RangeSlider";
 import { ResetRiskQuotaHeatmap } from "./ResetRiskQuotaHeatmap";
 import { CodexUsagePanel } from "./CodexUsagePanel";
 import { ClaudeUsagePanel } from "./ClaudeUsagePanel";
+import { useClaudeUsage } from "../hooks/useClaudeUsage";
 import { ProviderMark } from "./ProviderMark";
 import { TeamMemberSettings } from "./TeamMemberSettings";
 import { CloudSyncSettings } from "./CloudSyncSettings";
@@ -118,7 +119,8 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     source: "Quota comes from the official local snapshot",
     done: "Done",
   };
-  const [usageSource, setUsageSource] = useState<"codex" | "claude">(() => preferences.cockpitMode === "claude" ? "claude" : "codex");
+  const [usageSource, setUsageSource] = useState<"codex" | "claude" | "ai">(() => preferences.cockpitMode === "codex" ? "codex" : preferences.cockpitMode);
+  const claudeUsage = useClaudeUsage(page === "usage" && preferences.claudeEnabled && usageSource === "ai", 400);
   const updatePreferences = (patch: Partial<WidgetPreferences>) => onPreferences({ ...preferences, ...patch });
   const fontNeedsLocalInstallation = UI_FONT_OPTIONS.find(option => option.id === preferences.fontFamily)?.localOnly === true;
   const productName = zh ? "Codex 驾驶舱" : "Codex Cockpit";
@@ -167,11 +169,11 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
       <div className="control-body control-body--minimal">
         {page === "usage" ? <>
           {preferences.claudeEnabled ? <div className="usage-source-switch" role="radiogroup" aria-label={zh ? "用量来源" : "Usage source"}>
-            {(["codex", "claude"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => setUsageSource(source)}><ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />{source === "codex" ? "Codex" : "Claude"}</button>)}
+            {(["codex", "claude", "ai"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => setUsageSource(source)}>{source === "ai" ? null : <ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />}{source === "codex" ? "Codex" : source === "claude" ? "Claude" : "AI"}</button>)}
           </div> : null}
           {preferences.claudeEnabled && usageSource === "claude"
             ? <ClaudeUsagePanel zh={zh} />
-            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} />}
+            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} claudeReport={preferences.claudeEnabled && usageSource === "ai" ? claudeUsage.report : null} />}
         </> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>

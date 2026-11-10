@@ -13,6 +13,8 @@ import { CustomTaskStatistics } from "./CustomTaskStatistics";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { LocalUsageSourceSettings } from "./LocalUsageSourceSettings";
 import { newestDevices, rangeLabel, tasksInRange, usageInRange, type UsageDateRange } from "../lib/usageCalendar";
+import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask } from "../lib/claudeUsageRows";
+import type { ClaudeUsageReport } from "../types";
 
 const PERIODS: readonly UsagePeriod[] = ["today", "7d", "30d", "all"];
 const periodLabel = (period: UsagePeriod, zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", week: zh ? "本周" : "This week", month: zh ? "本月" : "This month", all: zh ? "全部时间" : "All time" })[period];
@@ -38,7 +40,7 @@ function ModelRow({ model, max, zh, color, metric, total }: { model: ModelUsage;
   </details>;
 }
 
-export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget }: { zh: boolean; initialUsage?: TokeiUsage | null; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null }) {
+export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget, claudeReport = null }: { zh: boolean; initialUsage?: TokeiUsage | null; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null; /** AI view: this Mac's Claude usage merged into the same ranking. */ claudeReport?: ClaudeUsageReport | null }) {
   const [data, setData] = useState<TokeiUsage | null>(initialUsage);
   const [error, setError] = useState(false);
   const [groupId, setGroupId] = useState<string | null>(initialUsage?.localGroupId ?? null);
@@ -134,20 +136,28 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
   // Presentation only: partial known amounts participate in ranking and the donut.
   // Keep the original task ledger above unchanged for strict reconciliation.
   const displayTasks = taskUsage?.rows.map(task => ({ ...task, estimatedCostUsd: task.estimatedCostUsd ?? task.knownCostUsd ?? null })) ?? [];
-  const rows = [...(view === "projects" ? projectRows : view === "users" ? all?.users ?? [] : view === "models" ? summary?.models ?? [] : displayTasks)].sort((a, b) => (metricValue(b, metric) ?? -1) - (metricValue(a, metric) ?? -1) || a.name.localeCompare(b.name));
+  // Claude data exists only for this Mac: merge it when the selected scope includes this device.
+  const claudeInScope = Boolean(claudeReport?.status === "ok" && (global || (projects?.deviceId && data?.groups.find(item => item.id === groupId)?.deviceIds.includes(projects.deviceId))));
+  const claudeExtra = useMemo(() => claudeReport && claudeInScope && (view === "tasks" || view === "models")
+    ? aggregateClaudeRows(claudeReport, selectedPeriod, view === "models" ? "models" : "tasks", new Date(), dateRange)
+    : null, [claudeReport, claudeInScope, view, selectedPeriod, dateRange]);
+  const claudeRows = claudeExtra ? (view === "tasks" ? claudeExtra.rows.map(row => claudeTaskAsCodexTask(row, claudeExtra.projects[row.id])) : claudeExtra.rows.map(row => ({ ...row, id: `claude:${row.id}` }))) : [];
+  const rows = [...claudeRows, ...(view === "projects" ? projectRows : view === "users" ? all?.users ?? [] : view === "models" ? summary?.models ?? [] : displayTasks)].sort((a, b) => (metricValue(b, metric) ?? -1) - (metricValue(a, metric) ?? -1) || a.name.localeCompare(b.name));
   const colorIds = useMemo(() => view === "users" ? (all?.users.map(user => user.id) ?? []).sort() : view === "projects" ? [...(projects?.projects.map(project => project.id) ?? [])].sort() : view === "tasks" ? [...(projects?.tasks?.map(task => task.id) ?? [])].sort() : [...new Set(data?.devices.flatMap(device => Object.values(device.daily).flatMap(day => day.models.map(model => model.id))) ?? [])].sort(), [data, projects, view, all]);
   const knownTotal = rows.reduce((sum, row) => sum + (metricValue(row, metric) ?? 0), 0);
   const taskCostIncomplete = rows.some(row => row.estimatedCostUsd === null || row.costIncomplete);
-  const chartTotal = summary ? metricValue(summary, metric) : null;
+  const mergedSummary = summary && claudeExtra ? { ...addClaudeMetrics(summary, claudeExtra.summary), hasData: summary.hasData || claudeExtra.summary.totalTokens > 0 } : summary;
+  const chartTotal = mergedSummary ? metricValue(mergedSummary, metric) : null;
   const denominator = Math.max(chartTotal ?? 0, metric === "cost" ? summary?.knownCostUsd ?? 0 : 0, knownTotal);
   const unknownCost = metric === "cost" && (chartTotal === null || rows.some(row => row.estimatedCostUsd === null));
-  const totalCostUnavailable = metric === "cost" && Boolean(summary?.hasData) && chartTotal === null;
+  const totalCostUnavailable = metric === "cost" && Boolean(mergedSummary?.hasData) && chartTotal === null;
   const summaryOnly = Boolean(dateRange || summary?.rangeDeviceIds.length);
   const donut = view === "tasks" || (view === "models" || view === "users") && (period === "today" || view === "users" || summaryOnly);
   const toggleMetric = () => setMetric(current => current === "tokens" ? "cost" : "tokens");
   const visibleRows = showAll ? rows : rows.slice(0, 5);
   const taskColors = Object.fromEntries(visibleRows.map((row, rank) => [row.id, usageRankColor(rank, visibleRows.length)]));
-  const modelColors = view === "models" ? modelUsageColors(visibleRows) : undefined;
+  // Claude model names have no GPT generation; rank colors keep both providers distinguishable.
+  const modelColors = view === "models" ? (claudeExtra ? Object.fromEntries(visibleRows.map((row, rank) => [row.id, usageRankColor(rank, visibleRows.length)])) : modelUsageColors(visibleRows)) : undefined;
   const group = data?.groups.find((item) => item.id === groupId);
   const stale = summary?.devices.some((device) => device.stale) ?? false;
   const partial = Boolean(summary?.missingDeviceIds.length || summary?.unavailablePeriodDeviceIds.length || summary?.incompleteModels || summary?.devices.some(device => device.collectionPartial) || data?.status === "partial");
@@ -194,10 +204,10 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
       : <CustomTaskStatistics key={[global ? "global" : groupId, period, dateRange?.start, dateRange?.end, view, metric].join("|")} rows={taskUsage?.rows ?? []} zh={zh} loading={!projects && !projectError} error={projectError} partial={projects?.status === "partial" || projects?.peerTasks?.some(peer => peer.partial)} periodLabel={dateRange ? rangeLabel(dateRange) : periodLabel(period, zh)} />}
 
     {view === "tasks" && !projects && !projectError ? <p className="usage-note" role="status">{zh ? "正在读取任务统计…" : "Loading task statistics…"}</p> : !group && !global ? <p className="usage-empty">{zh ? "选择一名组员，或到设置中分配设备。" : "Choose a member, or assign devices in settings."}</p> : <>
-        <div className="usage-total">{!donut && <><span>{metric === "tokens" ? (zh ? "Token 用量" : "Token usage") : (zh ? "估算成本" : "Estimated cost")}</span><strong aria-label={totalCostUnavailable ? costLabel(null, zh) : undefined}>{summary?.hasData ? totalCostUnavailable ? "—" : metric === "cost" ? costLabel(chartTotal, zh) : formatTokens(summary.totalTokens, zh) : "—"}</strong></>}<small>{metric === "tokens" ? `${zh ? "估算成本" : "Estimated cost"} ${costLabel(summary?.estimatedCostUsd ?? null, zh)}` : `${totalCostUnavailable ? `${costLabel(null, zh)} · ` : ""}${(summary?.hasData ? formatTokens(summary.totalTokens, zh) : "—")} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button>{(view === "tasks" || view === "models") && <small className="usage-inline-status">{[projects?.warnings.includes("scan_limit") ? (zh ? "补扫中" : "Scanning") : null, metric === "cost" && taskCostIncomplete ? (zh ? "成本不全" : "Partial cost") : null, taskReconciliation?.mismatch ? (zh ? "待对账" : "Ledger mismatch") : null].filter(Boolean).join(" · ")}</small>}</div>
+        <div className="usage-total">{!donut && <><span>{metric === "tokens" ? (zh ? "Token 用量" : "Token usage") : (zh ? "估算成本" : "Estimated cost")}</span><strong aria-label={totalCostUnavailable ? costLabel(null, zh) : undefined}>{mergedSummary?.hasData ? totalCostUnavailable ? "—" : metric === "cost" ? costLabel(chartTotal, zh) : formatTokens(mergedSummary.totalTokens, zh) : "—"}</strong></>}<small>{metric === "tokens" ? `${zh ? "估算成本" : "Estimated cost"} ${costLabel(mergedSummary?.estimatedCostUsd ?? null, zh)}` : `${totalCostUnavailable ? `${costLabel(null, zh)} · ` : ""}${(mergedSummary?.hasData ? formatTokens(mergedSummary.totalTokens, zh) : "—")} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button>{(view === "tasks" || view === "models") && <small className="usage-inline-status">{[projects?.warnings.includes("scan_limit") ? (zh ? "补扫中" : "Scanning") : null, metric === "cost" && taskCostIncomplete ? (zh ? "成本不全" : "Partial cost") : null, taskReconciliation?.mismatch ? (zh ? "待对账" : "Ledger mismatch") : null].filter(Boolean).join(" · ")}</small>}</div>
         <div className={donut ? `usage-model-today${view === "tasks" ? " usage-task-today" : ""}` : undefined}>
-        {view === "tasks" && (summary?.hasData || rows.length > 0) && <UsageChart rows={rows} total={chartTotal} knownTotal={knownTotal} period={period} devices={[]} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks colors={taskColors} />}
-        {(view === "models" || view === "users") && summary?.hasData && <UsageChart rows={rows} total={chartTotal} knownTotal={metric === "cost" ? summary.knownCostUsd : undefined} period={period} devices={summary.devices} ids={colorIds} zh={zh} metric={metric} onToggle={toggleMetric} users={view === "users"} summaryOnly={summaryOnly} colors={modelColors} />}
+        {view === "tasks" && (mergedSummary?.hasData || rows.length > 0) && <UsageChart rows={rows} total={chartTotal} knownTotal={knownTotal} period={period} devices={[]} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks colors={taskColors} />}
+        {(view === "models" || view === "users") && mergedSummary?.hasData && <UsageChart rows={rows} total={chartTotal} knownTotal={metric === "cost" ? (claudeExtra ? knownTotal : summary?.knownCostUsd) : undefined} period={period} devices={summary?.devices ?? []} ids={colorIds} zh={zh} metric={metric} onToggle={toggleMetric} users={view === "users"} summaryOnly={summaryOnly} colors={modelColors} />}
         <div className="usage-ranking">
           {view === "tasks" ? (visibleRows as AggregatedTaskUsage[]).map((task) => <TaskUsageRow key={task.id} task={task} max={metricValue(rows[0], metric) ?? 0} color={taskColors[task.id]} zh={zh} metric={metric} total={knownTotal} />) : visibleRows.map((model) => <ModelRow key={model.id} model={model as ModelUsage} max={metricValue(rows[0], metric) ?? 0} color={modelColors ? modelColors[model.id] ?? UNRANKED_MODEL_COLOR : usageColor(model.id, colorIds)} zh={zh} metric={metric} total={view === "projects" ? knownTotal : denominator} />)}
           {!rows.length && <p className="usage-empty">{view === "tasks" ? projectError ? (zh ? "任务统计暂不可用。" : "Task statistics unavailable.") : !projects ? (zh ? "正在读取任务统计…" : "Loading task statistics…") : (zh ? "这段时间暂无可归属的任务记录。" : "No attributed task records in this period.") : view === "projects" ? projectError ? (zh ? "项目统计暂不可用。" : "Project statistics unavailable.") : !projects ? (zh ? "正在读取本机项目统计…" : "Loading local project statistics…") : !projects.deviceId || !(global ? summary?.devices.some(device => device.id === projects.deviceId) : group?.deviceIds.includes(projects.deviceId)) ? (zh ? "此分组未包含本机，暂无项目明细。" : "This group does not include this device.") : (zh ? "这段时间暂无可归属的项目记录。" : "No attributed project records in this period.") : (zh ? "这段时间暂无模型用量记录。" : "No model usage recorded in this period.")}</p>}
@@ -231,7 +241,7 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
           : <p className="usage-note">{zh
             ? `本机未归属 ${scopeValue(taskReconciliation.outstandingLocal)} · 其他设备 ${scopeValue(taskReconciliation.nonLocal)}`
             : `Unattributed local ${scopeValue(taskReconciliation.outstandingLocal)} · Other devices ${scopeValue(taskReconciliation.nonLocal)}`}</p>)}
-          <p>{global ? (zh ? "全局按现有用户分组汇总，每台设备只计一次；未分组设备单列。" : "Global combines configured user groups, counting each device once; unassigned devices are separate.") : (zh ? "仅计所选分组的 Codex 用量。" : "Only Codex usage from this group.")}{zh ? "Token 包含输入、缓存输入和输出，推理不重复累加。" : "Tokens include uncached input, cache and output; reasoning is not added twice."}</p>
+          <p>{global ? (zh ? "全局按现有用户分组汇总，每台设备只计一次；未分组设备单列。" : "Global combines configured user groups, counting each device once; unassigned devices are separate.") : (claudeExtra ? (zh ? "合并所选分组的 Codex 用量与本机 Claude 用量。" : "Codex usage from this group plus this Mac's Claude usage.") : (zh ? "仅计所选分组的 Codex 用量。" : "Only Codex usage from this group."))}{zh ? "Token 包含输入、缓存输入和输出，推理不重复累加。" : "Tokens include uncached input, cache and output; reasoning is not added twice."}</p>
           <p>{zh ? "金额优先使用自己的或共享空间的价格表，没有配置时使用 App 自带的参考价格；也会保留兼容的历史估算。它不是订阅实际扣费，也不是官方剩余额度。" : "Costs prefer your own or shared-space catalog, falling back to built-in reference prices and compatible historical estimates. They are not subscription charges or remaining quota."}</p>
           <p>{zh ? "日账与时段汇总不重复累加。仅在时间边界匹配时使用汇总；本周不等于近7天。离线设备保留截至快照时的统计。" : "Daily ledgers and range totals are never added twice. Ranges require matching date bounds; this week is not rolling seven days. Offline totals stop at their snapshot time."}</p>
           {view === "models" && <p>{zh ? "颜色按GPT数字代际从新到旧等间隔取红到蓝；同代按名称固定排序。隐藏或代际不明的模型为灰色；展开更多时重新均分色带。仅有名称的旧快照按原名称汇总，不猜测具体变体。" : "Visible GPT generations are spaced evenly from new/red to old/blue, with name-based ties. Hidden or unversioned models are gray; expanding resamples the palette. Name-only legacy rows stay name-grouped without guessing variants."}</p>}

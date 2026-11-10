@@ -4089,4 +4089,6 @@ textarea {
 .usage-source-option .provider-mark { width: 16px; height: 16px; margin: 0; padding: 0; border-radius: 0; color: currentColor; background: transparent; }
 .usage-source-option.is-active { color: #fff; background: #5f7fd8; }
 .usage-source-option--claude.is-active { background: var(--claude-orange); }
+.usage-source-option--ai { padding-left: 12px; }
+.usage-source-option--ai.is-active { background: linear-gradient(120deg, #5f7fd8, var(--claude-orange)); }
 .claude-usage-detail { display: block; overflow: hidden; color: var(--glass-muted, rgba(53, 59, 91, .6)); font-size: .82em; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }

@@ -20,14 +20,14 @@ function writeBaseline(value: ClaudeDayBaseline): void {
 }
 
 /** Polls Claude quota and local usage only while a Claude-bearing cockpit is selected; keeps the last answers. */
-export function useClaudeUsage(enabled: boolean): { report: ClaudeUsageReport | null; quota: ClaudeQuota | null; baseline: ClaudeDayBaseline | null; refresh: () => void } {
+export function useClaudeUsage(enabled: boolean, days = 35): { report: ClaudeUsageReport | null; quota: ClaudeQuota | null; baseline: ClaudeDayBaseline | null; refresh: () => void } {
   const [report, setReport] = useState<ClaudeUsageReport | null>(null);
   const [quota, setQuota] = useState<ClaudeQuota | null>(null);
   const [baseline, setBaseline] = useState<ClaudeDayBaseline | null>(() => readBaseline());
   const sequence = useRef(0);
   const refresh = useCallback(() => {
     const current = ++sequence.current;
-    void fetchClaudeUsage()
+    void fetchClaudeUsage(days)
       .then((next) => { if (current === sequence.current) setReport(next); })
       .catch(() => undefined);
     void fetchClaudeQuota()
@@ -41,7 +41,7 @@ export function useClaudeUsage(enabled: boolean): { report: ClaudeUsageReport | 
         });
       })
       .catch(() => undefined);
-  }, []);
+  }, [days]);
   useEffect(() => {
     if (!enabled) return;
     refresh();

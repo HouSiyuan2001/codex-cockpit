@@ -1,4 +1,4 @@
-import type { ModelUsage, UsagePeriod } from "./tokeiUsage";
+import type { AggregatedTaskUsage, ModelUsage, UsageMetrics, UsagePeriod } from "./tokeiUsage";
 import { dateAtBeijingNoon, localDateKey } from "./usageDay";
 import type { ClaudeModelUsage, ClaudeUsageReport } from "../types";
 
@@ -34,12 +34,13 @@ export function claudeTaskName(row: Pick<ClaudeModelUsage, "id" | "name">): stri
   return row.name.trim() || `Claude ${row.id.slice(0, 8)}`;
 }
 
-export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeriod, view: ClaudeUsageView, now = new Date()): { summary: ModelUsage; rows: ModelUsage[]; details: Record<string, string> } {
-  const start = firstDate(period, now);
-  const end = localDateKey(now);
+export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeriod, view: ClaudeUsageView, now = new Date(), range: { start: string; end: string } | null = null): { summary: ModelUsage; rows: ModelUsage[]; details: Record<string, string>; projects: Record<string, string> } {
+  const start = range?.start ?? firstDate(period, now);
+  const end = range?.end ?? localDateKey(now);
   const summary = emptyUsage("claude", "Claude");
   const rows = new Map<string, ModelUsage>();
   const details: Record<string, string> = {};
+  const projects: Record<string, string> = {};
   for (const day of report.days) {
     if ((start && day.localDate < start) || day.localDate > end) continue;
     // Day totals carry the known cost; unpriced requests only mark it incomplete.
@@ -50,8 +51,31 @@ export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeri
       const row = rows.get(item.id) ?? emptyUsage(item.id, view === "tasks" ? claudeTaskName(item) : item.name);
       add(row, item);
       rows.set(item.id, row);
-      if (view === "tasks") details[item.id] = [item.detail, item.id.slice(0, 8)].filter(Boolean).join(" · ");
+      if (view === "tasks") {
+        details[item.id] = [item.detail, item.id.slice(0, 8)].filter(Boolean).join(" · ");
+        if (item.detail) projects[item.id] = item.detail;
+      }
     }
   }
-  return { summary, rows: [...rows.values()], details };
+  return { summary, rows: [...rows.values()], details, projects };
+}
+
+/** A Claude session shaped like a Codex task row, so both rank in one list. */
+export function claudeTaskAsCodexTask(row: ModelUsage, projectName: string | undefined): AggregatedTaskUsage {
+  const id = `claude:${row.id}`;
+  const detail = { ...row, id, knownCostUsd: row.estimatedCostUsd, relation: "root" as const, models: [] };
+  return { ...row, id, rawName: row.name, knownCostUsd: row.estimatedCostUsd, projectName: ["Claude", projectName].filter(Boolean).join(" · "), relation: "root", self: detail, children: [] };
+}
+
+/** Adds Claude's metrics to a Codex total; an unknown cost on either side stays unknown. */
+export function addClaudeMetrics<T extends UsageMetrics>(base: T, claude: UsageMetrics | null): T {
+  if (!claude) return base;
+  return {
+    ...base,
+    inputTokens: base.inputTokens + claude.inputTokens,
+    cachedInputTokens: base.cachedInputTokens + claude.cachedInputTokens,
+    outputTokens: base.outputTokens + claude.outputTokens,
+    totalTokens: base.totalTokens + claude.totalTokens,
+    estimatedCostUsd: base.estimatedCostUsd === null || claude.estimatedCostUsd === null ? null : base.estimatedCostUsd + claude.estimatedCostUsd,
+  };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateClaudeRows, claudeTaskName } from "./claudeUsageRows";
+import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeTaskName } from "./claudeUsageRows";
 import type { ClaudeDailyUsage, ClaudeModelUsage, ClaudeUsageReport } from "../types";
 
 const now = new Date("2026-11-10T12:00:00Z");
@@ -35,5 +35,26 @@ describe("Claude usage rows", () => {
     expect(today.summary.costIncomplete).toBe(true);
     expect(today.summary.estimatedCostUsd).toBe(1);
     expect(claudeTaskName({ id: "s2abcdef99", name: " " })).toBe("Claude s2abcdef");
+  });
+});
+
+describe("AI usage merge", () => {
+  it("honours a calendar range and shapes Claude sessions as Codex task rows", () => {
+    const ranged = aggregateClaudeRows(report, "all", "tasks", now, { start: "2026-11-09", end: "2026-11-09" });
+    expect(ranged.rows.map((item) => item.id)).toEqual(["s1"]);
+    const task = claudeTaskAsCodexTask(ranged.rows[0], ranged.projects.s1);
+    expect(task.id).toBe("claude:s1");
+    expect(task.projectName).toBe("Claude · Rcusp");
+    expect(task.relation).toBe("root");
+    expect(task.children).toEqual([]);
+    expect(task.estimatedCostUsd).toBe(2);
+  });
+
+  it("adds totals and keeps an unknown cost unknown", () => {
+    const base = { inputTokens: 1, cachedInputTokens: 2, outputTokens: 3, reasoningTokens: 0, totalTokens: 6, estimatedCostUsd: 1 };
+    const claude = { inputTokens: 10, cachedInputTokens: 20, outputTokens: 30, reasoningTokens: 0, totalTokens: 60, estimatedCostUsd: 2 };
+    expect(addClaudeMetrics(base, claude)).toMatchObject({ totalTokens: 66, estimatedCostUsd: 3, cachedInputTokens: 22 });
+    expect(addClaudeMetrics({ ...base, estimatedCostUsd: null }, claude).estimatedCostUsd).toBeNull();
+    expect(addClaudeMetrics(base, null)).toBe(base);
   });
 });
