@@ -1,7 +1,7 @@
-import type { AppDiagnostics, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import type { AppDiagnostics, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
 import { EMPTY_RUNTIME_STATE, normalizeRuntimeState } from "./activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
-import { usageDateKey } from "./usageDay";
+import { localDateKey as usageDateKeyCalendar, usageDateKey } from "./usageDay";
 import { animateWidgetMorph, clearWidgetMorph, usesWidgetMorph } from "./widgetMorph";
 import type { WidgetMorphGeometry } from "./widgetMorph";
 
@@ -233,6 +233,50 @@ export async function fetchCodexDailyUsageHistory(): Promise<CodexDailyUsage[]> 
   if (!isTauri()) return [await fetchCodexDailyUsage()];
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<CodexDailyUsage[]>("get_codex_daily_usage_history");
+}
+
+function mockClaudeUsage(): ClaudeUsageReport {
+  const now = new Date();
+  const days = Array.from({ length: 21 }, (_, index) => {
+    const date = new Date(now.getTime() - (20 - index) * 86_400_000);
+    const opus = index % 7 === 5 ? 0 : 6 + ((index * 37) % 23);
+    const sonnet = index % 3 === 0 ? 1.4 + (index % 5) * 0.3 : 0;
+    const models = [
+      ...(opus > 0 ? [{ id: "claude-opus-5-5", name: "Opus 5.5", requests: 80 + index, inputTokens: 9_000, cacheWriteTokens: 820_000, cacheReadTokens: 21_000_000, outputTokens: 310_000, costUsd: opus }] : []),
+      ...(sonnet > 0 ? [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", requests: 20, inputTokens: 2_000, cacheWriteTokens: 120_000, cacheReadTokens: 3_000_000, outputTokens: 60_000, costUsd: sonnet }] : []),
+    ];
+    return {
+      localDate: usageDateKeyCalendar(date),
+      requests: models.reduce((sum, model) => sum + model.requests, 0),
+      inputTokens: models.reduce((sum, model) => sum + model.inputTokens, 0),
+      cacheWriteTokens: models.reduce((sum, model) => sum + model.cacheWriteTokens, 0),
+      cacheReadTokens: models.reduce((sum, model) => sum + model.cacheReadTokens, 0),
+      outputTokens: models.reduce((sum, model) => sum + model.outputTokens, 0),
+      costUsd: opus + sonnet,
+      unpricedRequests: 0,
+      models,
+    };
+  }).filter((day) => day.costUsd > 0);
+  return {
+    status: "ok",
+    observedAt: now.toISOString(),
+    latestActivityAt: now.toISOString(),
+    priceCheckedAt: "2026-11-09",
+    days,
+    prices: [
+      { id: "claude-fable-5-2", name: "Fable 5.2", price: { input: 8, cacheWrite5m: 10, cacheWrite1h: 16, cacheRead: 0.2, output: 40 } },
+      { id: "claude-opus-5-5", name: "Opus 5.5", price: { input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20 } },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", price: { input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.1, output: 10 } },
+      { id: "claude-haiku-5-5", name: "Haiku 5.5", price: { input: 0.1, cacheWrite5m: 0.125, cacheWrite1h: 0.2, cacheRead: 0.01, output: 0.5 } },
+    ],
+  };
+}
+
+/** Read-only local Claude Code usage; the browser preview uses synthetic data. */
+export async function fetchClaudeUsage(days = 35): Promise<ClaudeUsageReport> {
+  if (!isTauri()) return mockClaudeUsage();
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ClaudeUsageReport>("get_claude_usage", { days });
 }
 
 export async function openExternalUrl(url: string): Promise<void> {

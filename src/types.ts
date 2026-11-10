@@ -10,6 +10,7 @@ export type AppearanceMode = "system" | "light" | "dark";
 export type UiFontFamily = "system" | "codex" | "yahei" | "smiley" | "wenkai" | "times" | "fz-song";
 export type ResolvedAppearance = Exclude<AppearanceMode, "system">;
 export type UpdateChannel = "stable" | "beta";
+export type CockpitMode = "codex" | "claude" | "ai";
 
 export const MAX_DAILY_OBSERVED_PERCENT = 10_000;
 
@@ -261,6 +262,59 @@ export interface WidgetPreferences {
   notificationCooldownMinutes: number;
   updateChannel: UpdateChannel;
   automaticUpdates: boolean;
+  cockpitMode: CockpitMode;
+  /** Personal daily Claude cap in API-equivalent USD; null follows the comfort estimate. */
+  claudeDailyCapUsd: number | null;
+  claudeComfortFeedback: ClaudeComfortRecord[];
+}
+
+export interface ClaudeComfortRecord {
+  localDate: string;
+  comfort: ComfortCode;
+  /** API-equivalent cost of that day when the feedback was saved. */
+  costUsd: number | null;
+  observedAt: string;
+}
+
+export interface ClaudePrice {
+  input: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+  cacheRead: number;
+  output: number;
+}
+
+export interface ClaudeModelUsage {
+  id: string;
+  name: string;
+  requests: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  /** null when the model is not in the price list. */
+  costUsd: number | null;
+}
+
+export interface ClaudeDailyUsage {
+  localDate: string;
+  requests: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  unpricedRequests: number;
+  models: ClaudeModelUsage[];
+}
+
+export interface ClaudeUsageReport {
+  status: "ok" | "unavailable" | "loading";
+  observedAt: string;
+  latestActivityAt: string | null;
+  priceCheckedAt: string;
+  days: ClaudeDailyUsage[];
+  prices: Array<{ id: string; name: string; price: ClaudePrice }>;
 }
 
 export type ActivityKind = "quota" | "reset" | "warning" | "recovered" | "update";

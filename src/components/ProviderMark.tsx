@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import claudeLogo from "../assets/providers/claude.svg";
 import codexLogo from "../assets/providers/codex.svg";
 import antigravityLogo from "../assets/providers/antigravity.svg";
 import qoderLogo from "../assets/providers/qoder.svg";
@@ -7,6 +8,7 @@ import volcengineLogo from "../assets/providers/volcengine.svg";
 import workbuddyLogo from "../assets/providers/workbuddy.svg";
 
 const providerLogos: Record<string, string> = {
+  claude: claudeLogo,
   codex: codexLogo,
   qoder: qoderLogo,
   trae: traeLogo,

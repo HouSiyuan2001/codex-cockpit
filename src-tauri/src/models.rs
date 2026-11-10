@@ -141,6 +141,29 @@ pub struct WidgetPreferences {
     pub update_channel: String,
     #[serde(default = "default_true")]
     pub automatic_updates: bool,
+    #[serde(default = "default_cockpit_mode")]
+    pub cockpit_mode: String,
+    #[serde(default)]
+    pub claude_daily_cap_usd: Option<f64>,
+    #[serde(default)]
+    pub claude_comfort_feedback: Vec<ClaudeComfortRecord>,
+}
+
+pub const MAX_CLAUDE_COMFORT_RECORDS: usize = 120;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeComfortRecord {
+    pub local_date: String,
+    pub comfort: String,
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    #[serde(default)]
+    pub observed_at: String,
+}
+
+fn default_cockpit_mode() -> String {
+    "codex".to_string()
 }
 
 fn default_always_on_top() -> bool {
@@ -258,6 +281,9 @@ impl Default for WidgetPreferences {
             notification_cooldown_minutes: default_notification_cooldown(),
             update_channel: default_update_channel(),
             automatic_updates: false,
+            cockpit_mode: default_cockpit_mode(),
+            claude_daily_cap_usd: None,
+            claude_comfort_feedback: Vec::new(),
         }
     }
 }
@@ -375,6 +401,36 @@ impl WidgetPreferences {
                 .is_finite()
                 .then(|| (value.clamp(0.0, 100.0) * 10.0).round() / 10.0)
         });
+        if !matches!(self.cockpit_mode.as_str(), "codex" | "claude" | "ai") {
+            self.cockpit_mode = default_cockpit_mode();
+        }
+        self.claude_daily_cap_usd = self.claude_daily_cap_usd.and_then(|value| {
+            (value.is_finite() && value > 0.0)
+                .then(|| (value.clamp(0.1, 10_000.0) * 100.0).round() / 100.0)
+        });
+        let mut feedback: Vec<ClaudeComfortRecord> = Vec::new();
+        for mut record in std::mem::take(&mut self.claude_comfort_feedback) {
+            let valid_date =
+                chrono::NaiveDate::parse_from_str(&record.local_date, "%Y-%m-%d").is_ok();
+            if !valid_date
+                || !matches!(
+                    record.comfort.as_str(),
+                    "overloaded" | "comfortable" | "idle"
+                )
+            {
+                continue;
+            }
+            record.cost_usd = record
+                .cost_usd
+                .filter(|value| value.is_finite() && *value >= 0.0);
+            record.observed_at.truncate(64);
+            feedback.retain(|existing| existing.local_date != record.local_date);
+            feedback.push(record);
+        }
+        feedback.sort_by(|a, b| a.local_date.cmp(&b.local_date));
+        let excess = feedback.len().saturating_sub(MAX_CLAUDE_COMFORT_RECORDS);
+        feedback.drain(..excess);
+        self.claude_comfort_feedback = feedback;
         self.alert_threshold = self.alert_threshold.clamp(1, 99);
         self.quiet_hours_start = self.quiet_hours_start.min(23);
         self.quiet_hours_end = self.quiet_hours_end.min(23);
@@ -393,6 +449,50 @@ fn is_safe_hex_color(value: &str) -> bool {
             .chars()
             .skip(1)
             .all(|character| character.is_ascii_hexdigit())
+}
+
+#[cfg(test)]
+mod claude_preference_tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_cockpit_mode_cap_and_claude_feedback() {
+        let record = |date: &str, comfort: &str, cost: f64| ClaudeComfortRecord {
+            local_date: date.to_string(),
+            comfort: comfort.to_string(),
+            cost_usd: Some(cost),
+            observed_at: String::new(),
+        };
+        let preferences = WidgetPreferences {
+            cockpit_mode: "gemini".to_string(),
+            claude_daily_cap_usd: Some(f64::NAN),
+            claude_comfort_feedback: vec![
+                record("2026-11-02", "idle", 3.0),
+                record("2026-11-01", "overloaded", f64::INFINITY),
+                record("2026-11-02", "comfortable", 4.0),
+                record("bad", "idle", 1.0),
+                record("2026-11-03", "tired", 1.0),
+            ],
+            ..WidgetPreferences::default()
+        }
+        .normalized();
+        assert_eq!(preferences.cockpit_mode, "codex");
+        assert_eq!(preferences.claude_daily_cap_usd, None);
+        assert_eq!(preferences.claude_comfort_feedback.len(), 2);
+        assert_eq!(preferences.claude_comfort_feedback[0].cost_usd, None);
+        assert_eq!(
+            preferences.claude_comfort_feedback[1].comfort,
+            "comfortable"
+        );
+        let mode = WidgetPreferences {
+            cockpit_mode: "ai".into(),
+            claude_daily_cap_usd: Some(12.345),
+            ..WidgetPreferences::default()
+        }
+        .normalized();
+        assert_eq!(mode.cockpit_mode, "ai");
+        assert_eq!(mode.claude_daily_cap_usd, Some(12.35));
+    }
 }
 
 #[cfg(test)]

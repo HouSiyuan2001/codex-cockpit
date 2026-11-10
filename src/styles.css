@@ -3906,3 +3906,151 @@ textarea {
   white-space: normal;
   text-align: center;
 }
+
+/* Claude and AI cockpits: same surfaces as Codex, Claude in the icon's orange. */
+:root {
+  --claude-orange: #d97757;
+  --claude-orange-soft: #e8956b;
+}
+
+.cockpit-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px;
+  border: 1px solid var(--glass-edge, rgba(231, 255, 250, .19));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+}
+.cockpit-mode-option {
+  width: 26px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--glass-faint);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease;
+}
+.cockpit-mode-option .provider-mark {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: currentColor;
+  background: transparent;
+  box-shadow: none;
+}
+.cockpit-mode-option b {
+  font-size: max(9px, calc(7.5px * var(--ui-font-scale, 1)));
+  font-weight: 820;
+  letter-spacing: .02em;
+}
+.cockpit-mode-option:hover { color: var(--glass-muted); }
+.cockpit-mode-option:focus-visible { outline: 2px solid var(--glass-mint); outline-offset: 1px; }
+.cockpit-mode-option.is-active { color: #fff; background: #5f7fd8; }
+.cockpit-mode-option--claude.is-active { background: var(--claude-orange); }
+.cockpit-mode-option--ai.is-active { background: linear-gradient(120deg, #5f7fd8, var(--claude-orange)); }
+
+.cockpit-ai-mark { position: relative; width: 38px; height: 30px; flex: none; }
+.codex-focus-brand .cockpit-ai-mark .provider-mark { position: absolute; top: 0; width: 26px; height: 26px; padding: 4px; }
+.codex-focus-brand .cockpit-ai-mark .provider-mark:last-child { left: 12px; top: 4px; color: #fff; border-color: transparent; background: var(--claude-orange); }
+.codex-focus-brand .provider-mark[data-provider="claude"] { color: var(--claude-orange); }
+.codex-focus-card.cockpit-mode--claude .codex-focus-brand > .provider-mark { color: #fff; border-color: transparent; background: var(--claude-orange); }
+
+.codex-focus-card.cockpit-mode--claude {
+  --glass-mint: var(--claude-orange-soft);
+  --glass-lilac: var(--claude-orange);
+  background:
+    radial-gradient(circle at 88% 7%, rgba(217, 119, 87, .3), transparent 36%),
+    radial-gradient(circle at 7% 94%, rgba(232, 149, 107, .16), transparent 40%),
+    var(--glass-surface);
+}
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light {
+  --glass-ink: #3b2a24;
+  --glass-muted: rgba(84, 56, 44, .7);
+  --glass-faint: rgba(84, 56, 44, .46);
+  --glass-edge: rgba(201, 100, 66, .24);
+  --glass-mint: #c8643f;
+  --glass-lilac: #d26a43;
+  border-color: rgba(201, 100, 66, .26);
+  background:
+    radial-gradient(circle at 88% 7%, rgba(240, 168, 132, .45), transparent 34%),
+    radial-gradient(circle at 7% 94%, rgba(217, 119, 87, .18), transparent 39%),
+    linear-gradient(145deg, rgba(255, 250, 246, .95), rgba(250, 233, 222, .92));
+}
+.codex-focus-card.cockpit-mode--ai.quota-card--theme-light {
+  background:
+    radial-gradient(circle at 92% 6%, rgba(240, 168, 132, .36), transparent 32%),
+    radial-gradient(circle at 6% 94%, rgba(116, 153, 232, .26), transparent 39%),
+    linear-gradient(145deg, rgba(245, 251, 255, .94), rgba(248, 236, 230, .9));
+}
+
+.codex-ring-card.codex-ring-card--claude {
+  border-color: rgba(217, 119, 87, .3);
+  background: linear-gradient(145deg, rgba(217, 119, 87, .16), rgba(232, 149, 107, .05));
+}
+.codex-ring-card--claude .codex-ring-header > span i {
+  background: var(--claude-orange);
+  box-shadow: 0 0 8px rgba(217, 119, 87, .55);
+}
+.codex-ring-card--daily.codex-ring-card--claude .codex-ring-progress {
+  stroke: var(--claude-orange);
+  filter: drop-shadow(0 0 6px rgba(217, 119, 87, .42));
+}
+.codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--daily-warning .codex-ring-progress { stroke: #e3b547; }
+.codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--over_pace .codex-ring-progress { stroke: #e45d62; }
+.codex-ring-card--claude .daily-budget-control input[type="range"] { accent-color: var(--claude-orange); }
+.codex-ring-card--claude .codex-ring-header small { text-transform: none; letter-spacing: .02em; }
+
+.claude-models-panel {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(231, 255, 250, .12);
+  border-radius: 16px;
+  color: var(--glass-ink);
+  background: rgba(255, 255, 255, .055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+.claude-models-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.claude-models-panel header strong { font-size: calc(10.5px * var(--ui-font-scale, 1) * var(--cockpit-copy-scale, 1)); }
+.claude-models-panel header small,
+.claude-models-panel p { margin: 0; color: var(--glass-muted); font-size: max(11px, calc(8px * var(--ui-font-scale, 1))); }
+.claude-models-panel ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.claude-models-panel li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: 10px;
+  font-size: max(11px, calc(8.5px * var(--ui-font-scale, 1)));
+  font-variant-numeric: tabular-nums;
+}
+.claude-model-name { overflow: hidden; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
+.claude-model-tokens,
+.claude-models-panel li small { color: var(--glass-muted); }
+.claude-models-panel li strong { color: var(--glass-lilac); }
+.codex-focus-card.quota-card--theme-light .claude-models-panel {
+  border-color: rgba(201, 100, 66, .16);
+  background: rgba(255, 255, 255, .52);
+}
+
+/* Capsule */
+.capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, #ffd9c4, #e8956b 66%, #c96442);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .6), 0 0 8px rgba(217, 119, 87, .32);
+}
+.capsule-quota-readout--claude .capsule-ring--remaining,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high {
+  --remaining-ring-color: var(--claude-orange);
+  --remaining-ring-track: rgba(217, 119, 87, .2);
+}
+.capsule-ai-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.capsule-ai-pair .orb-unavailable { width: auto; }

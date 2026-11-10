@@ -1,6 +1,7 @@
 mod antigravity;
 mod app_icon;
 mod app_updater;
+mod claude_usage;
 mod cloud_sync;
 mod codex;
 mod codex_project_usage;
@@ -814,6 +815,11 @@ async fn get_codex_website_reset_probability(
     state: State<'_, AppState>,
 ) -> Result<Option<website_reset_probability::WebsiteResetProbability>, String> {
     Ok(website_reset_probability::fetch(&state.client).await)
+}
+
+#[tauri::command(async)]
+fn get_claude_usage(days: Option<u32>) -> claude_usage::ClaudeUsageReport {
+    claude_usage::read_usage(days.unwrap_or(35))
 }
 
 #[tauri::command]
@@ -3434,6 +3440,7 @@ pub fn run() {
             get_codex_website_reset_probability,
             get_codex_daily_usage,
             get_codex_daily_usage_history,
+            get_claude_usage,
             get_volcengine_diagnostics,
             reconnect_volcengine,
             expand_widget,

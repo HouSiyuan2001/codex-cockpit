@@ -8,6 +8,8 @@ interface ComfortFeedbackPanelProps {
   onSelect: (comfort: ComfortCode) => void;
   saving?: boolean;
   error?: string | null;
+  /** Replaces the Codex quota footer, for example with Claude's API-equivalent cost. */
+  footer?: string;
 }
 
 const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
@@ -16,7 +18,7 @@ const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
   { code: "idle", icon: SmileyWink },
 ];
 
-export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null }: ComfortFeedbackPanelProps) {
+export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null, footer }: ComfortFeedbackPanelProps) {
   const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
   const observedTime = prompt.usageObservedAt
     ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(prompt.usageObservedAt))
@@ -50,7 +52,7 @@ export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = fals
         ))}
       </div>
       <footer>
-        {prompt.personId ? <>
+        {footer !== undefined ? <span>{labels.usage} {footer}</span> : prompt.personId ? <>
           <span>{prompt.quotaAllocation?.allocatedUsedPercent != null && prompt.quotaAllocation.coverage !== "unavailable" ? `≈${number.format(prompt.quotaAllocation.allocatedUsedPercent)}%` : (language === "en" ? "Percentage unavailable" : "暂无百分比")}</span>
           <span>{language === "en" ? "By cost share" : "按金额分摊"}</span>
         </> : <>

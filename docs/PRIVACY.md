@@ -4,6 +4,8 @@
 
 The native app reads available provider credentials for read-only provider usage requests. It scans local session files/databases for usage events and task/project metadata. Session files can contain conversations: do not describe this as never opening history files. The collector extracts usage/metadata; sync does not upload conversation bodies, prompts or provider credentials. Derived usage, preferences and caches stay in the app's per-user data directory.
 
+The Claude and AI cockpits read Claude Code session files only to extract per-message usage, model, speed, region and timestamps; message text is discarded during parsing. No Claude credential, keychain entry or network request is used, and Claude usage is not part of cloud sync.
+
 ## Optional cloud sync
 
 No shared usage server is contacted until you supply an HTTPS URL and create/join a space. Trust the operator: the setup secret/member token are sent to that chosen origin over HTTPS, with redirects disabled. Member credentials go in macOS Keychain / Windows Credential Manager under a server-specific key. The setup secret is not stored in app settings.

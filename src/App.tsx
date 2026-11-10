@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setAppIconTheme } from "./lib/appIcon";
 import { useSharedDailyPlan } from "./hooks/useSharedDailyPlan";
+import { useClaudeUsage } from "./hooks/useClaudeUsage";
+import { buildClaudeCockpitView, upsertClaudeComfort } from "./lib/claudeCockpit";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
 import { closeControlCenterWindow } from "./lib/bridge";
 import { buildDailyPersonCosts } from "./lib/dailyPersonCosts";
 import { mergeSyncedComfortFeedback } from "./lib/comfortSync";
 import { getSyncedComfortFeedback } from "./lib/usageSyncBridge";
 import { getPersonPlan, savePersonPlan, planPreferences, planDateKey, type PersonPlan } from "./lib/personPlanSync";
-import { capsuleLogicalWidth, QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
+import { aiCapsuleLogicalWidth, capsuleLogicalWidth, QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
 import { isCodexPlus, fiveHourRemaining } from "./lib/plusQuota";
 import { ControlCenter } from "./components/ControlCenter";
 import { InlineUpdate } from "./components/InlineUpdate";
@@ -702,8 +704,18 @@ export default function App() {
     });
     return dailyUsageRatio(todayAdvice.todayUsedPercent, totalPlanBudget);
   }, [codexDailyUsage, current, dailyRecommendation, totalPlanBudget]);
+  const claudeUsage = useClaudeUsage(startupReady && preferences.cockpitMode !== "codex");
+  const refreshClaudeUsage = claudeUsage.refresh;
+  const claudeView = useMemo(
+    () => buildClaudeCockpitView(claudeUsage.report, { claudeDailyCapUsd: preferences.claudeDailyCapUsd, claudeComfortFeedback: preferences.claudeComfortFeedback }, planningNow),
+    [claudeUsage.report, planningNow, preferences.claudeComfortFeedback, preferences.claudeDailyCapUsd],
+  );
   const compactCapsuleWidth = compactLayout === "capsule"
-    ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
+    ? preferences.cockpitMode === "claude"
+      ? capsuleLogicalWidth(claudeView.todayRatio, preferences.fontScale)
+      : preferences.cockpitMode === "ai"
+        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.todayRatio, preferences.fontScale)
+        : capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : undefined;
   const dailyPersonCosts = useMemo(() => {
     const costs = buildDailyPersonCosts(comfortUsage, planningNow, preferences.personRingColors);
@@ -726,6 +738,27 @@ export default function App() {
         setOperationError("Settings could not be saved. Previous state restored.");
       });
   }, []);
+
+  const handleCockpitModeChange = useCallback((cockpitMode: WidgetPreferences["cockpitMode"]) => {
+    savePreferences({ ...preferencesRef.current, cockpitMode });
+  }, [savePreferences]);
+  const handleClaudeCapChange = useCallback((claudeDailyCapUsd: number | null) => {
+    savePreferences({ ...preferencesRef.current, claudeDailyCapUsd });
+  }, [savePreferences]);
+  const claudePrompt = claudeView.prompt;
+  const handleClaudeComfortSelect = useCallback((comfort: WidgetPreferences["claudeComfortFeedback"][number]["comfort"]) => {
+    if (!claudePrompt) return;
+    const current = preferencesRef.current;
+    savePreferences({
+      ...current,
+      claudeComfortFeedback: upsertClaudeComfort(current.claudeComfortFeedback, {
+        localDate: claudePrompt.localDate,
+        comfort,
+        costUsd: claudePrompt.costUsd,
+        observedAt: new Date().toISOString(),
+      }),
+    });
+  }, [claudePrompt, savePreferences]);
 
   const planDay = planDateKey(planningNow);
 
@@ -888,7 +921,7 @@ export default function App() {
     }
     if (value && !compact && hoverTargetExpanded.current) return;
     hoverTargetExpanded.current = value;
-    if (value && !usesWidgetMorph()) void refresh(true);
+    if (value && !usesWidgetMorph()) { void refresh(true); if (preferencesRef.current.cockpitMode !== "codex") refreshClaudeUsage(); }
     if (value) {
       const sequence = ++hoverSequence.current;
       widgetTransitioning.current = true;
@@ -908,7 +941,7 @@ export default function App() {
           setWidgetSurfaceSizing(false);
           window.dispatchEvent(new Event("resize"));
           // Keep quota/network-driven React updates out of the opening tween.
-          if (usesWidgetMorph()) void refresh(true);
+          if (usesWidgetMorph()) { void refresh(true); if (preferencesRef.current.cockpitMode !== "codex") refreshClaudeUsage(); }
           // A genuine exit during the morph still collapses after settling;
           // synthesized resize events cannot reverse a half-painted surface.
           if (usesWidgetMorph()) window.requestAnimationFrame(() => {
@@ -956,7 +989,7 @@ export default function App() {
           setOperationError("Widget collapse failed.");
         });
     }, usesWidgetMorph() ? 280 : 60);
-  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refresh, stayExpanded, updateOpen]);
+  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refresh, refreshClaudeUsage, stayExpanded, updateOpen]);
 
   const comfortPromptKey = comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
   useEffect(() => {
@@ -1134,6 +1167,8 @@ export default function App() {
         dailyRecommendation={dailyRecommendation}
         dailyBudgetPercent={totalPlanBudget}
         fontScale={preferences.fontScale}
+        cockpitMode={preferences.cockpitMode}
+        claudeRatio={claudeView.todayRatio}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}
       />
@@ -1154,6 +1189,10 @@ export default function App() {
       comfortSaving={comfortSaving}
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
+      claudeView={claudeView}
+      onCockpitModeChange={handleCockpitModeChange}
+      onClaudeCapChange={handleClaudeCapChange}
+      onClaudeComfortSelect={handleClaudeComfortSelect}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
       onResetRiskChange={(value) => { if (sharedPlan.connected) sharedPlan.change("risk", value); else if (sharedPlan.scopeReady) saveManualPlan("resetRiskOverridePercent", value); }}
       onResetDailyBudget={() => {
