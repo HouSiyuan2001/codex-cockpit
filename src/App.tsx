@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setAppIconTheme } from "./lib/appIcon";
 import { useSharedDailyPlan } from "./hooks/useSharedDailyPlan";
 import { useClaudeUsage } from "./hooks/useClaudeUsage";
-import { buildClaudeCockpitView, upsertClaudeComfort } from "./lib/claudeCockpit";
+import { buildClaudeCockpitView } from "./lib/claudeCockpit";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
 import { closeControlCenterWindow } from "./lib/bridge";
 import { buildDailyPersonCosts } from "./lib/dailyPersonCosts";
@@ -707,14 +707,14 @@ export default function App() {
   const claudeUsage = useClaudeUsage(startupReady && preferences.cockpitMode !== "codex");
   const refreshClaudeUsage = claudeUsage.refresh;
   const claudeView = useMemo(
-    () => buildClaudeCockpitView(claudeUsage.report, { claudeDailyCapUsd: preferences.claudeDailyCapUsd, claudeComfortFeedback: preferences.claudeComfortFeedback }, planningNow),
-    [claudeUsage.report, planningNow, preferences.claudeComfortFeedback, preferences.claudeDailyCapUsd],
+    () => buildClaudeCockpitView(claudeUsage.report, claudeUsage.quota, planningNow, claudeUsage.baseline),
+    [claudeUsage.baseline, claudeUsage.quota, claudeUsage.report, planningNow],
   );
   const compactCapsuleWidth = compactLayout === "capsule"
     ? preferences.cockpitMode === "claude"
-      ? capsuleLogicalWidth(claudeView.todayRatio, preferences.fontScale)
+      ? capsuleLogicalWidth(claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
       : preferences.cockpitMode === "ai"
-        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.todayRatio, preferences.fontScale)
+        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
         : capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : undefined;
   const dailyPersonCosts = useMemo(() => {
@@ -742,23 +742,6 @@ export default function App() {
   const handleCockpitModeChange = useCallback((cockpitMode: WidgetPreferences["cockpitMode"]) => {
     savePreferences({ ...preferencesRef.current, cockpitMode });
   }, [savePreferences]);
-  const handleClaudeCapChange = useCallback((claudeDailyCapUsd: number | null) => {
-    savePreferences({ ...preferencesRef.current, claudeDailyCapUsd });
-  }, [savePreferences]);
-  const claudePrompt = claudeView.prompt;
-  const handleClaudeComfortSelect = useCallback((comfort: WidgetPreferences["claudeComfortFeedback"][number]["comfort"]) => {
-    if (!claudePrompt) return;
-    const current = preferencesRef.current;
-    savePreferences({
-      ...current,
-      claudeComfortFeedback: upsertClaudeComfort(current.claudeComfortFeedback, {
-        localDate: claudePrompt.localDate,
-        comfort,
-        costUsd: claudePrompt.costUsd,
-        observedAt: new Date().toISOString(),
-      }),
-    });
-  }, [claudePrompt, savePreferences]);
 
   const planDay = planDateKey(planningNow);
 
@@ -1168,7 +1151,9 @@ export default function App() {
         dailyBudgetPercent={totalPlanBudget}
         fontScale={preferences.fontScale}
         cockpitMode={preferences.cockpitMode}
-        claudeRatio={claudeView.todayRatio}
+        claudeWeeklyRemaining={claudeView.weeklyRemaining}
+        claudeFiveHourRemaining={claudeView.fiveHourRemaining}
+        claudeTodayRatio={claudeView.todayRatio}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}
       />
@@ -1191,8 +1176,6 @@ export default function App() {
       onComfortSelect={handleComfortSelect}
       claudeView={claudeView}
       onCockpitModeChange={handleCockpitModeChange}
-      onClaudeCapChange={handleClaudeCapChange}
-      onClaudeComfortSelect={handleClaudeComfortSelect}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
       onResetRiskChange={(value) => { if (sharedPlan.connected) sharedPlan.change("risk", value); else if (sharedPlan.scopeReady) saveManualPlan("resetRiskOverridePercent", value); }}
       onResetDailyBudget={() => {

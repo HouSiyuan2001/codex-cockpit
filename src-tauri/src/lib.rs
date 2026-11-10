@@ -1,6 +1,7 @@
 mod antigravity;
 mod app_icon;
 mod app_updater;
+mod claude_quota;
 mod claude_usage;
 mod cloud_sync;
 mod codex;
@@ -815,6 +816,11 @@ async fn get_codex_website_reset_probability(
     state: State<'_, AppState>,
 ) -> Result<Option<website_reset_probability::WebsiteResetProbability>, String> {
     Ok(website_reset_probability::fetch(&state.client).await)
+}
+
+#[tauri::command]
+async fn get_claude_quota(state: State<'_, AppState>) -> Result<claude_quota::ClaudeQuota, String> {
+    Ok(claude_quota::fetch(&state.client).await)
 }
 
 #[tauri::command(async)]
@@ -3441,6 +3447,7 @@ pub fn run() {
             get_codex_daily_usage,
             get_codex_daily_usage_history,
             get_claude_usage,
+            get_claude_quota,
             get_volcengine_diagnostics,
             reconnect_volcengine,
             expand_widget,

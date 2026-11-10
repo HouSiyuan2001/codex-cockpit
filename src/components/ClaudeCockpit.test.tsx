@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import { buildClaudeCockpitView } from "../lib/claudeCockpit";
-import type { ClaudeUsageReport, CockpitMode, ComfortCode, ProviderSnapshot } from "../types";
+import type { ClaudeQuota, ClaudeUsageReport, CockpitMode, ProviderSnapshot } from "../types";
 import { aiCapsuleLogicalWidth, capsuleLogicalWidth, QuotaCard, QuotaOrb } from "./QuotaCard";
 
 afterEach(cleanup);
@@ -29,23 +29,30 @@ const usage: ClaudeUsageReport = {
   latestActivityAt: null,
   priceCheckedAt: "2026-11-09",
   days: [
-    { localDate: "2026-11-09", requests: 3, inputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 1, costUsd: 8, unpricedRequests: 0, models: [] },
-    { localDate: "2026-11-10", requests: 3, inputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 1, costUsd: 5, unpricedRequests: 0, models: [
-      { id: "claude-opus-5-5", name: "Opus 5.5", requests: 3, inputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0, costUsd: 5 },
+    { localDate: "2026-11-10", requests: 3, inputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 1, costUsd: 72.1, unpricedRequests: 0, models: [
+      { id: "claude-opus-5-5", name: "Opus 5.5", requests: 3, inputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0, costUsd: 72.1 },
     ] },
   ],
   prices: [{ id: "claude-opus-5-5", name: "Opus 5.5", price: { input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20 } }],
 };
+const quota: ClaudeQuota = {
+  status: "ok",
+  fiveHour: { usedPercent: 38, resetsAt: "2026-11-10T14:30:00Z" },
+  sevenDay: { usedPercent: 57, resetsAt: "2026-11-13T08:00:00Z" },
+  sevenDayOpus: null,
+  sevenDaySonnet: null,
+  plan: "max",
+  observedAt: now.toISOString(),
+  message: null,
+};
 
 interface ModeHandlers {
   onCockpitModeChange?: (mode: CockpitMode) => void;
-  onClaudeCapChange?: (value: number | null) => void;
-  onClaudeComfortSelect?: (comfort: ComfortCode) => void;
 }
 
-function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}) {
-  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode, claudeDailyCapUsd: 10 };
-  const claudeView = buildClaudeCockpitView(usage, preferences, now);
+function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota) {
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode };
+  const claudeView = buildClaudeCockpitView(usage, claudeQuota, now);
   return render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={preferences}
     claudeView={claudeView} {...handlers}
     onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
@@ -62,41 +69,47 @@ it("switches between the Codex, Claude and AI cockpits from one control", () => 
   expect(onCockpitModeChange.mock.calls).toEqual([["claude"], ["ai"]]);
 });
 
-it("shows Claude usage against the personal cap without reset risk", () => {
-  const onClaudeCapChange = vi.fn();
-  const onClaudeComfortSelect = vi.fn();
-  const { container } = renderCard("claude", { onClaudeCapChange, onClaudeComfortSelect });
+it("shows Claude weekly and 5-hour remaining like the Codex cockpit, without dollar caps", () => {
+  const { container } = renderCard("claude");
   expect(container.querySelector(".codex-focus-card")).toHaveClass("cockpit-mode--claude");
   expect(screen.getByText("Claude 驾驶舱")).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: "今日已用 50%" })).toHaveClass("codex-ring-card--claude");
-  expect(screen.queryByText(/重置风险/)).not.toBeInTheDocument();
-  expect(screen.getByText("Opus 5.5")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "本周剩余 43%" })).toHaveClass("codex-ring-card--claude");
+  expect(screen.getByRole("group", { name: "5 小时剩余 62%" })).toHaveClass("codex-ring-card--claude");
+  expect(screen.queryByText(/个人上限|重置风险/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  expect(screen.getAllByText("$72.1")).toHaveLength(2);
   expect(screen.getByText("$4 / $20")).toBeInTheDocument();
-  fireEvent.change(screen.getByRole("slider", { name: "个人上限" }), { target: { value: "12.5" } });
-  expect(onClaudeCapChange).toHaveBeenCalledWith(12.5);
-  fireEvent.click(screen.getByRole("button", { name: "恢复舒适估计" }));
-  expect(onClaudeCapChange).toHaveBeenLastCalledWith(null);
-  expect(screen.getByText("今日已用 $8.00")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "刚刚好" }));
-  expect(onClaudeComfortSelect).toHaveBeenCalledWith("comfortable");
 });
 
-it("puts Codex and Claude daily use side by side in the AI cockpit", () => {
+it("explains a missing Claude login instead of showing numbers", () => {
+  renderCard("claude", {}, { ...quota, status: "signed_out", fiveHour: null, sevenDay: null, message: "Claude Code login not found." });
+  expect(screen.getByRole("status")).toHaveTextContent("未找到 Claude Code 登录");
+  expect(screen.queryByRole("group", { name: /本周剩余/ })).not.toBeInTheDocument();
+});
+
+it("puts Codex and Claude weekly quotas side by side in the AI cockpit", () => {
   const { container } = renderCard("ai");
   expect(container.querySelector(".codex-focus-card")).toHaveClass("cockpit-mode--ai");
   expect(screen.getByText("AI 驾驶舱")).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: /^Codex/ })).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: "Claude 50%" })).toHaveClass("codex-ring-card--claude");
-  expect(screen.getByText("本周剩余")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Codex 74%" })).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Claude 43%" })).toHaveClass("codex-ring-card--claude");
 });
 
 it("renders Claude and AI capsules with matching widths", () => {
-  const { container, rerender } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
+  const { container, rerender } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourRemaining={62} dailyBudgetPercent={10} onDrag={() => {}} />);
   expect(container.querySelector(".quota-orb")).toHaveClass("cockpit-mode--claude");
   expect(container.querySelector(".capsule-quota-readout--claude")).toBeInTheDocument();
-  expect(container.querySelector(".quota-orb")).toHaveStyle({ "--capsule-logical-width": `${capsuleLogicalWidth(50)}px` });
-  rerender(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="ai" claudeRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
+  expect(container.querySelector(".quota-orb")).toHaveStyle({ "--capsule-logical-width": `${capsuleLogicalWidth(62)}px` });
+  rerender(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="ai" claudeWeeklyRemaining={43} claudeFiveHourRemaining={62} dailyBudgetPercent={10} onDrag={() => {}} />);
   expect(container.querySelectorAll(".capsule-quota-readout")).toHaveLength(2);
-  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/Claude 今日\/个人上限 50%/);
-  expect(aiCapsuleLogicalWidth(5, 50)).toBeGreaterThan(capsuleLogicalWidth(50));
+  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/Claude 5 小时剩余 62%/);
+  expect(aiCapsuleLogicalWidth(5, 62)).toBeGreaterThan(capsuleLogicalWidth(62));
+});
+
+it("falls back to today's use when the plan reports no 5-hour window", () => {
+  renderCard("claude", {}, { ...quota, fiveHour: null });
+  expect(screen.queryByRole("group", { name: /5 小时剩余/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /^今日已用/ })).toHaveClass("codex-ring-card--claude");
+  const { container } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourRemaining={null} claudeTodayRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
+  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/今日已用\/今日建议 50%/);
 });

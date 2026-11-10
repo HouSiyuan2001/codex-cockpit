@@ -1,20 +1,7 @@
-import { COMFORT_FEEDBACK_HALF_LIFE_DAYS, COMFORT_REMINDER_HOUR } from "./comfortFeedback";
-import { beijingParts, dateAtBeijingNoon, localDateKey } from "./usageDay";
-import type { ClaudeComfortRecord, ClaudeDailyUsage, ClaudeUsageReport, CockpitMode, ComfortCode, Language } from "../types";
+import { dateAtBeijingNoon, localDateKey } from "./usageDay";
+import type { ClaudeQuota, ClaudeQuotaWindow, ClaudeUsageReport, CockpitMode, Language } from "../types";
 
 export const COCKPIT_MODES: readonly CockpitMode[] = ["codex", "claude", "ai"];
-export const MAX_CLAUDE_COMFORT_RECORDS = 120;
-/** Minimum feedback days before the comfort estimate replaces the usage fallback. */
-export const CLAUDE_COMFORT_MIN_SAMPLES = 3;
-export const CLAUDE_DEFAULT_CAP_USD = 20;
-export const CLAUDE_CAP_SLIDER_MAX_USD = 200;
-
-/**
- * Each answer implies where the comfortable daily amount lies relative to that
- * day's cost: "just right" is the cap itself, "too much" places it below and
- * "easy" above. These ratios are a personal heuristic, not an Anthropic limit.
- */
-const IMPLIED_CAP_RATIO: Record<ComfortCode, number> = { comfortable: 1, overloaded: 1 / 1.25, idle: 1.5 };
 
 export function normalizeCockpitMode(value: unknown): CockpitMode {
   return value === "claude" || value === "ai" ? value : "codex";
@@ -24,49 +11,10 @@ export function nextCockpitMode(mode: CockpitMode): CockpitMode {
   return COCKPIT_MODES[(COCKPIT_MODES.indexOf(mode) + 1) % COCKPIT_MODES.length];
 }
 
-export function normalizeClaudeCap(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
-  return Math.round(Math.min(10_000, Math.max(0.1, value)) * 100) / 100;
-}
-
-function validDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
-}
-
-export function normalizeClaudeComfortFeedback(value: unknown): ClaudeComfortRecord[] {
-  if (!Array.isArray(value)) return [];
-  const byDate = new Map<string, ClaudeComfortRecord>();
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (!validDate(record.localDate)) continue;
-    if (record.comfort !== "overloaded" && record.comfort !== "comfortable" && record.comfort !== "idle") continue;
-    const cost = typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costUsd >= 0 ? record.costUsd : null;
-    byDate.delete(record.localDate);
-    byDate.set(record.localDate, {
-      localDate: record.localDate,
-      comfort: record.comfort,
-      costUsd: cost,
-      observedAt: typeof record.observedAt === "string" ? record.observedAt.slice(0, 64) : "",
-    });
-  }
-  return [...byDate.values()]
-    .sort((left, right) => left.localDate.localeCompare(right.localDate))
-    .slice(-MAX_CLAUDE_COMFORT_RECORDS);
-}
-
 function shiftDate(key: string, days: number): string {
   const date = dateAtBeijingNoon(key);
   date.setUTCDate(date.getUTCDate() + days);
   return localDateKey(date);
-}
-
-export function claudeDay(report: ClaudeUsageReport | null, localDate: string): ClaudeDailyUsage | null {
-  return report?.days.find((day) => day.localDate === localDate) ?? null;
-}
-
-export function claudeDayCost(report: ClaudeUsageReport | null, localDate: string): number {
-  return claudeDay(report, localDate)?.costUsd ?? 0;
 }
 
 /** Last `days` calendar days ending today, oldest first, with explicit zero days. */
@@ -74,73 +22,117 @@ export function recentClaudeCosts(report: ClaudeUsageReport | null, now: Date, d
   const today = localDateKey(now);
   return Array.from({ length: days }, (_, index) => {
     const localDate = shiftDate(today, index - days + 1);
-    return { localDate, costUsd: claudeDayCost(report, localDate) };
+    return { localDate, costUsd: report?.days.find((day) => day.localDate === localDate)?.costUsd ?? 0 };
   });
 }
 
-export interface ClaudeComfortEstimate {
-  capUsd: number;
-  samples: number;
+function remaining(window: ClaudeQuotaWindow | null | undefined): number | null {
+  if (!window || !Number.isFinite(window.usedPercent)) return null;
+  return Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)) * 10) / 10;
 }
 
-export function estimateClaudeComfortCap(records: readonly ClaudeComfortRecord[], now = new Date()): ClaudeComfortEstimate | null {
-  const today = dateAtBeijingNoon(localDateKey(now)).getTime();
-  let weightSum = 0;
-  let logSum = 0;
-  let samples = 0;
-  for (const record of records) {
-    if (record.costUsd === null || record.costUsd <= 0) continue;
-    const ageDays = Math.max(0, (today - dateAtBeijingNoon(record.localDate).getTime()) / 86_400_000);
-    const weight = 0.5 ** (ageDays / COMFORT_FEEDBACK_HALF_LIFE_DAYS);
-    logSum += weight * Math.log(record.costUsd * IMPLIED_CAP_RATIO[record.comfort]);
-    weightSum += weight;
-    samples += 1;
-  }
-  if (samples < CLAUDE_COMFORT_MIN_SAMPLES || weightSum <= 0) return null;
-  return { capUsd: Math.round(Math.exp(logSum / weightSum) * 10) / 10, samples };
+/** Even share of the weekly remainder over the days left before the weekly reset. */
+export function claudeDailyShare(weeklyRemaining: number | null, weeklyResetsAt: string | null, now = new Date()): number | null {
+  if (weeklyRemaining === null) return null;
+  const resetAt = weeklyResetsAt ? Date.parse(weeklyResetsAt) : Number.NaN;
+  if (!Number.isFinite(resetAt)) return null;
+  const days = Math.max(1, Math.ceil((resetAt - now.getTime()) / 86_400_000));
+  return Math.round((weeklyRemaining / days) * 10) / 10;
 }
 
-/** Before enough feedback exists, start from the recent active-day average. */
-export function suggestedClaudeCap(estimate: ClaudeComfortEstimate | null, report: ClaudeUsageReport | null, now = new Date()): number {
-  if (estimate) return estimate.capUsd;
-  const active = recentClaudeCosts(report, now, 15).slice(0, -1).filter((day) => day.costUsd > 0);
-  if (active.length === 0) return CLAUDE_DEFAULT_CAP_USD;
-  return Math.max(1, Math.round(active.reduce((sum, day) => sum + day.costUsd, 0) / active.length));
-}
-
-export function effectiveClaudeCap(manualCapUsd: number | null, suggestedCapUsd: number): number {
-  return manualCapUsd ?? suggestedCapUsd;
-}
-
-export function usageRatioPercent(used: number, cap: number): number | null {
-  if (!Number.isFinite(used) || !Number.isFinite(cap) || cap <= 0) return null;
-  return Math.round((used / cap) * 1000) / 10;
-}
-
-export interface ClaudeComfortPromptTarget {
+/** First weekly reading of the calendar day; today's use is measured from it. */
+export interface ClaudeDayBaseline {
   localDate: string;
-  isCatchUp: boolean;
-  costUsd: number;
+  weeklyUsedPercent: number;
 }
 
-/** Ask about today after the reminder hour, otherwise catch up yesterday; skip days without use. */
-export function claudeComfortPromptTarget(
-  report: ClaudeUsageReport | null,
-  records: readonly ClaudeComfortRecord[],
-  now = new Date(),
-  reminderHour = COMFORT_REMINDER_HOUR,
-): ClaudeComfortPromptTarget | null {
-  if (!report || report.status !== "ok") return null;
-  const today = localDateKey(now);
-  const localDate = beijingParts(now).hour >= reminderHour ? today : shiftDate(today, -1);
-  if (records.some((record) => record.localDate === localDate)) return null;
-  const costUsd = claudeDayCost(report, localDate);
-  if (costUsd <= 0) return null;
-  return { localDate, isCatchUp: localDate !== today, costUsd };
+/** Starts a new baseline each day, and again when the weekly window resets mid-day. */
+export function nextClaudeDayBaseline(previous: ClaudeDayBaseline | null, quota: ClaudeQuota | null, now = new Date()): ClaudeDayBaseline | null {
+  const used = quota?.status === "ok" ? quota.sevenDay?.usedPercent : undefined;
+  if (used === undefined || !Number.isFinite(used)) return previous;
+  const localDate = localDateKey(now);
+  if (!previous || previous.localDate !== localDate || used < previous.weeklyUsedPercent) return { localDate, weeklyUsedPercent: used };
+  return previous;
 }
 
-export function upsertClaudeComfort(records: readonly ClaudeComfortRecord[], record: ClaudeComfortRecord): ClaudeComfortRecord[] {
-  return normalizeClaudeComfortFeedback([...records.filter((item) => item.localDate !== record.localDate), record]);
+export interface ClaudeModelSummary {
+  id: string;
+  name: string;
+  costUsd: number | null;
+  tokens: number;
+  price: { input: number; output: number } | null;
+}
+
+export interface ClaudeCockpitView {
+  quotaStatus: ClaudeQuota["status"];
+  quotaMessage: string | null;
+  plan: string | null;
+  weeklyRemaining: number | null;
+  weeklyResetsAt: string | null;
+  fiveHourRemaining: number | null;
+  fiveHourResetsAt: string | null;
+  opusWeeklyRemaining: number | null;
+  dailyShare: number | null;
+  /** Weekly percent used since the first reading today. */
+  todayUsedPercent: number | null;
+  /** Today's use relative to today's share, as the Codex cockpit shows without a 5-hour window. */
+  todayRatio: number | null;
+  usageAvailable: boolean;
+  todayCostUsd: number;
+  weekCostUsd: number;
+  models: ClaudeModelSummary[];
+}
+
+export function buildClaudeCockpitView(report: ClaudeUsageReport | null, quota: ClaudeQuota | null, now = new Date(), baseline: ClaudeDayBaseline | null = null): ClaudeCockpitView {
+  const week = recentClaudeCosts(report, now, 7);
+  const weekDates = new Set(week.map((day) => day.localDate));
+  const byModel = new Map<string, ClaudeModelSummary>();
+  for (const day of report?.days ?? []) {
+    if (!weekDates.has(day.localDate)) continue;
+    for (const model of day.models) {
+      const listed = report?.prices.find((item) => item.id === model.id)?.price;
+      const current = byModel.get(model.id) ?? {
+        id: model.id,
+        name: model.name,
+        costUsd: 0,
+        tokens: 0,
+        price: listed ? { input: listed.input, output: listed.output } : null,
+      };
+      current.tokens += model.inputTokens + model.cacheWriteTokens + model.cacheReadTokens + model.outputTokens;
+      current.costUsd = current.costUsd === null || model.costUsd === null ? null : current.costUsd + model.costUsd;
+      byModel.set(model.id, current);
+    }
+  }
+  const quotaReadable = quota?.status === "ok" || quota?.status === "stale";
+  const weeklyRemaining = quotaReadable ? remaining(quota?.sevenDay) : null;
+  const weeklyResetsAt = quotaReadable ? quota?.sevenDay?.resetsAt ?? null : null;
+  const todayBaseline = baseline && baseline.localDate === localDateKey(now) ? baseline : null;
+  const weeklyUsed = quotaReadable ? quota?.sevenDay?.usedPercent ?? null : null;
+  const todayUsedPercent = todayBaseline && weeklyUsed !== null
+    ? Math.round(Math.max(0, weeklyUsed - todayBaseline.weeklyUsedPercent) * 10) / 10
+    : null;
+  // Fix today's share at the day-start remainder so it does not shrink while you work.
+  const dayShare = todayBaseline ? claudeDailyShare(Math.max(0, 100 - todayBaseline.weeklyUsedPercent), weeklyResetsAt, now) : null;
+  const todayRatio = todayUsedPercent !== null && dayShare !== null && dayShare > 0
+    ? Math.round((todayUsedPercent / dayShare) * 1000) / 10
+    : null;
+  return {
+    quotaStatus: quota?.status ?? "loading",
+    quotaMessage: quota?.message ?? null,
+    plan: quota?.plan ?? null,
+    weeklyRemaining,
+    weeklyResetsAt,
+    fiveHourRemaining: quotaReadable ? remaining(quota?.fiveHour) : null,
+    fiveHourResetsAt: quotaReadable ? quota?.fiveHour?.resetsAt ?? null : null,
+    opusWeeklyRemaining: quotaReadable ? remaining(quota?.sevenDayOpus) : null,
+    dailyShare: dayShare ?? claudeDailyShare(weeklyRemaining, weeklyResetsAt, now),
+    todayUsedPercent,
+    todayRatio,
+    usageAvailable: report?.status === "ok",
+    todayCostUsd: week[week.length - 1]?.costUsd ?? 0,
+    weekCostUsd: week.reduce((sum, day) => sum + day.costUsd, 0),
+    models: [...byModel.values()].sort((left, right) => (right.costUsd ?? Infinity) - (left.costUsd ?? Infinity)),
+  };
 }
 
 export function formatUsd(value: number | null, language: Language, compact = false): string {
@@ -157,72 +149,12 @@ export function formatPerMillion(value: number): string {
   return `$${Number.isInteger(value) ? value : Number(value.toFixed(3))}`;
 }
 
-export interface ClaudeModelSummary {
-  id: string;
-  name: string;
-  costUsd: number | null;
-  tokens: number;
-  price: { input: number; output: number } | null;
-}
-
-export interface ClaudeCockpitView {
-  available: boolean;
-  todayCostUsd: number;
-  weekCostUsd: number;
-  weekAverageUsd: number;
-  capUsd: number;
-  suggestedCapUsd: number;
-  estimate: ClaudeComfortEstimate | null;
-  manualCap: boolean;
-  todayRatio: number | null;
-  weekRatio: number | null;
-  models: ClaudeModelSummary[];
-  prompt: ClaudeComfortPromptTarget | null;
-}
-
-export function buildClaudeCockpitView(
-  report: ClaudeUsageReport | null,
-  preferences: { claudeDailyCapUsd: number | null; claudeComfortFeedback: readonly ClaudeComfortRecord[] },
-  now = new Date(),
-): ClaudeCockpitView {
-  const week = recentClaudeCosts(report, now, 7);
-  const weekCostUsd = week.reduce((sum, day) => sum + day.costUsd, 0);
-  const todayCostUsd = week[week.length - 1]?.costUsd ?? 0;
-  const estimate = estimateClaudeComfortCap(preferences.claudeComfortFeedback, now);
-  const suggestedCapUsd = suggestedClaudeCap(estimate, report, now);
-  const capUsd = effectiveClaudeCap(preferences.claudeDailyCapUsd, suggestedCapUsd);
-  const weekDates = new Set(week.map((day) => day.localDate));
-  const byModel = new Map<string, ClaudeModelSummary>();
-  for (const day of report?.days ?? []) {
-    if (!weekDates.has(day.localDate)) continue;
-    for (const model of day.models) {
-      const current = byModel.get(model.id) ?? {
-        id: model.id,
-        name: model.name,
-        costUsd: 0,
-        tokens: 0,
-        price: (() => {
-          const listed = report?.prices.find((item) => item.id === model.id)?.price;
-          return listed ? { input: listed.input, output: listed.output } : null;
-        })(),
-      };
-      current.tokens += model.inputTokens + model.cacheWriteTokens + model.cacheReadTokens + model.outputTokens;
-      current.costUsd = current.costUsd === null || model.costUsd === null ? null : current.costUsd + model.costUsd;
-      byModel.set(model.id, current);
-    }
+export function claudeQuotaMessage(view: ClaudeCockpitView, language: Language): string {
+  if (view.quotaStatus === "loading") return language === "en" ? "Reading Claude quota" : "正在读取 Claude 额度";
+  if (view.quotaStatus === "signed_out") {
+    return view.quotaMessage?.includes("expired")
+      ? (language === "en" ? "Claude Code login expired" : "Claude Code 登录已过期")
+      : (language === "en" ? "Claude Code login not found" : "未找到 Claude Code 登录");
   }
-  return {
-    available: report?.status === "ok",
-    todayCostUsd,
-    weekCostUsd,
-    weekAverageUsd: weekCostUsd / 7,
-    capUsd,
-    suggestedCapUsd,
-    estimate,
-    manualCap: preferences.claudeDailyCapUsd !== null,
-    todayRatio: report?.status === "ok" ? usageRatioPercent(todayCostUsd, capUsd) : null,
-    weekRatio: report?.status === "ok" ? usageRatioPercent(weekCostUsd, capUsd * 7) : null,
-    models: [...byModel.values()].sort((left, right) => (right.costUsd ?? Infinity) - (left.costUsd ?? Infinity)),
-    prompt: claudeComfortPromptTarget(report, preferences.claudeComfortFeedback, now),
-  };
+  return language === "en" ? "Claude quota unavailable" : "未读取到 Claude 额度";
 }

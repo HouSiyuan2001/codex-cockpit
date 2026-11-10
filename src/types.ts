@@ -263,17 +263,23 @@ export interface WidgetPreferences {
   updateChannel: UpdateChannel;
   automaticUpdates: boolean;
   cockpitMode: CockpitMode;
-  /** Personal daily Claude cap in API-equivalent USD; null follows the comfort estimate. */
-  claudeDailyCapUsd: number | null;
-  claudeComfortFeedback: ClaudeComfortRecord[];
 }
 
-export interface ClaudeComfortRecord {
-  localDate: string;
-  comfort: ComfortCode;
-  /** API-equivalent cost of that day when the feedback was saved. */
-  costUsd: number | null;
-  observedAt: string;
+export interface ClaudeQuotaWindow {
+  usedPercent: number;
+  resetsAt: string | null;
+}
+
+/** Claude subscription limits as Claude Code's /usage reports them. */
+export interface ClaudeQuota {
+  status: "ok" | "stale" | "signed_out" | "unavailable" | "loading";
+  fiveHour: ClaudeQuotaWindow | null;
+  sevenDay: ClaudeQuotaWindow | null;
+  sevenDayOpus: ClaudeQuotaWindow | null;
+  sevenDaySonnet: ClaudeQuotaWindow | null;
+  plan: string | null;
+  observedAt: string | null;
+  message: string | null;
 }
 
 export interface ClaudePrice {

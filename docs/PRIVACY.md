@@ -4,7 +4,7 @@
 
 The native app reads available provider credentials for read-only provider usage requests. It scans local session files/databases for usage events and task/project metadata. Session files can contain conversations: do not describe this as never opening history files. The collector extracts usage/metadata; sync does not upload conversation bodies, prompts or provider credentials. Derived usage, preferences and caches stay in the app's per-user data directory.
 
-The Claude and AI cockpits read Claude Code session files only to extract per-message usage, model, speed, region and timestamps; message text is discarded during parsing. No Claude credential, keychain entry or network request is used, and Claude usage is not part of cloud sync.
+The Claude and AI cockpits read the existing Claude Code login read-only (macOS Keychain item `Claude Code-credentials`, or `.credentials.json` in the Claude config directory on Windows/Linux) to request the 5-hour and weekly limits from Anthropic, as Claude Code's `/usage` does. The token stays in memory; it is never logged, written, refreshed or synced, and macOS asks before the first Keychain read. Claude Code session files are read only for per-message usage, model, speed, region and timestamps; message text is discarded during parsing. Claude data is not part of cloud sync.
 
 ## Optional cloud sync
 

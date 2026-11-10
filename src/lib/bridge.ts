@@ -1,4 +1,4 @@
-import type { AppDiagnostics, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import type { AppDiagnostics, ClaudeQuota, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
 import { EMPTY_RUNTIME_STATE, normalizeRuntimeState } from "./activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
 import { localDateKey as usageDateKeyCalendar, usageDateKey } from "./usageDay";
@@ -270,6 +270,25 @@ function mockClaudeUsage(): ClaudeUsageReport {
       { id: "claude-haiku-5-5", name: "Haiku 5.5", price: { input: 0.1, cacheWrite5m: 0.125, cacheWrite1h: 0.2, cacheRead: 0.01, output: 0.5 } },
     ],
   };
+}
+
+/** Claude 5-hour and weekly limits, read-only; the browser preview uses synthetic data. */
+export async function fetchClaudeQuota(): Promise<ClaudeQuota> {
+  if (!isTauri()) {
+    const now = Date.now();
+    return {
+      status: "ok",
+      fiveHour: { usedPercent: 38, resetsAt: new Date(now + 2.4 * 3_600_000).toISOString() },
+      sevenDay: { usedPercent: 57, resetsAt: new Date(now + 3.3 * 86_400_000).toISOString() },
+      sevenDayOpus: null,
+      sevenDaySonnet: null,
+      plan: "max",
+      observedAt: new Date(now).toISOString(),
+      message: null,
+    };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ClaudeQuota>("get_claude_quota");
 }
 
 /** Read-only local Claude Code usage; the browser preview uses synthetic data. */

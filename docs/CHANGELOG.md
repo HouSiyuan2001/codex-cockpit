@@ -4,8 +4,8 @@
 
 - Add a Codex / Claude / AI switch to the expanded cockpit header and capsule on macOS, Windows and Linux.
 - Claude cockpit: read local Claude Code usage (`~/.claude/projects`, `~/.config/claude/projects` or `CLAUDE_CONFIG_DIR`) read-only, deduplicate streamed messages and estimate API-equivalent cost from the 2026-11-09 Anthropic price list, including cache-write TTLs, fast mode, US-only inference and the Haiku 5.5 long-prompt tier. Unknown models stay unpriced rather than zero.
-- Claude has no reset-risk model: its daily cap follows recency-weighted comfort feedback (three answers minimum), falling back to the recent active-day average.
-- AI cockpit shows Codex and Claude daily use against their personal caps side by side.
+- Claude cockpit mirrors the Codex layout: weekly remaining and 5-hour remaining from the Claude Code login (read-only), without a reset-risk model. Plans without a 5-hour window fall back to today's use against an even share of the weekly remainder.
+- AI cockpit shows the Codex and Claude weekly quotas side by side, with the 5-hour window as the inner ring.
 - Windows: merge the rounded widget transition from #7.
 
 ## 0.3.6 - 2026-11-05

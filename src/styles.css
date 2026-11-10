@@ -4007,7 +4007,8 @@ textarea {
 }
 .codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--daily-warning .codex-ring-progress { stroke: #e3b547; }
 .codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--over_pace .codex-ring-progress { stroke: #e45d62; }
-.codex-ring-card--claude .daily-budget-control input[type="range"] { accent-color: var(--claude-orange); }
+.codex-ring-card--claude.codex-ring-card--quota-high { --weekly-quota-color: var(--claude-orange); }
+.codex-ring-card--claude .codex-ring-progress.codex-ring-progress--five-hour { stroke: var(--claude-orange-soft); }
 .codex-ring-card--claude .codex-ring-header small { text-transform: none; letter-spacing: .02em; }
 
 .claude-models-panel {
@@ -4054,3 +4055,6 @@ textarea {
 }
 .capsule-ai-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .capsule-ai-pair .orb-unavailable { width: auto; }
+/* Clip without a scroll container: a resize or focus can no longer leave the
+   cockpit scrolled sideways. Engines without `clip` keep `hidden`. */
+.quota-card.codex-focus-card { overflow: clip; }

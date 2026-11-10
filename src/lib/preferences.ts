@@ -1,6 +1,6 @@
 import { DEFAULT_PROVIDER_ORDER, normalizeProviderOrder } from "./providers";
 import { defaultFontFamilyForPlatform, normalizeFontFamily } from "./fonts";
-import { normalizeClaudeCap, normalizeClaudeComfortFeedback, normalizeCockpitMode } from "./claudeCockpit";
+import { normalizeCockpitMode } from "./claudeCockpit";
 import type { ProviderId, WidgetPreferences, WindowCompactLayout } from "../types";
 
 export function defaultFontScaleForPlatform(_userAgent: string): number {
@@ -48,8 +48,6 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   updateChannel: "stable",
   automaticUpdates: true,
   cockpitMode: "codex",
-  claudeDailyCapUsd: null,
-  claudeComfortFeedback: [],
 };
 
 export function effectiveCompactLayout(preferences: WidgetPreferences, provider: ProviderId | null): WindowCompactLayout {
@@ -167,8 +165,6 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     updateChannel: candidate.updateChannel === "stable" ? "stable" : candidate.updateChannel === "beta" ? "beta" : DEFAULT_WIDGET_PREFERENCES.updateChannel,
     automaticUpdates: booleanValue(candidate.automaticUpdates, DEFAULT_WIDGET_PREFERENCES.automaticUpdates),
     cockpitMode: normalizeCockpitMode(candidate.cockpitMode),
-    claudeDailyCapUsd: normalizeClaudeCap(candidate.claudeDailyCapUsd),
-    claudeComfortFeedback: normalizeClaudeComfortFeedback(candidate.claudeComfortFeedback),
   };
 }
 
