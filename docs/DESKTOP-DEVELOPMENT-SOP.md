@@ -58,6 +58,30 @@ git diff --check
 6. Perform install, launch, update, rollback, and uninstall smoke tests.
 7. Record any unsigned or unnotarized limitation plainly.
 
+### macOS release signing
+
+Configure these GitHub Actions variables and secrets before tagging a release.
+
+| Setting | Where | Value |
+| --- | --- | --- |
+| `APPLE_SIGNING_IDENTITY` | Variable | Full `Developer ID Application: … (TEAMID)` identity |
+| `APPLE_TEAM_ID` | Variable | Apple Developer team ID |
+| `APPLE_CERTIFICATE` | Secret | Base64-encoded `.p12` containing the Developer ID Application certificate and private key |
+| `APPLE_CERTIFICATE_PASSWORD` | Secret | Password used to export the `.p12` |
+| `APPLE_ID` | Secret | Apple Account authorized to notarize for the team |
+| `APPLE_PASSWORD` | Secret | App-specific password for that Apple Account |
+
+Keep the same Apple team and bundle identifier (`app.codexcockpit.desktop`)
+across updates and certificate renewals so macOS can recognize the app. On the
+first upgrade from an ad-hoc build, macOS may ask to authorize the existing
+cloud-sync Keychain item again. Smoke-test the next signed-to-signed upgrade
+with cloud sync enabled to verify that the permission carries forward.
+
+Untagged validation can use ad-hoc signing when the Apple settings are all
+absent. Tagged builds require the Apple settings and verify the signed,
+notarized app inside the updater archive. The Tauri updater key is separate
+from the Developer ID certificate.
+
 ## Authorization boundary
 
 Tests, builds, scans, and dry runs are non-publishing work. Commits, tags, pushes, releases, certificate changes, and external submissions require explicit user authorization.

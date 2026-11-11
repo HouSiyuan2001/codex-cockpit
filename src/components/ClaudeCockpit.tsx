@@ -1,4 +1,3 @@
-import { formatPerMillion, formatTokens, formatUsd, type ClaudeCockpitView } from "../lib/claudeCockpit";
 import type { CockpitMode, Language } from "../types";
 import { ProviderMark } from "./ProviderMark";
 
@@ -46,29 +45,5 @@ export function CockpitModeSwitch({ mode, language, onChange }: { mode: CockpitM
         </button>
       ))}
     </div>
-  );
-}
-
-export function ClaudeModelsPanel({ view, language }: { view: ClaudeCockpitView; language: Language }) {
-  const models = view.models.slice(0, 3);
-  return (
-    <section className="claude-models-panel" aria-label={language === "en" ? "Models, last 7 days" : "近 7 天模型"}>
-      <header>
-        <strong>{language === "en" ? "Models · 7 days" : "近 7 天模型"}</strong>
-        <small>{language === "en" ? "API price · in / out per MTok" : "API 价 · 输入 / 输出 每百万"}</small>
-      </header>
-      {models.length === 0 ? <p>{language === "en" ? "No local use" : "暂无本机用量"}</p> : (
-        <ul>
-          {models.map((model) => (
-            <li key={model.id}>
-              <span className="claude-model-name">{model.name}</span>
-              <span className="claude-model-tokens">{formatTokens(model.tokens, language)}</span>
-              <strong>{formatUsd(model.costUsd, language)}</strong>
-              <small>{model.price ? `${formatPerMillion(model.price.input)} / ${formatPerMillion(model.price.output)}` : "—"}</small>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }

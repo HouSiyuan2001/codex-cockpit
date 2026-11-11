@@ -14,7 +14,7 @@ import type { RecentCodexReset } from "../lib/resetDetection";
 import { buildTodayQuotaAdvice, dailyUsageRatio, type TodayQuotaAdvice } from "../lib/todayQuota";
 import type { CockpitMode, CodexDailyUsage, ColorTheme, ComfortCode, ComfortPrompt, DailyPaceBaseline, DailyUsageSummary, Language, ProviderId, ProviderSnapshot, QuotaHistoryPoint, ResetForecast, ResolvedAppearance, VolcengineDiagnostics, WidgetPreferences, WindowCompactLayout } from "../types";
 import { ComfortFeedbackPanel } from "./ComfortFeedbackPanel";
-import { ClaudeModelsPanel, CockpitBrandMark, CockpitModeSwitch, cockpitTitle } from "./ClaudeCockpit";
+import { CockpitBrandMark, CockpitModeSwitch, cockpitTitle } from "./ClaudeCockpit";
 import { claudeQuotaMessage, formatUsd, type ClaudeCockpitView } from "../lib/claudeCockpit";
 import { ProviderMark } from "./ProviderMark";
 import { ProviderLogoSlider } from "./ProviderLogoSlider";
@@ -776,6 +776,7 @@ export const QuotaCard = memo(function QuotaCard({
     const dailyBudgetExhausted = dailyBudgetUsageRatio !== null && dailyBudgetUsageRatio >= 100;
     const weeklyLabel = language === "en" ? "Weekly remaining" : "本周剩余";
     const dailyLabel = language === "en" ? "Today's used" : "今日已用";
+    const claudeFiveHourLabel = language === "en" ? "5h used" : "5h 已用";
     const resetCreditsLabel = snapshot.resetCredits === null || snapshot.resetCredits <= 0
       ? (language === "en" ? "None" : "暂无")
       : snapshot.resetCredits;
@@ -830,12 +831,13 @@ export const QuotaCard = memo(function QuotaCard({
                       </div>
                     )}
                   />
-                  {claudeView.fiveHourRemaining !== null ? (
+                  {claudeView.fiveHourUsed !== null ? (
                     <QuotaRing
-                      label={language === "en" ? "5h remaining" : "5 小时剩余"}
-                      value={number.format(claudeView.fiveHourRemaining)}
-                      progress={claudeView.fiveHourRemaining}
-                      tone="weekly"
+                      label={claudeFiveHourLabel}
+                      value={number.format(claudeView.fiveHourUsed)}
+                      progress={claudeView.fiveHourUsed}
+                      tone="daily"
+                      overPace={claudeView.fiveHourUsed >= 100}
                       variant="claude"
                       badge="5H"
                       caption={formatResetTime(claudeView.fiveHourResetsAt, new Date(), language)}
@@ -865,7 +867,6 @@ export const QuotaCard = memo(function QuotaCard({
                   )}
                 </div>
               ) : claudeUnavailable}
-              <div className="codex-focus-insights"><ClaudeModelsPanel view={claudeView} language={language} /></div>
             </>
           ) : cockpitMode === "ai" && claudeView ? (
             <div className="codex-focus-ring-grid cockpit-ai-grid">
@@ -887,13 +888,13 @@ export const QuotaCard = memo(function QuotaCard({
                 label="Claude"
                 value={claudeView.weeklyRemaining === null ? "—" : number.format(claudeView.weeklyRemaining)}
                 progress={claudeView.weeklyRemaining ?? 0}
-                innerProgress={claudeView.fiveHourRemaining ?? undefined}
+                innerProgress={claudeView.fiveHourUsed ?? undefined}
                 tone="weekly"
                 variant="claude"
                 footer={claudeQuotaReady ? (
                   <div className="weekly-reset-footer">
                     <span>{weeklyLabel} <strong>{number.format(claudeView.weeklyRemaining ?? 0)}%</strong></span>
-                    <span>{language === "en" ? "5h remaining" : "5 小时剩余"} <strong>{claudeView.fiveHourRemaining === null ? "—" : `${number.format(claudeView.fiveHourRemaining)}%`}</strong></span>
+                    <span>{claudeFiveHourLabel} <strong>{claudeView.fiveHourUsed === null ? "—" : `${number.format(claudeView.fiveHourUsed)}%`}</strong></span>
                     <span>{language === "en" ? "Next reset" : "下次重置"} <strong>{focusResetDate(claudeView.weeklyResetsAt, language)}</strong></span>
                   </div>
                 ) : <div className="weekly-reset-footer"><span>{claudeQuotaMessage(claudeView, language)}</span></div>}
@@ -1242,7 +1243,10 @@ function compactPercent(value: number | null): string {
 
 /** Two readouts share one capsule in the AI cockpit. */
 export function aiCapsuleLogicalWidth(codexRatio: number | null, claudeRatio: number | null, fontScale = 1.15): number {
-  return Math.min(320, capsuleLogicalWidth(codexRatio, fontScale) + capsuleLogicalWidth(claudeRatio, fontScale) - 26);
+  const scale = Number.isFinite(fontScale) ? Math.min(2, Math.max(1.15, fontScale)) : 1.15;
+  const widerReadout = Math.max(capsuleLogicalWidth(codexRatio, scale), capsuleLogicalWidth(claudeRatio, scale));
+  // Equal halves both need room for the wider reading, including at large text sizes.
+  return Math.min(320, widerReadout * 2 - 26 + Math.ceil((scale - 1.15) * 30));
 }
 
 export function capsuleLogicalWidth(dailyRatio: number | null, fontScale = 1.15): number {
@@ -1280,7 +1284,7 @@ function CapsuleQuotaRings({ remaining, dailyRatio, watchActive = false, shortRe
   );
 }
 
-export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = () => undefined, language = "zh-CN", compactLayout = "float", colorTheme = "aurora", accentColor = "#397ae0", resolvedAppearance = "light", dailyUsage = null, dailyRecommendation = null, dailyBudgetPercent = null, fontScale = 1.15, resetWatch = null, cockpitMode = "codex", claudeWeeklyRemaining = null, claudeFiveHourRemaining = null, claudeTodayRatio = null }: Pick<Props, "snapshot" | "onDrag" | "dailyRecommendation"> & { onActivate?: () => void; language?: Language; compactLayout?: WindowCompactLayout; colorTheme?: ColorTheme; accentColor?: string; resolvedAppearance?: ResolvedAppearance; dailyUsage?: CodexDailyUsage | null; dailyBudgetPercent?: number | null; fontScale?: number; resetWatch?: ResetWatch | null; cockpitMode?: CockpitMode; claudeWeeklyRemaining?: number | null; claudeFiveHourRemaining?: number | null; claudeTodayRatio?: number | null }) {
+export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = () => undefined, language = "zh-CN", compactLayout = "float", colorTheme = "aurora", accentColor = "#397ae0", resolvedAppearance = "light", dailyUsage = null, dailyRecommendation = null, dailyBudgetPercent = null, fontScale = 1.15, resetWatch = null, cockpitMode = "codex", claudeWeeklyRemaining = null, claudeFiveHourUsed = null, claudeTodayRatio = null }: Pick<Props, "snapshot" | "onDrag" | "dailyRecommendation"> & { onActivate?: () => void; language?: Language; compactLayout?: WindowCompactLayout; colorTheme?: ColorTheme; accentColor?: string; resolvedAppearance?: ResolvedAppearance; dailyUsage?: CodexDailyUsage | null; dailyBudgetPercent?: number | null; fontScale?: number; resetWatch?: ResetWatch | null; cockpitMode?: CockpitMode; claudeWeeklyRemaining?: number | null; claudeFiveHourUsed?: number | null; claudeTodayRatio?: number | null }) {
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | null>(null);
   const dragGesture = useRef<{ screenX: number; screenY: number; started: boolean } | null>(null);
@@ -1321,20 +1325,18 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
   const compactCapsuleWidth = compactLayout !== "capsule"
     ? null
     : capsuleMode === "claude"
-      ? capsuleLogicalWidth(claudeFiveHourRemaining ?? claudeTodayRatio, fontScale)
+      ? capsuleLogicalWidth(claudeFiveHourUsed ?? claudeTodayRatio, fontScale)
       : capsuleMode === "ai"
-        ? aiCapsuleLogicalWidth(capsuleValue, claudeFiveHourRemaining ?? claudeTodayRatio, fontScale)
+        ? aiCapsuleLogicalWidth(capsuleValue, claudeFiveHourUsed ?? claudeTodayRatio, fontScale)
         : capsuleLogicalWidth(capsuleValue, fontScale);
   const claudeCapsuleLabel = claudeWeeklyRemaining === null
     ? (activeLanguage === "en" ? "Claude quota unavailable" : "未读取到 Claude 额度")
-    : claudeFiveHourRemaining !== null
-      ? `Claude ${activeLanguage === "en" ? "5h remaining" : "5 小时剩余"} ${compactPercent(claudeFiveHourRemaining)}%; ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}`
+    : claudeFiveHourUsed !== null
+      ? `Claude ${activeLanguage === "en" ? "5h used" : "5h 已用"} ${compactPercent(claudeFiveHourUsed)}%; ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}`
       : `Claude ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}; ${activeLanguage === "en" ? "Today's used / today's share" : "今日已用/今日建议"} ${compactPercent(claudeTodayRatio)}${claudeTodayRatio === null ? "" : "%"}`;
   const claudeCapsule = claudeWeeklyRemaining === null
     ? <section className="orb-unavailable"><StatusIcon status="unavailable" /></section>
-    : claudeFiveHourRemaining !== null
-      ? <CapsuleQuotaRings remaining={claudeWeeklyRemaining} dailyRatio={claudeFiveHourRemaining} valueKind="remaining" variant="claude" />
-      : <CapsuleQuotaRings remaining={claudeWeeklyRemaining} dailyRatio={claudeTodayRatio} variant="claude" />;
+    : <CapsuleQuotaRings remaining={claudeWeeklyRemaining} dailyRatio={claudeFiveHourUsed ?? claudeTodayRatio} variant="claude" />;
   const accessibleLabel = remaining !== null && orbQuota
     ? quotaAvailableLabel(orbQuota.period, remaining, activeLanguage)
     : unlimited

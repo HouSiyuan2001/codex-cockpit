@@ -3966,25 +3966,36 @@ textarea {
 .codex-focus-card.cockpit-mode--claude .codex-focus-brand > .provider-mark { color: #fff; border-color: transparent; background: var(--claude-orange); }
 
 .codex-focus-card.cockpit-mode--claude {
+  --glass-ink: #fff5ee;
+  --glass-muted: #f6c4ad;
+  --glass-faint: #dfa891;
+  --glass-edge: rgba(232, 149, 107, .3);
   --glass-mint: var(--claude-orange-soft);
   --glass-lilac: var(--claude-orange);
-  background:
-    radial-gradient(circle at 88% 7%, rgba(217, 119, 87, .3), transparent 36%),
-    radial-gradient(circle at 7% 94%, rgba(232, 149, 107, .16), transparent 40%),
-    var(--glass-surface);
+  background: linear-gradient(145deg, #683927, #382019);
 }
 .codex-focus-card.cockpit-mode--claude.quota-card--theme-light {
-  --glass-ink: #3b2a24;
-  --glass-muted: rgba(84, 56, 44, .7);
-  --glass-faint: rgba(84, 56, 44, .46);
+  --glass-ink: #512b20;
+  --glass-muted: #7a3e2b;
+  --glass-faint: #875342;
   --glass-edge: rgba(201, 100, 66, .24);
   --glass-mint: #c8643f;
   --glass-lilac: #d26a43;
-  border-color: rgba(201, 100, 66, .26);
+  background: linear-gradient(145deg, #fff0dc, #f5b68e);
+}
+.codex-focus-card.cockpit-mode--claude::before {
+  background: linear-gradient(122deg, rgba(255, 244, 235, .24), transparent 48%);
+}
+.codex-focus-card.cockpit-mode--claude .aurora {
   background:
-    radial-gradient(circle at 88% 7%, rgba(240, 168, 132, .45), transparent 34%),
-    radial-gradient(circle at 7% 94%, rgba(217, 119, 87, .18), transparent 39%),
-    linear-gradient(145deg, rgba(255, 250, 246, .95), rgba(250, 233, 222, .92));
+    radial-gradient(circle at 78% 18%, rgba(250, 184, 122, .32), transparent 30%),
+    radial-gradient(circle at 12% 82%, rgba(217, 119, 87, .26), transparent 35%);
+}
+.codex-focus-card.cockpit-mode--claude .codex-ring-track {
+  stroke: rgba(217, 119, 87, .27);
+}
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light .codex-ring-card--claude {
+  background: linear-gradient(145deg, rgba(255, 249, 239, .8), rgba(255, 236, 213, .55));
 }
 .codex-focus-card.cockpit-mode--ai.quota-card--theme-light {
   background:
@@ -4011,38 +4022,22 @@ textarea {
 .codex-ring-card--claude .codex-ring-progress.codex-ring-progress--five-hour { stroke: var(--claude-orange-soft); }
 .codex-ring-card--claude .codex-ring-header small { text-transform: none; letter-spacing: .02em; }
 
-.claude-models-panel {
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(231, 255, 250, .12);
-  border-radius: 16px;
-  color: var(--glass-ink);
-  background: rgba(255, 255, 255, .055);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
-}
-.claude-models-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.claude-models-panel header strong { font-size: calc(10.5px * var(--ui-font-scale, 1) * var(--cockpit-copy-scale, 1)); }
-.claude-models-panel header small,
-.claude-models-panel p { margin: 0; color: var(--glass-muted); font-size: max(11px, calc(8px * var(--ui-font-scale, 1))); }
-.claude-models-panel ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.claude-models-panel li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: baseline;
-  gap: 10px;
-  font-size: max(11px, calc(8.5px * var(--ui-font-scale, 1)));
-  font-variant-numeric: tabular-nums;
-}
-.claude-model-name { overflow: hidden; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
-.claude-model-tokens,
-.claude-models-panel li small { color: var(--glass-muted); }
-.claude-models-panel li strong { color: var(--glass-lilac); }
-.codex-focus-card.quota-card--theme-light .claude-models-panel {
-  border-color: rgba(201, 100, 66, .16);
-  background: rgba(255, 255, 255, .52);
-}
-
 /* Capsule */
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude {
+  --glass-ink: #fff5ee;
+  --glass-muted: #f6c4ad;
+  border-color: rgba(232, 149, 107, .48);
+  background: linear-gradient(110deg, #8e462f, #542a22);
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude.quota-card--theme-light {
+  --glass-ink: #512b20;
+  --glass-muted: #7a3e2b;
+  border-color: rgba(201, 100, 66, .38);
+  background: linear-gradient(145deg, #ffe0cc, var(--claude-orange-soft));
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude::before {
+  background: linear-gradient(122deg, rgba(255, 244, 235, .24), transparent 48%);
+}
 .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc,
 .quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc {
   background: radial-gradient(circle at 34% 28%, #ffd9c4, #e8956b 66%, #c96442);
@@ -4053,7 +4048,30 @@ textarea {
   --remaining-ring-color: var(--claude-orange);
   --remaining-ring-track: rgba(217, 119, 87, .2);
 }
-.capsule-ai-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--ai {
+  --ai-codex-surface: #294977;
+  --ai-claude-surface: #743b29;
+  --ai-divider: #d6c8ca;
+  padding-inline: 6px;
+  background: linear-gradient(90deg,
+    var(--ai-codex-surface) 0 calc(50% - .5px),
+    var(--ai-divider) calc(50% - .5px) calc(50% + .5px),
+    var(--ai-claude-surface) calc(50% + .5px) 100%);
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--ai.quota-card--theme-light {
+  --ai-codex-surface: #bed5fa;
+  --ai-claude-surface: #f6bb96;
+  --ai-divider: #fff6ef;
+}
+.capsule-ai-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.capsule-ai-pair .capsule-quota-readout { justify-content: center; gap: 5px; }
+.capsule-ai-pair .capsule-daily-value { flex: 0 0 auto; }
 .capsule-ai-pair .orb-unavailable { width: auto; }
 /* Clip without a scroll container: a resize or focus can no longer leave the
    cockpit scrolled sideways. Engines without `clip` keep `hidden`. */

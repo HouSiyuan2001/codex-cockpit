@@ -88,10 +88,53 @@ jobs:
       - run: cargo audit --file src-tauri/Cargo.lock
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Build and verify macOS packages
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/tags/v* &&
+                -z "$APPLE_SIGNING_IDENTITY$APPLE_TEAM_ID$APPLE_CERTIFICATE$APPLE_CERTIFICATE_PASSWORD$APPLE_ID$APPLE_PASSWORD" ]]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            APPLE_SIGNING_IDENTITY=- npm run tauri build -- --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
+            exit
+          fi
+          for name in APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Configure $name before building a Developer ID release."
+              exit 1
+            fi
+          done
+          if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ||
+                "$APPLE_SIGNING_IDENTITY" != "Developer ID Application: "*"($APPLE_TEAM_ID)" ]]; then
+            echo "::error::APPLE_SIGNING_IDENTITY must be a Developer ID Application identity for APPLE_TEAM_ID."
+            exit 1
+          fi
+          npm run tauri build -- --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
+
+          archive=(src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz)
+          test "${#archive[@]}" -eq 1
+          test -s "${archive[0]}.sig"
+          unpacked="$(mktemp -d)"
+          trap 'rm -rf "$unpacked"' EXIT
+          tar -xzf "${archive[0]}" -C "$unpacked"
+          app="$unpacked/Codex Cockpit.app"
+          requirement="identifier \"app.codexcockpit.desktop\" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"$APPLE_TEAM_ID\""
+          codesign --verify --deep --strict --all-architectures -R="$requirement" "$app"
+          xcrun stapler validate "$app"
       - name: Build signed updater packages
+        if: runner.os != 'macOS'
         run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
         env:
-          APPLE_SIGNING_IDENTITY: '-'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
       - name: Smoke-test Linux packages

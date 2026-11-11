@@ -62,6 +62,13 @@ struct Credential {
     plan: Option<String>,
 }
 
+impl Credential {
+    fn is_expired(&self) -> bool {
+        self.expires_at_ms
+            .is_some_and(|expires| expires <= chrono::Utc::now().timestamp_millis())
+    }
+}
+
 #[derive(Default)]
 struct QuotaState {
     credential: Option<Credential>,
@@ -229,10 +236,7 @@ fn accept_credential(
             state.last_result = Some(result.clone());
             return Err(Box::new(result));
         };
-        let expired = credential
-            .expires_at_ms
-            .is_some_and(|expires| expires <= chrono::Utc::now().timestamp_millis());
-        if expired {
+        if credential.is_expired() {
             // Claude Code refreshes its own login; re-read it on the next attempt.
             let result = stale_or(
                 state,
@@ -275,7 +279,8 @@ pub async fn fetch(client: &reqwest::Client) -> ClaudeQuota {
         Ok(credential) => credential,
         Err(cached) => return *cached,
     };
-    let credential = match credential {
+    // Claude Code may have renewed its login while this process held the old token.
+    let credential = match credential.filter(|credential| !credential.is_expired()) {
         Some(value) => Some(value),
         None => load_credential().await,
     };

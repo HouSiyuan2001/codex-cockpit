@@ -713,9 +713,9 @@ export default function App() {
   const compactCapsuleWidth = compactLayout === "capsule"
     ? !preferences.claudeEnabled ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : preferences.cockpitMode === "claude"
-      ? capsuleLogicalWidth(claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
+      ? capsuleLogicalWidth(claudeView.fiveHourUsed ?? claudeView.todayRatio, preferences.fontScale)
       : preferences.cockpitMode === "ai"
-        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.fiveHourRemaining ?? claudeView.todayRatio, preferences.fontScale)
+        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.fiveHourUsed ?? claudeView.todayRatio, preferences.fontScale)
         : capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : undefined;
   const dailyPersonCosts = useMemo(() => {
@@ -1153,7 +1153,7 @@ export default function App() {
         fontScale={preferences.fontScale}
         cockpitMode={preferences.claudeEnabled ? preferences.cockpitMode : "codex"}
         claudeWeeklyRemaining={claudeView.weeklyRemaining}
-        claudeFiveHourRemaining={claudeView.fiveHourRemaining}
+        claudeFiveHourUsed={claudeView.fiveHourUsed}
         claudeTodayRatio={claudeView.todayRatio}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}

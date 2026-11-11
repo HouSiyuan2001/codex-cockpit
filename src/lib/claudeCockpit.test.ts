@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildClaudeCockpitView, claudeDailyShare, claudeQuotaMessage, nextClaudeDayBaseline, nextCockpitMode, normalizeCockpitMode, recentClaudeCosts } from "./claudeCockpit";
+import { buildClaudeCockpitView, claudeDailyShare, claudeQuotaMessage, nextClaudeDayBaseline, nextCockpitMode, normalizeCockpitMode } from "./claudeCockpit";
 import { normalizeWidgetPreferences } from "./preferences";
 import type { ClaudeDailyUsage, ClaudeQuota, ClaudeUsageReport } from "../types";
 
@@ -47,10 +47,10 @@ describe("cockpit mode", () => {
 });
 
 describe("Claude quota view", () => {
-  it("shows weekly and 5-hour remaining from the official limits", () => {
+  it("shows weekly remaining and 5-hour used from the official limits", () => {
     const view = buildClaudeCockpitView(report([day("2026-11-10", 10)]), quota(), now);
     expect(view.weeklyRemaining).toBe(42.8);
-    expect(view.fiveHourRemaining).toBe(62);
+    expect(view.fiveHourUsed).toBe(38);
     expect(view.opusWeeklyRemaining).toBe(88);
     expect(view.weeklyResetsAt).toBe("2026-11-13T08:00:00Z");
     expect(view.dailyShare).toBe(14.3);
@@ -60,7 +60,7 @@ describe("Claude quota view", () => {
     expect(buildClaudeCockpitView(null, quota({ status: "stale", message: "Network unavailable." }), now).weeklyRemaining).toBe(42.8);
     const signedOut = buildClaudeCockpitView(null, quota({ status: "signed_out", message: "Claude Code login expired. Open Claude Code to refresh it." }), now);
     expect(signedOut.weeklyRemaining).toBeNull();
-    expect(signedOut.fiveHourRemaining).toBeNull();
+    expect(signedOut.fiveHourUsed).toBeNull();
     expect(claudeQuotaMessage(signedOut, "zh-CN")).toBe("Claude Code 登录已过期");
     expect(claudeQuotaMessage(buildClaudeCockpitView(null, null, now), "zh-CN")).toBe("正在读取 Claude 额度");
   });
@@ -72,20 +72,10 @@ describe("Claude quota view", () => {
     expect(claudeDailyShare(null, "2026-11-12T12:00:00Z", now)).toBeNull();
   });
 
-  it("lists 7-day models with prices and keeps unpriced models distinct", () => {
-    const usage = report([
-      day("2026-11-03", 50),
-      day("2026-11-09", 14, [{ id: "claude-future", name: "claude-future", requests: 1, inputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 1, costUsd: null }]),
-      day("2026-11-10", 10, [{ id: "claude-opus-5-5", name: "Opus 5.5", requests: 1, inputTokens: 100, cacheWriteTokens: 0, cacheReadTokens: 900, outputTokens: 0, costUsd: 10 }]),
-    ]);
-    expect(recentClaudeCosts(usage, now, 7).map((item) => item.costUsd)).toEqual([0, 0, 0, 0, 0, 14, 10]);
+  it("shows today's API estimate without including previous days", () => {
+    const usage = report([day("2026-11-09", 14), day("2026-11-10", 10)]);
     const view = buildClaudeCockpitView(usage, quota(), now);
     expect(view.todayCostUsd).toBe(10);
-    expect(view.weekCostUsd).toBe(24);
-    expect(view.models.map((model) => [model.name, model.costUsd, model.price])).toEqual([
-      ["claude-future", null, null],
-      ["Opus 5.5", 10, { input: 4, output: 20 }],
-    ]);
   });
 });
 
@@ -96,7 +86,7 @@ describe("Claude without a 5-hour window", () => {
     expect(morning).toEqual({ localDate: "2026-11-10", weeklyUsedPercent: 40 });
     expect(nextClaudeDayBaseline(morning, noFiveHour, now)).toBe(morning);
     const view = buildClaudeCockpitView(null, noFiveHour, now, morning);
-    expect(view.fiveHourRemaining).toBeNull();
+    expect(view.fiveHourUsed).toBeNull();
     expect(view.todayUsedPercent).toBe(10);
     expect(view.dailyShare).toBe(20);
     expect(view.todayRatio).toBe(50);
