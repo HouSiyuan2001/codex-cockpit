@@ -4110,3 +4110,291 @@ textarea {
 .usage-source-option--ai { padding-left: 12px; }
 .usage-source-option--ai.is-active { background: linear-gradient(120deg, #5f7fd8, var(--claude-orange)); }
 .claude-usage-detail { display: block; overflow: hidden; color: var(--glass-muted, rgba(53, 59, 91, .6)); font-size: .82em; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+
+/*
+ * Research palette theme
+ *
+ * One warm-to-cool scale drives every accent:
+ *   #e76254 #ef8a47 #f7aa58 #ffd06f #ffe6b7 | #aadce0 #72bcd5 #528fad #376795 #1e466e
+ * Codex takes the cool half (primary #376795), Claude the warm half (primary
+ * #ef8a47); the AI cockpit runs the whole scale. Red is reserved for "low".
+ */
+:root {
+  --p-red: #e76254;
+  --p-orange: #ef8a47;
+  --p-amber: #f7aa58;
+  --p-yellow: #ffd06f;
+  --p-cream: #ffe6b7;
+  --p-mist: #aadce0;
+  --p-sky: #72bcd5;
+  --p-steel: #528fad;
+  --p-blue: #376795;
+  --p-navy: #1e466e;
+  --p-scale: linear-gradient(90deg, #376795, #72bcd5 30%, #ffe6b7 52%, #f7aa58 76%, #ef8a47);
+  --claude-orange: var(--p-orange);
+  --claude-orange-soft: var(--p-amber);
+}
+
+/* ---- Tones per cockpit ---- */
+.codex-focus-card,
+.quota-card--compact-capsule.quota-orb {
+  --tone: var(--p-sky);
+  --tone-2: var(--p-mist);
+  --tone-wash: rgba(114, 188, 213, .14);
+  --tone-line: rgba(170, 220, 224, .22);
+  --glass-ink: #eef6f8;
+  --glass-muted: rgba(214, 235, 240, .7);
+  --glass-faint: rgba(214, 235, 240, .44);
+  --glass-edge: var(--tone-line);
+  --glass-mint: var(--tone);
+  --glass-lilac: var(--tone-2);
+  --glass-amber: var(--p-yellow);
+}
+.codex-focus-card.quota-card--theme-light,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light {
+  --tone: var(--p-blue);
+  --tone-2: var(--p-steel);
+  --tone-wash: rgba(170, 220, 224, .2);
+  --tone-line: rgba(55, 103, 149, .16);
+  --glass-ink: var(--p-navy);
+  --glass-muted: rgba(30, 70, 110, .68);
+  --glass-faint: rgba(30, 70, 110, .42);
+  --glass-edge: var(--tone-line);
+  --glass-mint: var(--tone);
+  --glass-lilac: var(--tone-2);
+  --glass-amber: #b9741f;
+}
+.codex-focus-card.cockpit-mode--claude,
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude {
+  --tone: var(--p-amber);
+  --tone-2: var(--p-yellow);
+  --tone-wash: rgba(247, 170, 88, .13);
+  --tone-line: rgba(255, 230, 183, .2);
+  --glass-ink: #fff6e8;
+  --glass-muted: rgba(255, 233, 204, .72);
+  --glass-faint: rgba(255, 233, 204, .46);
+}
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light,
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude.quota-card--theme-light {
+  --tone: var(--p-orange);
+  --tone-2: var(--p-amber);
+  --tone-wash: rgba(255, 230, 183, .34);
+  --tone-line: rgba(239, 138, 71, .2);
+  --glass-ink: #5b3213;
+  --glass-muted: rgba(91, 50, 19, .7);
+  --glass-faint: rgba(91, 50, 19, .44);
+}
+
+/* ---- Card surfaces ---- */
+.codex-focus-card.cockpit-mode--codex,
+.codex-focus-card.cockpit-mode--claude,
+.codex-focus-card.cockpit-mode--ai {
+  border-color: var(--tone-line);
+  color: var(--glass-ink);
+}
+.codex-focus-card.cockpit-mode--codex { background: linear-gradient(155deg, #23507c, #153555 70%, #122c47); }
+.codex-focus-card.cockpit-mode--claude { background: linear-gradient(155deg, #4a2f1a, #2f1e12 70%, #26180f); }
+.codex-focus-card.cockpit-mode--ai { background: linear-gradient(115deg, #1b4369, #1d2b3a 52%, #3d2817); }
+.codex-focus-card.cockpit-mode--codex.quota-card--theme-light {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(170, 220, 224, .5), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(114, 188, 213, .2), transparent 45%),
+    linear-gradient(160deg, #fcfeff, #eef6f9);
+}
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(255, 208, 111, .42), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(247, 170, 88, .2), transparent 45%),
+    linear-gradient(160deg, #fffefb, #fff5e4);
+}
+.codex-focus-card.cockpit-mode--ai.quota-card--theme-light {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(170, 220, 224, .5), transparent 44%),
+    radial-gradient(circle at 100% 100%, rgba(255, 208, 111, .42), transparent 44%),
+    linear-gradient(115deg, #f2f9fb, #fffdf8 52%, #fff4e0);
+}
+.codex-focus-card.cockpit-mode--codex .aurora,
+.codex-focus-card.cockpit-mode--claude .aurora,
+.codex-focus-card.cockpit-mode--ai .aurora,
+.codex-focus-card.cockpit-mode--claude::before { background: none; }
+
+/* ---- Header ---- */
+.codex-focus-card .codex-focus-brand .provider-mark,
+.codex-focus-card.quota-card--theme-light .codex-focus-brand .provider-mark {
+  border-color: transparent;
+  color: #fff;
+  background: var(--p-blue);
+  box-shadow: 0 3px 10px rgba(55, 103, 149, .28);
+}
+.codex-focus-card .codex-focus-brand .provider-mark[data-provider="claude"],
+.codex-focus-card.cockpit-mode--claude .codex-focus-brand > .provider-mark {
+  color: #fff;
+  background: var(--p-orange);
+  box-shadow: 0 3px 10px rgba(239, 138, 71, .3);
+}
+.codex-focus-live i { background: var(--tone); box-shadow: 0 0 8px color-mix(in srgb, var(--tone) 60%, transparent); }
+.codex-focus-card .codex-focus-more,
+.codex-focus-card.quota-card--theme-light .codex-focus-more {
+  border: 1px solid var(--tone-line);
+  color: var(--glass-muted);
+  background: color-mix(in srgb, var(--tone) 8%, transparent);
+}
+.codex-focus-card .codex-focus-more:hover { color: var(--glass-ink); background: color-mix(in srgb, var(--tone) 16%, transparent); }
+
+.cockpit-mode-switch { border-color: var(--tone-line); background: color-mix(in srgb, var(--tone) 7%, transparent); }
+.cockpit-mode-option.is-active { color: #fff; background: var(--p-blue); box-shadow: 0 2px 6px rgba(55, 103, 149, .3); }
+.cockpit-mode-option--claude.is-active { background: var(--p-orange); box-shadow: 0 2px 6px rgba(239, 138, 71, .32); }
+.cockpit-mode-option--ai.is-active { color: var(--p-navy); background: var(--p-scale); box-shadow: 0 2px 6px rgba(30, 70, 110, .2); }
+
+/* ---- Ring cards ---- */
+.codex-focus-card .codex-ring-card,
+.codex-focus-card .codex-ring-card--daily,
+.codex-focus-card .codex-ring-card.codex-ring-card--claude {
+  border-color: var(--tone-line);
+  background: linear-gradient(160deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .03));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.codex-focus-card.quota-card--theme-light .codex-ring-card,
+.codex-focus-card.quota-card--theme-light .codex-ring-card--daily,
+.codex-focus-card.quota-card--theme-light .codex-ring-card.codex-ring-card--claude,
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light .codex-ring-card--claude {
+  border-color: var(--tone-line);
+  background: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .62));
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--tone) 10%, transparent), inset 0 1px 0 #fff;
+}
+/* In the AI cockpit each ring keeps its own provider tone. */
+.codex-focus-card.cockpit-mode--ai .codex-ring-card--claude { --tone: var(--p-amber); --tone-2: var(--p-yellow); --tone-line: rgba(255, 230, 183, .2); }
+.codex-focus-card.cockpit-mode--ai.quota-card--theme-light .codex-ring-card--claude { --tone: var(--p-orange); --tone-2: var(--p-amber); --tone-line: rgba(239, 138, 71, .2); }
+
+.codex-focus-card .codex-ring-track,
+.codex-focus-card.cockpit-mode--claude .codex-ring-track { stroke: color-mix(in srgb, var(--tone) 15%, transparent); }
+.codex-focus-card .codex-ring-header > span i,
+.codex-focus-card .codex-ring-card--daily .codex-ring-header > span i,
+.codex-focus-card .codex-ring-card--claude .codex-ring-header > span i {
+  background: var(--tone);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--tone) 55%, transparent);
+}
+.codex-focus-card .codex-ring-card--daily .codex-ring-header > span i { background: var(--tone-2); }
+
+.codex-focus-card .codex-ring-card--quota-high,
+.codex-focus-card .codex-ring-card--claude.codex-ring-card--quota-high { --weekly-quota-color: var(--tone); }
+.codex-focus-card .codex-ring-card--quota-mid { --weekly-quota-color: var(--p-amber); }
+.codex-focus-card .codex-ring-card--claude.codex-ring-card--quota-mid { --weekly-quota-color: var(--p-amber); }
+.codex-focus-card .codex-ring-card--quota-low { --weekly-quota-color: var(--p-red); }
+.codex-focus-card .codex-ring-progress { filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--weekly-quota-color, var(--tone)) 30%, transparent)); }
+.codex-focus-card .codex-ring-card--daily .codex-ring-progress,
+.codex-focus-card .codex-ring-card--daily.codex-ring-card--claude .codex-ring-progress {
+  stroke: var(--tone-2);
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--tone-2) 30%, transparent));
+}
+.codex-focus-card .codex-ring-card--daily.codex-ring-card--daily-warning .codex-ring-progress,
+.codex-focus-card .codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--daily-warning .codex-ring-progress { stroke: var(--p-amber); }
+.codex-focus-card .codex-ring-card--daily.codex-ring-card--over_pace .codex-ring-progress,
+.codex-focus-card .codex-ring-card--daily.codex-ring-card--claude.codex-ring-card--over_pace .codex-ring-progress { stroke: var(--p-red); }
+.codex-focus-card .codex-ring-progress.codex-ring-progress--five-hour,
+.codex-focus-card .codex-ring-card--claude .codex-ring-progress.codex-ring-progress--five-hour { stroke: var(--tone-2); }
+
+/* ---- Panels inside the card ---- */
+.codex-focus-card .today-quota-advice,
+.codex-focus-card .comfort-curve-panel,
+.codex-focus-card .comfort-feedback-panel,
+.codex-focus-card.quota-card--theme-light .today-quota-advice,
+.codex-focus-card.quota-card--theme-light .comfort-curve-panel,
+.codex-focus-card.quota-card--theme-light .comfort-feedback-panel {
+  border-color: var(--tone-line);
+  background: var(--tone-wash);
+  box-shadow: none;
+}
+.codex-focus-card .comfort-feedback-option,
+.codex-focus-card.quota-card--theme-light .comfort-feedback-option { border-color: var(--tone-line); }
+.codex-focus-card.quota-card--theme-light .comfort-feedback-option { background: rgba(255, 255, 255, .8); }
+.codex-focus-card .comfort-feedback-option--overloaded svg { color: var(--p-red); }
+.codex-focus-card .comfort-feedback-option--comfortable svg { color: var(--p-amber); }
+.codex-focus-card .comfort-feedback-option--idle svg { color: var(--p-steel); }
+.codex-focus-card input[type="range"] { accent-color: var(--tone); }
+
+/* ---- Capsule ---- */
+.quota-card--compact-capsule.quota-orb.cockpit-mode--codex { border-color: var(--tone-line); background: linear-gradient(110deg, #23507c, #153555); }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude { border-color: var(--tone-line); background: linear-gradient(110deg, #4a2f1a, #2f1e12); }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--codex.quota-card--theme-light { border-color: rgba(55, 103, 149, .22); background: linear-gradient(110deg, #fcfeff, #e6f2f6); }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude.quota-card--theme-light { border-color: rgba(239, 138, 71, .26); background: linear-gradient(110deg, #fffefb, #ffecc9); }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--claude::before { background: none; }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--ai { --ai-codex-surface: #1d4670; --ai-claude-surface: #4a2f1a; --ai-divider: rgba(255, 255, 255, .28); }
+.quota-card--compact-capsule.quota-orb.cockpit-mode--ai.quota-card--theme-light { --ai-codex-surface: #e3f1f5; --ai-claude-surface: #ffeccb; --ai-divider: #fff; border-color: rgba(30, 70, 110, .16); }
+.quota-card--compact-capsule.quota-orb .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, var(--p-mist), var(--p-sky) 62%, var(--p-steel));
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .6), 0 0 7px rgba(82, 143, 173, .25);
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, var(--p-cream), var(--p-amber) 62%, var(--p-orange));
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .6), 0 0 7px rgba(239, 138, 71, .28);
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--warning .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--warning .capsule-daily-disc { background: radial-gradient(circle at 34% 28%, var(--p-cream), var(--p-yellow) 62%, var(--p-amber)); }
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--over .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--over .capsule-daily-disc { background: radial-gradient(circle at 34% 28%, #f6b0a6, var(--p-red) 70%); }
+.quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-high,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-blue); --remaining-ring-track: rgba(55, 103, 149, .16); }
+.quota-card--compact-capsule.quota-orb:not(.quota-card--theme-light) .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-sky); --remaining-ring-track: rgba(114, 188, 213, .2); }
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-orange); --remaining-ring-track: rgba(239, 138, 71, .18); }
+.quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-mid { --remaining-ring-color: var(--p-amber); }
+.quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-low { --remaining-ring-color: var(--p-red); }
+.quota-card--compact-capsule.quota-orb .capsule-daily-value b { color: var(--glass-ink); }
+
+/* ---- Control center ---- */
+.codex-focus-card .usage-page-tabs { background: color-mix(in srgb, var(--tone) 8%, transparent); }
+.codex-focus-card .usage-page-tabs button[aria-pressed="true"] { color: #fff; background: var(--tone); box-shadow: 0 2px 8px color-mix(in srgb, var(--tone) 30%, transparent); }
+.codex-focus-card .control-center--minimal .minimal-toggle-row .switch input:checked + i,
+.codex-focus-card.quota-card--theme-light .control-center--minimal .minimal-toggle-row .switch input:checked + i { background: var(--tone); }
+.codex-focus-card.quota-card--theme-light .control-center--minimal .minimal-footer button { border-color: var(--tone-line); background: color-mix(in srgb, var(--tone) 10%, transparent); }
+.usage-source-switch { border-color: var(--tone-line); background: color-mix(in srgb, var(--tone) 6%, transparent); }
+.usage-source-option.is-active { background: var(--p-blue); }
+.usage-source-option--claude.is-active { background: var(--p-orange); }
+.usage-source-option--ai.is-active { color: var(--p-navy); background: var(--p-scale); }
+
+/* The dialog replaces the cockpit surface, so it carries the same paper. */
+.codex-focus-card.quota-card--overlay-open.cockpit-mode--codex,
+.codex-focus-card.quota-card--overlay-open.cockpit-mode--claude,
+.codex-focus-card.quota-card--overlay-open.cockpit-mode--ai,
+.codex-focus-card.quota-card--overlay-open.quota-card--theme-light.cockpit-mode--codex,
+.codex-focus-card.quota-card--overlay-open.quota-card--theme-light.cockpit-mode--claude,
+.codex-focus-card.quota-card--overlay-open.quota-card--theme-light.cockpit-mode--ai { background: transparent; }
+.codex-focus-card.cockpit-mode--codex :is(.control-center, .update-panel, .diagnostics-panel) { border-color: var(--tone-line); background: linear-gradient(155deg, #23507c, #153555 70%, #122c47); }
+.codex-focus-card.cockpit-mode--claude :is(.control-center, .update-panel, .diagnostics-panel) { border-color: var(--tone-line); background: linear-gradient(155deg, #4a2f1a, #2f1e12 70%, #26180f); }
+.codex-focus-card.cockpit-mode--ai :is(.control-center, .update-panel, .diagnostics-panel) { border-color: var(--tone-line); background: linear-gradient(115deg, #1b4369, #1d2b3a 52%, #3d2817); }
+.codex-focus-card.cockpit-mode--codex.quota-card--theme-light :is(.control-center, .update-panel, .diagnostics-panel) {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(170, 220, 224, .42), transparent 40%),
+    linear-gradient(160deg, #fcfeff, #f0f7fa);
+}
+.codex-focus-card.cockpit-mode--claude.quota-card--theme-light :is(.control-center, .update-panel, .diagnostics-panel) {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(255, 208, 111, .36), transparent 40%),
+    linear-gradient(160deg, #fffefb, #fff6e6);
+}
+.codex-focus-card.cockpit-mode--ai.quota-card--theme-light :is(.control-center, .update-panel, .diagnostics-panel) {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(170, 220, 224, .42), transparent 42%),
+    radial-gradient(circle at 100% 100%, rgba(255, 208, 111, .36), transparent 42%),
+    linear-gradient(115deg, #f4fafc, #fffdf8 52%, #fff5e3);
+}
+.codex-focus-card.quota-card--theme-light .control-center--minimal :is(.minimal-status-card, .minimal-section),
+.codex-focus-card.quota-card--theme-light .control-center--minimal .control-settings-page > .usage-group-editor {
+  border-color: var(--tone-line);
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--tone) 7%, transparent), inset 0 1px 0 #fff;
+}
+.codex-focus-card.quota-card--theme-light .control-center--minimal :is(.minimal-status-card strong, .minimal-section-header strong, .minimal-slider-field output, .minimal-toggle-row strong, .minimal-footer button, .control-header h2) { color: var(--glass-ink); }
+.codex-focus-card.quota-card--theme-light .control-center--minimal :is(.minimal-status-card small, .minimal-slider-field > span, .minimal-section-header small, .minimal-toggle-row small) { color: var(--glass-muted); }
+.codex-focus-card.quota-card--theme-light .control-center--minimal :is(.minimal-refresh, .minimal-external-link, .minimal-status-mark, .control-header > button) {
+  color: var(--glass-ink);
+  border-color: var(--tone-line);
+  background: color-mix(in srgb, var(--tone) 9%, transparent);
+}
+.codex-focus-card.quota-card--theme-light .control-center--minimal .minimal-status-mark span { border-color: var(--tone); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 12%, transparent); }
+.codex-focus-card .control-center--minimal :is(select, .usage-calendar-trigger, .usage-settings-button) { border-color: var(--tone-line); }
+.codex-focus-card .control-center--minimal .segmented-control button.is-active,
+.codex-focus-card .control-center--minimal [role="radiogroup"]:not(.usage-source-switch) > button.is-active { color: #fff; background: var(--tone); }
