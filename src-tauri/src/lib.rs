@@ -1160,6 +1160,59 @@ fn set_macos_window_frame(window: &tauri::WebviewWindow, frame: NSRect) -> Resul
         .map_err(|_| "timed out updating native widget frame".to_string())
 }
 
+/// A non-activating panel class for the widget.
+///
+/// macOS only lets a window join another app's full-screen Space when it is a
+/// non-activating `NSPanel`; a plain `NSWindow` at any level stays behind on
+/// the desktop Space. The subclass keeps the borderless widget able to take
+/// keyboard focus for its text fields.
+#[cfg(target_os = "macos")]
+fn widget_panel_class() -> &'static objc2::runtime::AnyClass {
+    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+    static CLASS: std::sync::OnceLock<&'static AnyClass> = std::sync::OnceLock::new();
+    extern "C-unwind" fn accepts(_this: &AnyObject, _cmd: Sel) -> Bool {
+        Bool::YES
+    }
+    CLASS.get_or_init(|| {
+        let name = c"CodexCockpitWidgetPanel";
+        if let Some(existing) = AnyClass::get(name) {
+            return existing;
+        }
+        let mut builder = ClassBuilder::new(name, objc2::class!(NSPanel))
+            .expect("widget panel class name is unique");
+        unsafe {
+            builder.add_method(
+                objc2::sel!(canBecomeKeyWindow),
+                accepts as extern "C-unwind" fn(_, _) -> _,
+            );
+            builder.add_method(
+                objc2::sel!(canBecomeMainWindow),
+                accepts as extern "C-unwind" fn(_, _) -> _,
+            );
+        }
+        builder.register()
+    })
+}
+
+/// Must run on the main thread. Idempotent.
+#[cfg(target_os = "macos")]
+fn promote_widget_to_panel(native_window: &NSWindow) {
+    const NONACTIVATING_PANEL: usize = 1 << 7;
+    let panel_class = widget_panel_class();
+    let object = native_window as *const NSWindow as *mut objc2::runtime::AnyObject;
+    unsafe {
+        if !std::ptr::eq((*object).class(), panel_class) {
+            objc2::ffi::object_setClass(object, panel_class);
+        }
+    }
+    let mask = native_window.styleMask();
+    if mask.0 & NONACTIVATING_PANEL == 0 {
+        native_window.setStyleMask(objc2_app_kit::NSWindowStyleMask(
+            mask.0 | NONACTIVATING_PANEL,
+        ));
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn apply_macos_window_presence(
     window: &tauri::WebviewWindow,
@@ -1172,6 +1225,9 @@ fn apply_macos_window_presence(
     let policy = macos_window_presence_policy(always_on_top);
     let apply_policy = move || {
         let native_window = unsafe { &*(window_ptr as *const NSWindow) };
+        if always_on_top {
+            promote_widget_to_panel(native_window);
+        }
         native_window.setLevel(policy.level);
         native_window.setCollectionBehavior(policy.collection_behavior);
         native_window.setHidesOnDeactivate(policy.hides_on_deactivate);
