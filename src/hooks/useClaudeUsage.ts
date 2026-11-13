@@ -19,18 +19,33 @@ function writeBaseline(value: ClaudeDayBaseline): void {
   try { window.localStorage.setItem(BASELINE_KEY, JSON.stringify(value)); } catch { /* storage unavailable: keep in memory */ }
 }
 
-/** Polls Claude quota and local usage only while a Claude-bearing cockpit is selected; keeps the last answers. */
-export function useClaudeUsage(enabled: boolean, days = 35): { report: ClaudeUsageReport | null; quota: ClaudeQuota | null; baseline: ClaudeDayBaseline | null; refresh: () => void } {
+export function useClaudeUsage(enabled: boolean, days = 35) {
   const [report, setReport] = useState<ClaudeUsageReport | null>(null);
-  const [quota, setQuota] = useState<ClaudeQuota | null>(null);
-  const [baseline, setBaseline] = useState<ClaudeDayBaseline | null>(() => readBaseline());
   const sequence = useRef(0);
   const refresh = useCallback(() => {
+    if (!enabled) return;
     const current = ++sequence.current;
     void fetchClaudeUsage(days)
       .then((next) => { if (current === sequence.current) setReport(next); })
       .catch(() => undefined);
-    void fetchClaudeQuota()
+  }, [days, enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    refresh();
+    const timer = window.setInterval(refresh, CLAUDE_REFRESH_MS);
+    return () => { ++sequence.current; window.clearInterval(timer); };
+  }, [enabled, refresh]);
+  return { report, refresh };
+}
+
+export function useClaudeQuota(enabled: boolean) {
+  const [quota, setQuota] = useState<ClaudeQuota | null>(null);
+  const [baseline, setBaseline] = useState<ClaudeDayBaseline | null>(() => readBaseline());
+  const sequence = useRef(0);
+  const refresh = useCallback((manual = false) => {
+    if (!enabled) return;
+    const current = ++sequence.current;
+    void fetchClaudeQuota(manual)
       .then((next) => {
         if (current !== sequence.current) return;
         setQuota(next);
@@ -40,13 +55,16 @@ export function useClaudeUsage(enabled: boolean, days = 35): { report: ClaudeUsa
           return updated;
         });
       })
-      .catch(() => undefined);
-  }, [days]);
+      .catch(() => {
+        if (current !== sequence.current) return;
+        setQuota((previous) => previous?.status === "ok" ? { ...previous, status: "stale" } : previous);
+      });
+  }, [enabled]);
   useEffect(() => {
     if (!enabled) return;
     refresh();
     const timer = window.setInterval(refresh, CLAUDE_REFRESH_MS);
-    return () => window.clearInterval(timer);
+    return () => { ++sequence.current; window.clearInterval(timer); };
   }, [enabled, refresh]);
-  return { report, quota, baseline, refresh };
+  return { quota, baseline, refresh };
 }

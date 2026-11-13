@@ -29,6 +29,8 @@ import type { ResetWatch } from "../types";
 import { PersonCostArcs } from "./PersonCostRing";
 import type { DailyPersonCosts } from "../lib/dailyPersonCosts";
 
+type ResetRiskSource = "website" | "manual" | "history" | "fallback";
+
 interface Props {
   snapshot: ProviderSnapshot;
   snapshots: ProviderSnapshot[];
@@ -66,7 +68,7 @@ interface Props {
   reconnecting?: boolean;
   recentCodexReset?: RecentCodexReset | null;
   resetWatch?: ResetWatch | null;
-  resetRiskSource?: "website" | "fallback";
+  resetRiskSource?: ResetRiskSource;
   resetForecast?: ResetForecast | null;
   onOpenResetForecast?: (url: string) => void;
   paceBaselines?: Record<string, DailyPaceBaseline>;
@@ -144,14 +146,14 @@ function TodayQuotaAdvicePanel({
   advice,
   language,
   riskSource,
-  manualRisk,
+  websiteRisk,
   onRiskChange,
   onInteractionChange,
 }: {
   advice: TodayQuotaAdvice;
   language: Language;
-  riskSource: "website" | "fallback";
-  manualRisk: boolean;
+  riskSource: ResetRiskSource;
+  websiteRisk: number | null;
   onRiskChange: (value: number | null) => void;
   onInteractionChange: (active: boolean) => void;
 }) {
@@ -172,18 +174,24 @@ function TodayQuotaAdvicePanel({
         ? t.officialMissing
         : sourceLabel;
   const display = (value: number | null) => value === null ? "—" : `${number.format(value)}%`;
-  const websiteProbability = advice.resetRiskPercent;
-  const websiteLabel = language === "en" ? "Reset risk" : "重置风险";
-  const riskSourceLabel = manualRisk
-    ? (language === "en" ? "Manual" : "手动")
-    : riskSource === "website" ? (language === "en" ? "Website" : "网站") : null;
-  const websiteHint = !manualRisk && riskSource === "fallback"
-    ? (language === "en"
-      ? "No website risk value is available. Using the default planning reference; you can adjust it manually. This is not an official reset probability."
-      : "暂无网站风险数据，使用默认规划参考值；可手动调整。这不是官方重置概率。")
-    : (language === "en"
-      ? "Planning estimate based on recent Codex Resets history."
-      : "根据 Codex Resets 的近期重置记录估算。");
+  const english = language === "en";
+  const followsWebsite = riskSource === "website";
+  const riskPercent = followsWebsite ? websiteRisk ?? advice.resetRiskPercent : advice.resetRiskPercent;
+  const riskLabel = english ? "Reset risk" : "重置风险";
+  const riskSourceLabel = (english
+    ? { website: "Website", manual: "Manual", history: "History", fallback: null }
+    : { website: "网站", manual: "手动", history: "历史", fallback: null })[riskSource];
+  const riskHint = {
+    website: english ? "Current Codex Resets watch." : "Codex Resets 当前预警。",
+    manual: undefined,
+    history: english
+      ? "24-hour planning estimate based on recent resets that immediately refilled quota."
+      : "按 Codex Resets 近期直接补充额度的重置记录估算未来 24 小时的风险。",
+    fallback: english
+      ? "Using the default planning reference until enough reset records are available."
+      : "重置记录不足时使用默认规划参考值。",
+  }[riskSource];
+  const restoreLabel = english ? "Restore automatic risk estimate" : "恢复自动风险估算";
   return (
     <section className={`today-quota-advice today-quota-advice--${advice.state}`} aria-label={t.officialSnapshot}>
       <header>
@@ -193,10 +201,13 @@ function TodayQuotaAdvicePanel({
       <div className="today-quota-advice-grid">
         <div><span>{language === "en" ? "Suggested day total" : "今日总建议"}</span><strong>{display(advice.todaySuggestedPercent)}</strong></div>
         <div><span>{t.todayUsed}</span><strong>{display(advice.todayUsedPercent)}</strong></div>
-        <div className="today-quota-advice-risk" title={websiteHint}>
-          <span>{websiteLabel}{riskSourceLabel ? ` · ${riskSourceLabel}` : ""}</span>
-          <div className="reset-risk-value"><strong>{display(websiteProbability)}</strong><button type="button" aria-label={language === "en" ? "Restore website risk" : "恢复网站风险"} title={language === "en" ? "Follow website risk" : "恢复并跟随网站风险"} onClick={() => onRiskChange(null)}><ArrowClockwise /></button></div>
-          <RangeSlider aria-label={websiteLabel} min={0} max={100} step={1} value={websiteProbability ?? 0} onChange={(event) => onRiskChange(Number(event.target.value))} onInteractionChange={onInteractionChange} />
+        <div className="today-quota-advice-risk" title={riskHint}>
+          <span>{riskLabel}{riskSourceLabel ? ` · ${riskSourceLabel}` : ""}</span>
+          <div className="reset-risk-value">
+            <strong>{display(riskPercent)}</strong>
+            <button type="button" aria-label={restoreLabel} title={restoreLabel} disabled={followsWebsite} onClick={() => onRiskChange(null)}><ArrowClockwise /></button>
+          </div>
+          <RangeSlider aria-label={riskLabel} min={0} max={100} step={1} value={riskPercent ?? 0} disabled={followsWebsite} onChange={(event) => onRiskChange(Number(event.target.value))} onInteractionChange={onInteractionChange} />
         </div>
       </div>
     </section>
@@ -782,6 +793,8 @@ export const QuotaCard = memo(function QuotaCard({
       : snapshot.resetCredits;
     const cockpitMode: CockpitMode = claudeView ? preferences.cockpitMode : "codex";
     const claudeQuotaReady = claudeView !== null && claudeView.weeklyRemaining !== null;
+    const pendingBadge = language === "en" ? "STALE" : "待更新";
+    const claudeQuotaBadge = claudeView?.quotaStatus === "ok" ? undefined : claudeQuotaReady ? pendingBadge : "—";
     const claudeUnavailable = claudeView ? (
       <section className="codex-focus-unavailable" role="status"><strong>{claudeQuotaMessage(claudeView, language)}</strong></section>
     ) : null;
@@ -821,6 +834,7 @@ export const QuotaCard = memo(function QuotaCard({
                     progress={claudeView.weeklyRemaining ?? 0}
                     tone="weekly"
                     variant="claude"
+                    badge={claudeQuotaBadge}
                     caption={formatResetTime(claudeView.weeklyResetsAt, new Date(), language)}
                     detail={language === "en" ? "weekly cycle" : "周额度周期"}
                     footer={(
@@ -831,16 +845,16 @@ export const QuotaCard = memo(function QuotaCard({
                       </div>
                     )}
                   />
-                  {claudeView.fiveHourUsed !== null ? (
+                  {claudeView.fiveHourUsed !== null || claudeView.fiveHourAwaitingRefresh ? (
                     <QuotaRing
                       label={claudeFiveHourLabel}
-                      value={number.format(claudeView.fiveHourUsed)}
-                      progress={claudeView.fiveHourUsed}
+                      value={claudeView.fiveHourUsed === null ? "—" : number.format(claudeView.fiveHourUsed)}
+                      progress={claudeView.fiveHourUsed ?? 0}
                       tone="daily"
-                      overPace={claudeView.fiveHourUsed >= 100}
+                      overPace={(claudeView.fiveHourUsed ?? 0) >= 100}
                       variant="claude"
-                      badge="5H"
-                      caption={formatResetTime(claudeView.fiveHourResetsAt, new Date(), language)}
+                      badge={claudeView.fiveHourAwaitingRefresh ? pendingBadge : claudeQuotaBadge ?? "5H"}
+                      caption={claudeView.fiveHourAwaitingRefresh ? undefined : formatResetTime(claudeView.fiveHourResetsAt, new Date(), language)}
                       detail={language === "en" ? "5-hour window" : "5 小时窗口"}
                       footer={(
                         <div className="weekly-reset-footer">
@@ -891,11 +905,12 @@ export const QuotaCard = memo(function QuotaCard({
                 innerProgress={claudeView.fiveHourUsed ?? undefined}
                 tone="weekly"
                 variant="claude"
+                badge={claudeView.fiveHourAwaitingRefresh ? pendingBadge : claudeQuotaBadge}
                 footer={claudeQuotaReady ? (
                   <div className="weekly-reset-footer">
                     <span>{weeklyLabel} <strong>{number.format(claudeView.weeklyRemaining ?? 0)}%</strong></span>
                     <span>{claudeFiveHourLabel} <strong>{claudeView.fiveHourUsed === null ? "—" : `${number.format(claudeView.fiveHourUsed)}%`}</strong></span>
-                    <span>{language === "en" ? "Next reset" : "下次重置"} <strong>{focusResetDate(claudeView.weeklyResetsAt, language)}</strong></span>
+                    <span>{language === "en" ? "Weekly reset" : "周重置"} <strong>{focusResetDate(claudeView.weeklyResetsAt, language)}</strong></span>
                   </div>
                 ) : <div className="weekly-reset-footer"><span>{claudeQuotaMessage(claudeView, language)}</span></div>}
               />
@@ -963,8 +978,8 @@ export const QuotaCard = memo(function QuotaCard({
                 <TodayQuotaAdvicePanel
                   advice={todayAdvice}
                   language={language}
-                  riskSource={resetRiskSource ?? (resetWatch?.signalKind !== "scheduled" && resetWatch?.resetChancePercent != null ? "website" : "fallback")}
-                  manualRisk={preferences.resetRiskManualEnabled === true}
+                  riskSource={resetRiskSource ?? (preferences.resetRiskManualEnabled ? "manual" : "fallback")}
+                  websiteRisk={resetWatch?.resetChancePercent ?? null}
                   onRiskChange={onResetRiskChange}
                   onInteractionChange={onSliderInteraction}
                 />
@@ -1284,7 +1299,7 @@ function CapsuleQuotaRings({ remaining, dailyRatio, watchActive = false, shortRe
   );
 }
 
-export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = () => undefined, language = "zh-CN", compactLayout = "float", colorTheme = "aurora", accentColor = "#397ae0", resolvedAppearance = "light", dailyUsage = null, dailyRecommendation = null, dailyBudgetPercent = null, fontScale = 1.15, resetWatch = null, cockpitMode = "codex", claudeWeeklyRemaining = null, claudeFiveHourUsed = null, claudeTodayRatio = null }: Pick<Props, "snapshot" | "onDrag" | "dailyRecommendation"> & { onActivate?: () => void; language?: Language; compactLayout?: WindowCompactLayout; colorTheme?: ColorTheme; accentColor?: string; resolvedAppearance?: ResolvedAppearance; dailyUsage?: CodexDailyUsage | null; dailyBudgetPercent?: number | null; fontScale?: number; resetWatch?: ResetWatch | null; cockpitMode?: CockpitMode; claudeWeeklyRemaining?: number | null; claudeFiveHourUsed?: number | null; claudeTodayRatio?: number | null }) {
+export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = () => undefined, language = "zh-CN", compactLayout = "float", colorTheme = "aurora", accentColor = "#397ae0", resolvedAppearance = "light", dailyUsage = null, dailyRecommendation = null, dailyBudgetPercent = null, fontScale = 1.15, resetWatch = null, cockpitMode = "codex", claudeWeeklyRemaining = null, claudeFiveHourUsed = null, claudeFiveHourAwaitingRefresh = false, claudeTodayRatio = null }: Pick<Props, "snapshot" | "onDrag" | "dailyRecommendation"> & { onActivate?: () => void; language?: Language; compactLayout?: WindowCompactLayout; colorTheme?: ColorTheme; accentColor?: string; resolvedAppearance?: ResolvedAppearance; dailyUsage?: CodexDailyUsage | null; dailyBudgetPercent?: number | null; fontScale?: number; resetWatch?: ResetWatch | null; cockpitMode?: CockpitMode; claudeWeeklyRemaining?: number | null; claudeFiveHourUsed?: number | null; claudeFiveHourAwaitingRefresh?: boolean; claudeTodayRatio?: number | null }) {
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | null>(null);
   const dragGesture = useRef<{ screenX: number; screenY: number; started: boolean } | null>(null);
@@ -1322,21 +1337,22 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
   const hasFiveHour = plus && shortRemaining !== null;
   const capsuleValue = plus ? shortRemaining ?? remaining : dailyBudgetUsageRatio;
   const capsuleMode: CockpitMode = compactLayout === "capsule" ? cockpitMode : "codex";
+  const claudeRatio = claudeFiveHourAwaitingRefresh ? null : claudeFiveHourUsed ?? claudeTodayRatio;
   const compactCapsuleWidth = compactLayout !== "capsule"
     ? null
     : capsuleMode === "claude"
-      ? capsuleLogicalWidth(claudeFiveHourUsed ?? claudeTodayRatio, fontScale)
+      ? capsuleLogicalWidth(claudeRatio, fontScale)
       : capsuleMode === "ai"
-        ? aiCapsuleLogicalWidth(capsuleValue, claudeFiveHourUsed ?? claudeTodayRatio, fontScale)
+        ? aiCapsuleLogicalWidth(capsuleValue, claudeRatio, fontScale)
         : capsuleLogicalWidth(capsuleValue, fontScale);
   const claudeCapsuleLabel = claudeWeeklyRemaining === null
     ? (activeLanguage === "en" ? "Claude quota unavailable" : "未读取到 Claude 额度")
-    : claudeFiveHourUsed !== null
-      ? `Claude ${activeLanguage === "en" ? "5h used" : "5h 已用"} ${compactPercent(claudeFiveHourUsed)}%; ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}`
+    : claudeFiveHourUsed !== null || claudeFiveHourAwaitingRefresh
+      ? `Claude ${activeLanguage === "en" ? "5h used" : "5h 已用"} ${compactPercent(claudeFiveHourUsed)}${claudeFiveHourUsed === null ? "" : "%"}; ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}`
       : `Claude ${quotaAvailableLabel("weekly", claudeWeeklyRemaining, activeLanguage)}; ${activeLanguage === "en" ? "Today's used / today's share" : "今日已用/今日建议"} ${compactPercent(claudeTodayRatio)}${claudeTodayRatio === null ? "" : "%"}`;
   const claudeCapsule = claudeWeeklyRemaining === null
     ? <section className="orb-unavailable"><StatusIcon status="unavailable" /></section>
-    : <CapsuleQuotaRings remaining={claudeWeeklyRemaining} dailyRatio={claudeFiveHourUsed ?? claudeTodayRatio} variant="claude" />;
+    : <CapsuleQuotaRings remaining={claudeWeeklyRemaining} dailyRatio={claudeRatio} variant="claude" />;
   const accessibleLabel = remaining !== null && orbQuota
     ? quotaAvailableLabel(orbQuota.period, remaining, activeLanguage)
     : unlimited

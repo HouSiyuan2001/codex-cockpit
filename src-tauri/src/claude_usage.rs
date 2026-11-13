@@ -776,6 +776,27 @@ mod tests {
     }
 
     #[test]
+    fn prices_fable_5_2_by_token_category() {
+        let usage = r#"{"input_tokens":1000000,"cache_creation_input_tokens":2000000,"cache_creation":{"ephemeral_5m_input_tokens":1000000,"ephemeral_1h_input_tokens":1000000},"cache_read_input_tokens":1000000,"output_tokens":1000000}"#;
+        let entry = parse_line(&line(
+            "fable",
+            "request",
+            "2026-11-11T04:00:00Z",
+            "claude-fable-5-2",
+            usage,
+        ))
+        .unwrap();
+        let standard = 8.0 + 10.0 + 16.0 + 0.20 + 40.0;
+        assert!((entry.cost_usd().unwrap() - standard).abs() < 1e-9);
+        let fast_us = UsageEntry {
+            fast: true,
+            us_geo: true,
+            ..entry
+        };
+        assert!((fast_us.cost_usd().unwrap() - standard * 2.0 * 1.1).abs() < 1e-9);
+    }
+
+    #[test]
     fn prices_cache_tiers_fast_mode_and_long_haiku_prompts() {
         let opus = parse_line(&line("m1", "r1", "2026-11-09T10:00:00Z", "claude-opus-5-5", r#"{"input_tokens":1000000,"cache_creation_input_tokens":2000000,"cache_read_input_tokens":1000000,"output_tokens":1000000,"cache_creation":{"ephemeral_5m_input_tokens":1000000,"ephemeral_1h_input_tokens":1000000}}"#)).unwrap();
         assert!((opus.cost_usd().unwrap() - (4.0 + 5.0 + 8.0 + 0.2 + 20.0)).abs() < 1e-9);

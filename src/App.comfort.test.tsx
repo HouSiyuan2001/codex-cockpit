@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { EMPTY_RUNTIME_STATE } from "./lib/activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./lib/preferences";
-import type { ComfortFeedbackRecord, ProviderSnapshot, ResetForecast, ResetWatch, RuntimeState } from "./types";
+import type { ClaudeQuota, ComfortFeedbackRecord, ProviderSnapshot, ResetForecast, ResetWatch, RuntimeState } from "./types";
 import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpanded, openControlCenterWindow, openExternalUrl, closeControlCenterWindow } from "./lib/bridge";
 import type { TokeiUsage } from "./lib/tokeiUsage";
 import { savePersonPlan, planDateKey } from "./lib/personPlanSync";
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   initialRuntime: null as RuntimeState | null,
   comfortUsage: null as TokeiUsage | null,
   refreshComfortUsage: vi.fn<() => Promise<TokeiUsage>>(),
+  fetchClaudeQuota: vi.fn<(manual: boolean) => Promise<ClaudeQuota>>(),
   fetchSnapshots: vi.fn(),
   getPreferences: vi.fn(),
   getRuntimeState: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock("./components/QuotaCard", () => ({
   capsuleLogicalWidth: () => 100,
   QuotaIsland: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
   QuotaOrb: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
-  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, dailyRecommendation, onResetRiskChange, comfortPrompt, onDiagnostics, updateOpen, diagnosticsOpen }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; dailyRecommendation: { resetRiskPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null; onDiagnostics: () => void; updateOpen: boolean; diagnosticsOpen: boolean }) => <div>
+  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, resetRiskSource, dailyRecommendation, onResetRiskChange, comfortPrompt, onDiagnostics, updateOpen, diagnosticsOpen }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; resetRiskSource: string; dailyRecommendation: { resetRiskPercent: number; targetPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null; onDiagnostics: () => void; updateOpen: boolean; diagnosticsOpen: boolean }) => <div>
     <button onClick={() => { onHover(false); onControlOpen(); }}>leave then open control</button>
     <button onClick={() => onOpenResetForecast("https://codex-resets.com/")}>open reset watch</button>
     <button onClick={() => onHover(false)}>leave widget</button>
@@ -51,7 +52,7 @@ vi.mock("./components/QuotaCard", () => ({
     <output data-testid="panel-state">{updateOpen ? "update" : diagnosticsOpen ? "diagnostics" : "none"}</output>
     <output data-testid="pending-comfort">{comfortPrompt?.localDate ?? "none"}</output>
     <button onClick={onRefresh}>quota refresh</button>
-    <output data-testid="reset-sources">{JSON.stringify({ model: resetForecast?.tomorrowRiskPercent, website: resetWatch?.resetChancePercent, signalKind: resetWatch?.signalKind, planning: dailyRecommendation?.resetRiskPercent })}</output>
+    <output data-testid="reset-sources">{JSON.stringify({ model: resetForecast?.tomorrowRiskPercent, website: resetWatch?.resetChancePercent, signalKind: resetWatch?.signalKind, planning: dailyRecommendation?.resetRiskPercent, source: resetRiskSource, target: dailyRecommendation?.targetPercent })}</output>
     <button onClick={() => onResetRiskChange(70)}>manual risk</button>
     <button onClick={() => onResetRiskChange(null)}>website risk</button>
     {controlCenter}
@@ -105,6 +106,8 @@ vi.mock("./lib/bridge", () => ({
   isTauri: () => false,
   createAutomaticBackup: vi.fn(async () => undefined),
   exportAppData: vi.fn(async () => null),
+  fetchClaudeQuota: (manual: boolean) => mocks.fetchClaudeQuota(manual),
+  fetchClaudeUsage: vi.fn(async () => null),
   fetchCodexResetForecast: vi.fn(async () => null),
   fetchWebsiteResetProbability: vi.fn(async () => null),
   fetchSnapshots: (...args: unknown[]) => mocks.fetchSnapshots(...args),
@@ -235,6 +238,29 @@ async function expandApp(): Promise<void> {
   await screen.findByRole("button", { name: "save comfort" });
 }
 
+it("refreshes Claude at the 5h boundary and when the user asks to refresh quotas", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  vi.setSystemTime(new Date("2026-11-11T13:59:55Z"));
+  const beforeReset: ClaudeQuota = {
+    status: "ok",
+    fiveHour: { usedPercent: 85, resetsAt: "2026-11-11T14:00:00Z" },
+    sevenDay: { usedPercent: 40, resetsAt: null },
+    sevenDayOpus: null, sevenDaySonnet: null, plan: "max", observedAt: new Date().toISOString(), message: null,
+  };
+  mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, claudeEnabled: true, cockpitMode: "claude" });
+  mocks.fetchClaudeQuota.mockReset().mockResolvedValueOnce(beforeReset)
+    .mockResolvedValue({ ...beforeReset, fiveHour: { usedPercent: 0, resetsAt: null } });
+
+  await act(async () => { render(<App />); });
+  expect(mocks.fetchClaudeQuota.mock.calls).toEqual([[false]]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+  expect(mocks.fetchClaudeQuota.mock.calls).toEqual([[false], [false]]);
+
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "expand" })); });
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "quota refresh" })); });
+  expect(mocks.fetchClaudeQuota).toHaveBeenLastCalledWith(true);
+});
+
 describe("App comfort persistence regressions", () => {
   it.each(["system", "smiley", "wenkai", "times", "fz-song"] as const)("applies the saved %s font to every app surface", async (fontFamily) => {
     mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, fontFamily, fontScale: 1.75 });
@@ -304,10 +330,8 @@ describe("App comfort persistence regressions", () => {
     mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: new Date().toISOString(), weeklyWindow: { remainingPercent: 26, windowSeconds: 604800, resetsAt: new Date(Date.now() + 5 * 86_400_000).toISOString() } }]);
     mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskOverridePercent: 10 });
     vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, historySampleCount: 12, windowHours: 24, fetchedAt: new Date().toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/" });
-    vi.mocked(fetchWebsiteResetProbability).mockResolvedValue({ level: "elevated", resetChancePercent: 83, checkedAt: new Date().toISOString(), observedAt: new Date(Date.now() - 60_000).toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString(), episodeId: "test-ballot" });
     await expandApp();
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"model":67.6');
-    expect(screen.getByTestId("reset-sources")).toHaveTextContent('"website":83');
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6');
     fireEvent.click(screen.getByRole("button", { name: "manual risk" }));
     await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":70'));
@@ -315,6 +339,33 @@ describe("App comfort persistence regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "website risk" }));
     await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6'));
     expect(savePersonPlan).toHaveBeenLastCalledWith(planDateKey(new Date()), "resetRiskOverridePercent", null);
+  });
+  it("replans from the current website risk and restores the saved risk when the watch clears", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-11-12T07:00:00Z"));
+    const now = Date.now();
+    const checkedAt = new Date(now).toISOString();
+    mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: checkedAt, weeklyWindow: { remainingPercent: 99, windowSeconds: 604800, resetsAt: new Date(now + 5 * 86_400_000).toISOString() } }]);
+    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskManualEnabled: true, resetRiskOverridePercent: 35 });
+    const watch = { level: "elevated" as const, resetChancePercent: 65, checkedAt, observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 86_400_000).toISOString(), episodeId: "test-watch" };
+    vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 18.6, tomorrowRiskPercent: 18.6, historySampleCount: 12, windowHours: 24, fetchedAt: checkedAt, resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
+      watchCheckedAt: checkedAt, activeWatch: { signalKind: "watch", level: watch.level, resetChancePercent: 65, observedAt: watch.observedAt, expiresAt: watch.expiresAt } });
+    vi.mocked(fetchWebsiteResetProbability)
+      .mockResolvedValueOnce(watch)
+      .mockImplementationOnce(async () => ({ ...watch, checkedAt: new Date().toISOString(), resetChancePercent: 0 }));
+
+    await expandApp();
+    const readRisk = () => JSON.parse(screen.getByTestId("reset-sources").textContent!);
+    expect(readRisk()).toMatchObject({ planning: 65, source: "website" });
+    const watchTarget = readRisk().target;
+    fireEvent.click(screen.getByRole("button", { name: "manual risk" }));
+    expect(savePersonPlan).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(readRisk()).toMatchObject({ planning: 0, source: "website" });
+    expect(readRisk().target).toBeLessThan(watchTarget);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(readRisk()).toMatchObject({ planning: 35, source: "manual" });
+    expect(savePersonPlan).not.toHaveBeenCalled();
   });
   it("reports a failed sync read without clearing feedback", async () => {
     mocks.getSyncedComfortFeedback.mockRejectedValueOnce(new Error("comfort_snapshot_invalid"));

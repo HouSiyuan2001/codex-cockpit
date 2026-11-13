@@ -14,7 +14,9 @@ it.each(["zh-CN", "en"] as const)("opens the fixed source website without draggi
     watch={{ level: "strong", resetChancePercent: 70, observedAt: "2026-09-09T05:00:00Z", expiresAt: "2026-09-10T05:00:00Z" }}
     onOpen={onOpen}
   /></div>);
-  const bell = screen.getByRole("button", { name: /70%.*codex-resets.com/ });
+  const bell = screen.getByRole("button", { name: /codex-resets.com/ });
+  expect(bell).not.toHaveTextContent("%");
+  expect(bell).toHaveAccessibleName(expect.not.stringContaining("%"));
   fireEvent.pointerDown(bell);
   fireEvent.mouseDown(bell);
   fireEvent.click(bell);

@@ -7,7 +7,7 @@
 - Automatic personal plans are the account recommendation divided by the number of configured people with devices. Each manual override replaces only that person's share; it never reallocates someone else's share.
 - Example: total recommendation 20%, two people initially 10% each; one chooses 12%, the other stays 10%. Show an over-recommendation warning for the total 22%, without clamping it.
 - The daily ring compares shared account consumption with the sum of personal plans. The slider changes only the current device owner's personal plan. Comfort selection does not change plan ownership.
-- Manual reset risk and automatic/manual mode are shared. In automatic mode, clients retain the existing website-risk source; devices can temporarily differ if that source is unavailable or stale. This is not an authoritative cloud risk forecast.
+- A current Codex Resets watch percentage takes precedence for the slider and recommendation. Once it clears, clients use the shared manual setting or the local history estimate. Devices can temporarily differ if their website reads arrive at different times.
 
 ## Formula and baseline
 

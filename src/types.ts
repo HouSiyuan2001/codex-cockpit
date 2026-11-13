@@ -198,7 +198,7 @@ export interface ResetWatch {
   expiresAt: string;
 }
 
-/** Website community ballot, not a daily calibrated risk or official forecast. */
+/** Third-party estimate for the current website watch. */
 export interface WebsiteResetProbability extends ResetWatch {
   checkedAt: string;
   episodeId: string;

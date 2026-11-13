@@ -106,6 +106,16 @@ it("puts Codex and Claude weekly quotas side by side in the AI cockpit", () => {
   expect(claude.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "38 62");
 });
 
+it("marks a Claude session awaiting a fresh reading once its reset time passes", () => {
+  const expired = { ...quota, fiveHour: { usedPercent: 85, resetsAt: now.toISOString() } };
+  renderCard("ai", {}, expired);
+  const claude = screen.getByRole("group", { name: "Claude 43%" });
+  expect(claude).toHaveTextContent("5h 已用 —");
+  expect(claude).toHaveTextContent("待更新");
+  expect(claude).not.toHaveTextContent("85%");
+  expect(claude).not.toHaveTextContent("LIVE");
+});
+
 it("renders Claude and AI capsules with matching widths", () => {
   const { container, rerender } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourUsed={38} dailyBudgetPercent={10} onDrag={() => {}} />);
   expect(container.querySelector(".quota-orb")).toHaveClass("cockpit-mode--claude");

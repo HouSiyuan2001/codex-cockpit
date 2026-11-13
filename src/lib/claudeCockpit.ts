@@ -48,6 +48,7 @@ export interface ClaudeCockpitView {
   weeklyResetsAt: string | null;
   fiveHourUsed: number | null;
   fiveHourResetsAt: string | null;
+  fiveHourAwaitingRefresh: boolean;
   opusWeeklyRemaining: number | null;
   dailyShare: number | null;
   /** Weekly percent used since the first reading today. */
@@ -61,7 +62,9 @@ export interface ClaudeCockpitView {
 export function buildClaudeCockpitView(report: ClaudeUsageReport | null, quota: ClaudeQuota | null, now = new Date(), baseline: ClaudeDayBaseline | null = null): ClaudeCockpitView {
   const today = localDateKey(now);
   const quotaReadable = quota?.status === "ok" || quota?.status === "stale";
-  const fiveHourUsedPercent = quotaReadable ? quota?.fiveHour?.usedPercent : undefined;
+  const fiveHour = quotaReadable ? quota?.fiveHour : null;
+  const fiveHourAwaitingRefresh = Date.parse(fiveHour?.resetsAt ?? "") <= now.getTime();
+  const fiveHourUsedPercent = fiveHourAwaitingRefresh ? undefined : fiveHour?.usedPercent;
   const weeklyRemaining = quotaReadable ? remaining(quota?.sevenDay) : null;
   const weeklyResetsAt = quotaReadable ? quota?.sevenDay?.resetsAt ?? null : null;
   const todayBaseline = baseline && baseline.localDate === today ? baseline : null;
@@ -83,7 +86,8 @@ export function buildClaudeCockpitView(report: ClaudeUsageReport | null, quota: 
     fiveHourUsed: fiveHourUsedPercent !== undefined && Number.isFinite(fiveHourUsedPercent)
       ? Math.round(Math.max(0, Math.min(100, fiveHourUsedPercent)) * 10) / 10
       : null,
-    fiveHourResetsAt: quotaReadable ? quota?.fiveHour?.resetsAt ?? null : null,
+    fiveHourResetsAt: fiveHourAwaitingRefresh ? null : fiveHour?.resetsAt ?? null,
+    fiveHourAwaitingRefresh,
     opusWeeklyRemaining: quotaReadable ? remaining(quota?.sevenDayOpus) : null,
     dailyShare: dayShare ?? claudeDailyShare(weeklyRemaining, weeklyResetsAt, now),
     todayUsedPercent,

@@ -4,12 +4,12 @@ import { createPortal } from "react-dom";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { calendarMonthCellCount, calendarRange, calendarValue, dateAtNoon, isoWeekNumber, rangeLabel, shiftDate, type CalendarScale, type UsageDateRange } from "../lib/usageCalendar";
 import { formatCost, formatTokens, localDateKey, type TokeiDevice, type UsageMetric } from "../lib/tokeiUsage";
-import { calendarHeatmapColor, calendarHeatmapTextColor } from "../lib/usageHeatmapColor";
+import { calendarHeatmapColor, calendarHeatmapGradient, calendarHeatmapTextColor, type CalendarHeatmapPalette } from "../lib/usageHeatmapColor";
 import "./UsageCalendar.css";
 
 const scales: CalendarScale[] = ["day", "week", "month", "quarter", "year"];
 const scaleName = (scale: CalendarScale, zh: boolean) => ({ day: zh ? "日" : "Day", week: zh ? "周" : "Week", month: zh ? "月" : "Month", quarter: zh ? "季" : "Quarter", year: zh ? "年" : "Year" })[scale];
-export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetricChange, now = new Date(), open: controlledOpen, onOpenChange, portalTarget }: { devices: TokeiDevice[]; metric: UsageMetric; zh: boolean; selection: UsageDateRange | null; onSelect: (range: UsageDateRange | null) => void; onMetricChange: (metric: UsageMetric) => void; now?: Date; open?: boolean; onOpenChange?: (open: boolean) => void; portalTarget?: HTMLElement | null }) {
+export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetricChange, now = new Date(), open: controlledOpen, onOpenChange, portalTarget, palette = "codex" }: { devices: TokeiDevice[]; metric: UsageMetric; zh: boolean; selection: UsageDateRange | null; onSelect: (range: UsageDateRange | null) => void; onMetricChange: (metric: UsageMetric) => void; now?: Date; open?: boolean; onOpenChange?: (open: boolean) => void; portalTarget?: HTMLElement | null; palette?: CalendarHeatmapPalette }) {
   const id = useId();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -44,7 +44,7 @@ export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetr
   const select = (range: UsageDateRange | null) => onSelect(range);
   const navigate = (direction: number) => setCursor(calendarDate(year + (scale === "year" ? direction * 12 : scale === "day" || scale === "week" ? 0 : direction), month + (scale === "day" || scale === "week" ? direction : 0), 1));
   const futurePage = (scale === "day" || scale === "week") ? year * 12 + month >= chinaNow.getUTCFullYear() * 12 + chinaNow.getUTCMonth() : scale === "year" ? Math.floor(year / 12) >= Math.floor(chinaNow.getUTCFullYear() / 12) : year >= chinaNow.getUTCFullYear();
-  const content = <div id={id} className="usage-calendar-content" role="region" aria-label={zh ? "用量日历" : "Usage calendar"} onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
+  const content = <div id={id} className="usage-calendar-content" data-calendar-palette={palette} role="region" aria-label={zh ? "用量日历" : "Usage calendar"} onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
       <div className="usage-calendar-scales">{scales.map(value => <button type="button" key={value} aria-pressed={scale === value} onClick={() => setScale(value)}>{scaleName(value, zh)}</button>)}</div>
       <header><button type="button" aria-label={zh ? "日历上一页" : "Previous calendar page"} onClick={() => navigate(-1)}><CaretLeft /></button><strong>{scale === "day" || scale === "week" ? `${year} / ${month + 1}` : scale === "year" ? `${Math.floor(year / 12) * 12} – ${Math.floor(year / 12) * 12 + 11}` : year}</strong><button type="button" aria-label={zh ? "日历下一页" : "Next calendar page"} disabled={futurePage} onClick={() => navigate(1)}><CaretRight /></button><button type="button" className="usage-calendar-today" aria-label={zh ? "回到今天" : "Jump to today"} onClick={() => { setCursor(chinaNow); }}>{zh ? "今" : "Now"}</button><div className="usage-calendar-metric-switch" aria-label={zh ? "日历指标" : "Calendar metric"}><button type="button" aria-pressed={metric === "tokens"} onClick={() => onMetricChange("tokens")}>Token</button><button type="button" aria-pressed={metric === "cost"} onClick={() => onMetricChange("cost")}>{zh ? "成本" : "Cost"}</button></div></header>
       <div className={`usage-calendar-nav-grid usage-calendar-nav-grid--${scale}`} style={scale === "week" ? { "--calendar-week-count": cells.length } as CSSProperties : undefined}>
@@ -57,16 +57,16 @@ export function UsageCalendar({ devices, metric, zh, selection, onSelect, onMetr
           const label = dailyLabel;
           return <div className="usage-calendar-cell-group" key={cell.range.start}>
             {scale === "day" && i % 7 === 0 && <button type="button" className="usage-calendar-week" disabled={week.start > today} aria-label={`${zh ? "选择周" : "Select week"} ${rangeLabel(week)}`} onClick={() => select(week)}>{isoWeekNumber(dateAtNoon(week.start))}</button>}
-            <button type="button" className={`usage-calendar-cell${cell.outside ? " is-outside" : ""}${!available ? " is-missing" : ""}`} style={available ? { backgroundColor: calendarHeatmapColor(value.value!, 0, visibleMax), color: calendarHeatmapTextColor(value.value!, 0, visibleMax) } : undefined} aria-label={label} aria-pressed={Boolean(selected)} disabled={cell.range.start > today} data-tooltip={label} onClick={() => select(cell.range)}>
+            <button type="button" className={`usage-calendar-cell${cell.outside ? " is-outside" : ""}${!available ? " is-missing" : ""}`} style={available ? { backgroundColor: calendarHeatmapColor(value.value!, 0, visibleMax, palette), color: calendarHeatmapTextColor(value.value!, 0, visibleMax, palette) } : undefined} aria-label={label} aria-pressed={Boolean(selected)} disabled={cell.range.start > today} data-tooltip={label} onClick={() => select(cell.range)}>
               <span>{cell.label}</span>{value.partial && available && <i aria-hidden="true" />}
             </button>
           </div>;
         })}
       </div>
-      <div className="usage-calendar-legend" aria-label={zh ? `${metric === "cost" ? "成本" : "Token"}用量色标，橙点为部分数据，灰格为暂无数据` : `${metric === "cost" ? "Cost" : "Token"} usage color scale; amber dot means partial data, gray means unavailable`}><span>{metric === "cost" ? formatCost(0, zh) : "0"}</span><i style={visibleMax === 0 ? { background: calendarHeatmapColor(0, 0, 0) } : undefined} /><span>{metric === "cost" ? formatCost(visibleMax, zh) : formatTokens(visibleMax, zh)}</span></div>
+      <div className="usage-calendar-legend" aria-label={zh ? `${metric === "cost" ? "成本" : "Token"}用量色标，橙点为部分数据，灰格为暂无数据` : `${metric === "cost" ? "Cost" : "Token"} usage color scale; amber dot means partial data, gray means unavailable`}><span>{metric === "cost" ? formatCost(0, zh) : "0"}</span><i style={{ background: visibleMax === 0 ? calendarHeatmapColor(0, 0, 0, palette) : calendarHeatmapGradient(palette) }} /><span>{metric === "cost" ? formatCost(visibleMax, zh) : formatTokens(visibleMax, zh)}</span></div>
     </div>;
-  return <div className="usage-calendar">
-    <button type="button" className={`usage-calendar-trigger${open || selection ? " is-active" : ""}`} aria-expanded={open} aria-controls={id} title={`${rangeLabel(previewRange)} · ${previewValue.value === null ? zh ? "暂无数据" : "No data" : displayValue(previewValue.value)}`} onClick={() => setOpen(!open)}><span className={`usage-calendar-trigger-tile${previewValue.value === null ? " is-missing" : ""}`} style={previewValue.value === null ? undefined : { backgroundColor: calendarHeatmapColor(previewValue.value, 0, visibleMax) }} aria-hidden="true" />{zh ? "日历" : "Calendar"}</button>
+  return <div className="usage-calendar" data-calendar-palette={palette}>
+    <button type="button" className={`usage-calendar-trigger${open || selection ? " is-active" : ""}`} aria-expanded={open} aria-controls={id} title={`${rangeLabel(previewRange)} · ${previewValue.value === null ? zh ? "暂无数据" : "No data" : displayValue(previewValue.value)}`} onClick={() => setOpen(!open)}><span className={`usage-calendar-trigger-tile${previewValue.value === null ? " is-missing" : ""}`} style={previewValue.value === null ? undefined : { backgroundColor: calendarHeatmapColor(previewValue.value, 0, visibleMax, palette) }} aria-hidden="true" />{zh ? "日历" : "Calendar"}</button>
     {open && (portalTarget ? createPortal(content, portalTarget) : content)}
   </div>;
 }

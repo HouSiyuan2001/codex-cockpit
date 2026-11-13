@@ -1,5 +1,4 @@
-//! Read codex-resets.com's public watch signal, independently of its vote API.
-//! This is a third-party forecast, not an official reset or calibrated hazard.
+//! Read the public Codex Resets watch and its third-party forecast.
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::time::Duration;
@@ -30,6 +29,7 @@ struct WebsiteWatch {
     tweet_id: Option<String>,
     observed_at: String,
     expires_at: String,
+    reset_chance: Option<serde_json::Value>,
 }
 
 fn normalize(response: WebsiteResponse, now: DateTime<Utc>) -> Option<WebsiteResetProbability> {
@@ -53,8 +53,11 @@ fn normalize(response: WebsiteResponse, now: DateTime<Utc>) -> Option<WebsiteRes
         .unwrap_or_else(|| observed.to_rfc3339());
     Some(WebsiteResetProbability {
         level: watch.level,
-        // reset_chance is a different signal; do not present it as vote percent.
-        reset_chance_percent: None,
+        reset_chance_percent: watch
+            .reset_chance
+            .and_then(|value| value.as_u64())
+            .filter(|value| *value <= 100)
+            .map(|value| value as u8),
         observed_at: observed
             .with_timezone(&Utc)
             .to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -118,6 +121,32 @@ mod tests {
         assert_eq!(result.level, "strong");
         assert_eq!(result.episode_id, "manual-event-a");
         assert_eq!(result.reset_chance_percent, None);
+    }
+
+    #[test]
+    fn exposes_valid_website_estimates_and_keeps_the_watch_without_a_valid_number() {
+        for (chance, expected) in [
+            (serde_json::json!(65), Some(65)),
+            (serde_json::json!(0), Some(0)),
+            (serde_json::json!(100), Some(100)),
+            (serde_json::json!(101), None),
+            (serde_json::json!(-1), None),
+            (serde_json::json!("65"), None),
+        ] {
+            let response = serde_json::from_value(serde_json::json!({
+                "watch": {
+                    "level": "elevated",
+                    "observed_at": "2026-09-11T06:39:40Z",
+                    "expires_at": "2026-09-14T07:00:00Z",
+                    "reset_chance": chance
+                }
+            }))
+            .unwrap();
+            assert_eq!(
+                normalize(response, now()).unwrap().reset_chance_percent,
+                expected
+            );
+        }
     }
 
     #[test]

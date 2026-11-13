@@ -275,7 +275,7 @@ function mockClaudeUsage(): ClaudeUsageReport {
 }
 
 /** Claude 5-hour and weekly limits, read-only; the browser preview uses synthetic data. */
-export async function fetchClaudeQuota(): Promise<ClaudeQuota> {
+export async function fetchClaudeQuota(manual = false): Promise<ClaudeQuota> {
   if (!isTauri()) {
     const now = Date.now();
     return {
@@ -290,7 +290,7 @@ export async function fetchClaudeQuota(): Promise<ClaudeQuota> {
     };
   }
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<ClaudeQuota>("get_claude_quota");
+  return invoke<ClaudeQuota>("get_claude_quota", { manual });
 }
 
 /** Read-only local Claude Code usage; the browser preview uses synthetic data. */
@@ -584,7 +584,7 @@ export function closeControlCenterWindow(): Promise<void> {
 
 export async function listenDesktopEvents(handlers: {
   onPreferences: (value: WidgetPreferences) => void;
-  onRefresh: () => void;
+  onRefresh: (manual: boolean) => void;
   onUpdate: () => void;
   onBackgroundSnapshots: (value: ProviderSnapshot[]) => void;
 }): Promise<() => void> {
@@ -594,7 +594,7 @@ export async function listenDesktopEvents(handlers: {
   try {
     unlisteners.push(await listen<WidgetPreferences>("preferences-changed", (event) => handlers.onPreferences(event.payload)));
     unlisteners.push(await listen<ProviderSnapshot[]>("background-snapshots-updated", (event) => handlers.onBackgroundSnapshots(event.payload)));
-    unlisteners.push(await listen("refresh-requested", handlers.onRefresh));
+    unlisteners.push(await listen<boolean | null>("refresh-requested", (event) => handlers.onRefresh(event.payload === true)));
     unlisteners.push(await listen("update-check-requested", handlers.onUpdate));
   } catch (error) {
     for (const unlisten of [...unlisteners].reverse()) unlisten();

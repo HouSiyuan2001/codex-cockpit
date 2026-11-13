@@ -1,10 +1,10 @@
 # 网站 Reset Watch 铃铛
 
-通过 Rust 只读请求读取 [公开 API](https://codex-resets.com/api/resets) 的 `watch`；以 level=elevated/strong、可解析的 observed_at/expires_at 和尚未到期为准，不设概率阈值。当前接口没有投票数据也能显示预警；不把 `reset_chance` 冒充投票百分比，没有可靠数字时概率为 null。第三方预测不是 OpenAI 承诺。
+通过 Rust 只读请求读取公开 API 的 `watch`。接受 level=elevated/strong 且在有效期内的预警。铃铛打开预警网页。有效的 `reset_chance` 自动填入现有风险滑条并用于今日建议。[Codex Resets API](https://codex-resets.com/api/resets)
 
 同时识别 `/api/v1/status` 的 `scheduled_reset`：只接受来源、时间和状态通过校验的未来公告，作为“重置已宣布”铃铛显示，不伪造概率。到期、撤回或检查过旧后隐藏。
 
-仅传递信号类型、level、概率、观测/到期时间和本地 watchCheckedAt，不存推文或账户数据。铃铛独立于校准 score 与手动风险滑条，不改变额度或舒适曲线。沿用5分钟原生后台额度事件、启动/聚焦/手动刷新；请求失败或撤回立即清除，下次30秒规划时钟清除到期信号；10分钟没有成功检查也隐藏。不申请系统或浏览器通知。
+应用每 10 秒读取一次公开预警，额度快照刷新时更新已安排的重置。网站概率有效期间滑条跟随网站。预警过期、撤回或检查过旧时，计划恢复已有的手动值，或按近期直接补充额度的重置记录估算。
 
 胶囊徽标不增加点击目标，仍点击展开；展开标题旁按钮阻止拖动冒泡，固定打开 https://codex-resets.com/，不使用上游任意URL。无 Watch 时不占位。
 

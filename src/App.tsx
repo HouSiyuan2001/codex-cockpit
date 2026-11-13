@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setAppIconTheme } from "./lib/appIcon";
 import { useSharedDailyPlan } from "./hooks/useSharedDailyPlan";
-import { useClaudeUsage } from "./hooks/useClaudeUsage";
+import { useClaudeQuota, useClaudeUsage } from "./hooks/useClaudeUsage";
 import { buildClaudeCockpitView } from "./lib/claudeCockpit";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
 import { closeControlCenterWindow } from "./lib/bridge";
@@ -130,6 +130,10 @@ export default function App() {
   const planSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const language = normalizeLanguage(preferences.language);
   const t = copy[language];
+  const claudeActive = startupReady && preferences.claudeEnabled && preferences.cockpitMode !== "codex";
+  const { report: claudeReport, refresh: refreshClaudeUsage } = useClaudeUsage(claudeActive);
+  const { quota: claudeQuota, baseline: claudeBaseline, refresh: refreshClaudeQuota } = useClaudeQuota(claudeActive);
+  const claudeFiveHourResetAt = claudeQuota?.fiveHour?.resetsAt;
   const resolvedAppearance = resolveAppearanceMode(preferences.appearanceMode, systemDark);
   const codexDailyUsageHistory = useMemo(() => {
     const now = new Date();
@@ -173,6 +177,16 @@ export default function App() {
     }, 30_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const delay = Date.parse(claudeFiveHourResetAt ?? "") - Date.now();
+    if (!claudeActive || !Number.isFinite(delay) || delay <= 0) return;
+    const timer = window.setTimeout(() => {
+      setPlanningNow(new Date());
+      refreshClaudeQuota();
+    }, delay + 500);
+    return () => window.clearTimeout(timer);
+  }, [claudeActive, claudeFiveHourResetAt, refreshClaudeQuota]);
 
   const commitRuntimeState = useCallback((next: RuntimeState) => {
     runtimeStateRef.current = next;
@@ -475,6 +489,12 @@ export default function App() {
     }
   }, [commitRuntimeState]);
 
+  const refreshQuotas = useCallback((manualClaude = false) => {
+    setPlanningNow(new Date());
+    void refresh(true);
+    refreshClaudeQuota(manualClaude);
+  }, [refresh, refreshClaudeQuota]);
+
   const loadVolcengineDiagnostics = useCallback(async () => {
     setDiagnosticsLoading(true);
     try {
@@ -553,11 +573,11 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let cleanup: () => void = () => {};
-    void listenDesktopEvents({ onPreferences: (value) => { const normalized = normalizeWidgetPreferences(value); ++preferenceSaveSequence.current; preferencesRef.current = normalized; confirmedPreferencesRef.current = normalized; setPreferences(normalized); }, onRefresh: () => void refresh(true), onBackgroundSnapshots: (value) => void refresh(false, value), onUpdate: () => checkUpdate(true) }).then((value) => {
+    void listenDesktopEvents({ onPreferences: (value) => { const normalized = normalizeWidgetPreferences(value); ++preferenceSaveSequence.current; preferencesRef.current = normalized; confirmedPreferencesRef.current = normalized; setPreferences(normalized); }, onRefresh: refreshQuotas, onBackgroundSnapshots: (value) => void refresh(false, value), onUpdate: () => checkUpdate(true) }).then((value) => {
       if (cancelled) value(); else cleanup = value;
     }).catch(() => setOperationError("Desktop event listener failed to start."));
     return () => { cancelled = true; cleanup(); };
-  }, [checkUpdate, refresh]);
+  }, [checkUpdate, refresh, refreshQuotas]);
 
   const checkUpdateRef = useRef(checkUpdate);
   checkUpdateRef.current = checkUpdate;
@@ -575,14 +595,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const refreshWhenActive = () => { if (document.visibilityState === "visible") void refresh(true); };
+    const refreshWhenActive = () => { if (document.visibilityState === "visible") refreshQuotas(); };
     window.addEventListener("focus", refreshWhenActive);
     document.addEventListener("visibilitychange", refreshWhenActive);
     return () => {
       window.removeEventListener("focus", refreshWhenActive);
       document.removeEventListener("visibilitychange", refreshWhenActive);
     };
-  }, [refresh]);
+  }, [refreshQuotas]);
 
   useEffect(() => {
     if (hovered || preferences.pinnedProvider || snapshots.length < 2) return;
@@ -608,12 +628,14 @@ export default function App() {
   // Announced schedules light the bell, but never become a probability input.
   const resetWatch = forecastAlert?.signalKind === "scheduled"
     ? forecastAlert : websiteResetWatch ?? forecastAlert;
+  // The shorter website poll controls how long its estimate can drive the plan.
+  const websiteRisk = forecastAlert?.signalKind === "scheduled" ? null : websiteResetWatch?.resetChancePercent ?? null;
   // Keep the last usable history estimate through transient tracker failures.
   const forecastAge = planningNow.getTime() - Date.parse(historyResetForecast?.fetchedAt ?? "");
-  const automaticRisk = forecastAge >= -60_000 && forecastAge < 86_400_000
+  const historyRisk = forecastAge >= -60_000 && forecastAge < 86_400_000
     ? historyResetForecast?.tomorrowRiskPercent ?? null : null;
   const manualRisk = preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent : null;
-  const planningRisk = manualRisk ?? automaticRisk ?? 10;
+  const planningRisk = websiteRisk ?? manualRisk ?? historyRisk ?? 10;
   const effectiveResetForecast = codexResetForecast;
   const carryUsageHistory = useMemo(
     () => [...codexDailyUsageHistory, ...runtimeState.dailyUsage.filter((item) => item.provider === "codex")],
@@ -651,9 +673,13 @@ export default function App() {
     localDate: localRecommendation.dayPlan.localDate, anchorAt: localRecommendation.dayPlan.anchorAt,
     remainingPercent: localRecommendation.dayPlan.remainingPercent, resetsAt: new Date(current.weeklyWindow.resetsAt).toISOString(),
   } : null;
-  const sharedPlan = useSharedDailyPlan(planBasis,preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent ?? null : null);
+  const sharedPlan = useSharedDailyPlan(planBasis, manualRisk);
   const sharedBasis = sharedPlan.plan?.basis ?? planBasis;
-  const sharedRisk = (sharedPlan.plan ? sharedPlan.plan.risk.value : manualRisk) ?? automaticRisk ?? 10;
+  const sharedManualRisk = sharedPlan.plan ? sharedPlan.plan.risk.value : manualRisk;
+  const sharedRisk = websiteRisk ?? sharedManualRisk ?? historyRisk ?? 10;
+  const resetRiskSource = websiteRisk !== null ? "website"
+    : sharedManualRisk !== null ? "manual"
+    : historyRisk !== null ? "history" : "fallback";
   const dailyRecommendation: DailyRecommendation | null = localRecommendation && sharedBasis ? (() => {
     const target = sharedRecommendation(sharedBasis, sharedRisk);
     const used = Math.max(0, sharedBasis.remainingPercent - (current?.weeklyWindow?.remainingPercent ?? sharedBasis.remainingPercent));
@@ -704,18 +730,17 @@ export default function App() {
     });
     return dailyUsageRatio(todayAdvice.todayUsedPercent, totalPlanBudget);
   }, [codexDailyUsage, current, dailyRecommendation, totalPlanBudget]);
-  const claudeUsage = useClaudeUsage(startupReady && preferences.claudeEnabled && preferences.cockpitMode !== "codex");
-  const refreshClaudeUsage = claudeUsage.refresh;
   const claudeView = useMemo(
-    () => buildClaudeCockpitView(claudeUsage.report, claudeUsage.quota, planningNow, claudeUsage.baseline),
-    [claudeUsage.baseline, claudeUsage.quota, claudeUsage.report, planningNow],
+    () => buildClaudeCockpitView(claudeReport, claudeQuota, planningNow, claudeBaseline),
+    [claudeBaseline, claudeQuota, claudeReport, planningNow],
   );
+  const claudeCapsuleRatio = claudeView.fiveHourAwaitingRefresh ? null : claudeView.fiveHourUsed ?? claudeView.todayRatio;
   const compactCapsuleWidth = compactLayout === "capsule"
     ? !preferences.claudeEnabled ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : preferences.cockpitMode === "claude"
-      ? capsuleLogicalWidth(claudeView.fiveHourUsed ?? claudeView.todayRatio, preferences.fontScale)
+      ? capsuleLogicalWidth(claudeCapsuleRatio, preferences.fontScale)
       : preferences.cockpitMode === "ai"
-        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeView.fiveHourUsed ?? claudeView.todayRatio, preferences.fontScale)
+        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeCapsuleRatio, preferences.fontScale)
         : capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : undefined;
   const dailyPersonCosts = useMemo(() => {
@@ -905,7 +930,7 @@ export default function App() {
     }
     if (value && !compact && hoverTargetExpanded.current) return;
     hoverTargetExpanded.current = value;
-    if (value && !usesWidgetMorph()) { void refresh(true); if (preferencesRef.current.cockpitMode !== "codex") refreshClaudeUsage(); }
+    if (value && !usesWidgetMorph()) { refreshQuotas(); refreshClaudeUsage(); }
     if (value) {
       const sequence = ++hoverSequence.current;
       widgetTransitioning.current = true;
@@ -925,7 +950,7 @@ export default function App() {
           setWidgetSurfaceSizing(false);
           window.dispatchEvent(new Event("resize"));
           // Keep quota/network-driven React updates out of the opening tween.
-          if (usesWidgetMorph()) { void refresh(true); if (preferencesRef.current.cockpitMode !== "codex") refreshClaudeUsage(); }
+          if (usesWidgetMorph()) { refreshQuotas(); refreshClaudeUsage(); }
           // A genuine exit during the morph still collapses after settling;
           // synthesized resize events cannot reverse a half-painted surface.
           if (usesWidgetMorph()) window.requestAnimationFrame(() => {
@@ -973,7 +998,7 @@ export default function App() {
           setOperationError("Widget collapse failed.");
         });
     }, usesWidgetMorph() ? 280 : 60);
-  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refresh, refreshClaudeUsage, stayExpanded, updateOpen]);
+  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refreshClaudeUsage, refreshQuotas, stayExpanded, updateOpen]);
 
   const comfortPromptKey = comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
   useEffect(() => {
@@ -1154,6 +1179,7 @@ export default function App() {
         cockpitMode={preferences.claudeEnabled ? preferences.cockpitMode : "codex"}
         claudeWeeklyRemaining={claudeView.weeklyRemaining}
         claudeFiveHourUsed={claudeView.fiveHourUsed}
+        claudeFiveHourAwaitingRefresh={claudeView.fiveHourAwaitingRefresh}
         claudeTodayRatio={claudeView.todayRatio}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}
@@ -1165,7 +1191,7 @@ export default function App() {
     <QuotaCard
       snapshot={current}
       snapshots={orderedSnapshots}
-      preferences={{...preferences,dailyBudgetPercent:personalPlanBudget,resetRiskManualEnabled:sharedPlan.plan ? sharedPlan.plan.risk.value!==null : preferences.resetRiskManualEnabled}}
+      preferences={{ ...preferences, dailyBudgetPercent: personalPlanBudget }}
       sharedBudgetPercent={totalPlanBudget}
       codexDailyUsage={codexDailyUsage}
       dailyPersonCosts={dailyPersonCosts}
@@ -1178,7 +1204,11 @@ export default function App() {
       claudeView={preferences.claudeEnabled ? claudeView : null}
       onCockpitModeChange={handleCockpitModeChange}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
-      onResetRiskChange={(value) => { if (sharedPlan.connected) sharedPlan.change("risk", value); else if (sharedPlan.scopeReady) saveManualPlan("resetRiskOverridePercent", value); }}
+      onResetRiskChange={(value) => {
+        if (websiteRisk !== null) return;
+        if (sharedPlan.connected) sharedPlan.change("risk", value);
+        else if (sharedPlan.scopeReady) saveManualPlan("resetRiskOverridePercent", value);
+      }}
       onResetDailyBudget={() => {
         if (!dailyRecommendation) return;
         if(planPerson && sharedPlan.connected){sharedPlan.change("person",null,planPerson.id);return;}
@@ -1210,7 +1240,7 @@ export default function App() {
       onLock={() => { setOperationError(null); void setAlwaysOnTop(!preferences.alwaysOnTop).then((value) => { const normalized = normalizeWidgetPreferences(value); ++preferenceSaveSequence.current; preferencesRef.current = normalized; confirmedPreferencesRef.current = normalized; setPreferences(normalized); }).catch(() => setOperationError("Always-on-top toggle failed.")); }}
       onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
       onHover={handleHover}
-      onRefresh={() => refresh(true)}
+      onRefresh={() => refreshQuotas(true)}
       onDiagnostics={openVolcengineDiagnostics}
       onCloseDiagnostics={() => setDiagnosticsOpen(false)}
       onReconnect={() => void handleVolcengineReconnect()}
@@ -1220,7 +1250,7 @@ export default function App() {
       reconnecting={reconnecting}
       recentCodexReset={recentCodexReset}
       resetWatch={resetWatch}
-      resetRiskSource={automaticRisk !== null ? "website" : "fallback"}
+      resetRiskSource={resetRiskSource}
       resetForecast={effectiveResetForecast}
       onOpenResetForecast={(url) => {
         // Opening a browser can hide the widget without firing mouseleave.
@@ -1293,7 +1323,7 @@ export default function App() {
           onClose={() => {
             void closeControlSurface(true).catch(() => setOperationError("Control center close failed."));
           }}
-          onRefresh={() => { void refresh(true); }}
+          onRefresh={() => refreshQuotas(true)}
           onOpenCodexResets={() => void openExternalUrl(CODEX_RESETS_URL).catch(() => setOperationError(language === "en" ? "Codex Resets could not be opened." : "无法打开 Codex Resets。"))}
           onDrag={() => { void startDragging().catch(() => setOperationError("Control center drag failed.")); }}
           onPreferences={savePreferences}

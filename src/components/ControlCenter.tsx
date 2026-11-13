@@ -119,8 +119,11 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
     source: "Quota comes from the official local snapshot",
     done: "Done",
   };
-  const [usageSource, setUsageSource] = useState<"codex" | "claude" | "ai">(() => preferences.cockpitMode === "codex" ? "codex" : preferences.cockpitMode);
-  const claudeUsage = useClaudeUsage(page === "usage" && preferences.claudeEnabled && usageSource === "ai", 400);
+  const cockpitMode = preferences.claudeEnabled ? preferences.cockpitMode : "codex";
+  const [selectedUsageSource, setSelectedUsageSource] = useState(cockpitMode);
+  const usageSource = preferences.claudeEnabled ? selectedUsageSource : "codex";
+  const colorMode = page === "usage" ? usageSource : cockpitMode;
+  const claudeUsage = useClaudeUsage(page === "usage" && usageSource === "ai", 400);
   const updatePreferences = (patch: Partial<WidgetPreferences>) => onPreferences({ ...preferences, ...patch });
   const fontNeedsLocalInstallation = UI_FONT_OPTIONS.find(option => option.id === preferences.fontFamily)?.localOnly === true;
   const productName = zh ? "Codex 驾驶舱" : "Codex Cockpit";
@@ -131,6 +134,11 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
   const changePage = (next: typeof page) => {
     if (next !== "usage" && calendarOpen) changeCalendarOpen(false);
     setPage(next);
+  };
+  const changeUsageSource = (source: typeof usageSource) => {
+    if (source === usageSource) return;
+    if (calendarOpen) changeCalendarOpen(false);
+    setSelectedUsageSource(source);
   };
 
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
@@ -152,7 +160,18 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
   };
 
   return (
-    <section ref={dialogRef} className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="control-center-title" tabIndex={-1} onPointerDownCapture={handleInputPointerDown} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+    <section
+      ref={dialogRef}
+      className={`control-center control-center--minimal${page === "usage" && calendarOpen ? " control-center--calendar-open" : ""}`}
+      data-cockpit-mode={colorMode}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="control-center-title"
+      tabIndex={-1}
+      onPointerDownCapture={handleInputPointerDown}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
       <header
         className="control-header control-header--draggable"
         onPointerDown={handleHeaderPointerDown}
@@ -169,11 +188,11 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
       <div className="control-body control-body--minimal">
         {page === "usage" ? <>
           {preferences.claudeEnabled ? <div className="usage-source-switch" role="radiogroup" aria-label={zh ? "用量来源" : "Usage source"}>
-            {(["codex", "claude", "ai"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => setUsageSource(source)}>{source === "ai" ? null : <ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />}{source === "codex" ? "Codex" : source === "claude" ? "Claude" : "AI"}</button>)}
+            {(["codex", "claude", "ai"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => changeUsageSource(source)}>{source === "ai" ? null : <ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />}{source === "codex" ? "Codex" : source === "claude" ? "Claude" : "AI"}</button>)}
           </div> : null}
-          {preferences.claudeEnabled && usageSource === "claude"
-            ? <ClaudeUsagePanel zh={zh} />
-            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} claudeReport={preferences.claudeEnabled && usageSource === "ai" ? claudeUsage.report : null} />}
+          {usageSource === "claude"
+            ? <ClaudeUsagePanel zh={zh} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} />
+            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} claudeReport={usageSource === "ai" ? claudeUsage.report : null} />}
         </> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>

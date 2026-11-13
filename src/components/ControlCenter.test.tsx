@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import type { WidgetPreferences } from "../types";
@@ -50,6 +50,57 @@ it("puts Usage first in the control center navigation", () => {
   cleanup();
   render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("colors Usage by its selected source and other pages by the cockpit mode", () => {
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, cockpitMode: "claude" as const, claudeEnabled: true };
+  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn() };
+  const { rerender } = render(<ControlCenter {...props} preferences={preferences} />);
+  const dialog = screen.getByRole("dialog");
+
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
+  fireEvent.click(screen.getByRole("radio", { name: /Codex/ }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
+  fireEvent.click(screen.getByRole("radio", { name: "AI" }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "ai");
+  fireEvent.click(screen.getByRole("button", { name: "Quota" }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
+  fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "ai");
+  expect(props.onPreferences).not.toHaveBeenCalled();
+
+  rerender(<ControlCenter {...props} preferences={{ ...preferences, cockpitMode: "codex", claudeEnabled: false }} />);
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
+  expect(screen.queryByRole("radiogroup", { name: "Usage source" })).not.toBeInTheDocument();
+});
+
+it("filters Claude usage through the calendar and shares the cost metric with the trend", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-11T04:00:00Z"));
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, claudeEnabled: true, cockpitMode: "claude" as const };
+  render(<ControlCenter preferences={preferences} language="zh-CN" onClose={vi.fn()} onRefresh={vi.fn()} onPreferences={vi.fn()} autostartEnabled={false} onAutostart={vi.fn()} />);
+  expect(await screen.findByRole("region", { name: "每日 Token" })).toBeInTheDocument();
+  expect(screen.getByText("估算成本 $10.00")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "日历" }));
+  const sidebar = screen.getByRole("complementary", { name: "日历侧栏" });
+  const calendar = within(sidebar).getByRole("region", { name: "用量日历" });
+  expect(calendar).toHaveAttribute("data-calendar-palette", "claude");
+  fireEvent.click(within(calendar).getByRole("button", { name: "成本" }));
+  const day = within(calendar).getByRole("button", { name: "2026-11-09 · $30.30" });
+  expect(day).toHaveStyle({ backgroundColor: "rgb(161, 70, 31)" });
+  fireEvent.click(day);
+  expect(screen.getByRole("button", { name: "日历" }).querySelector(".usage-calendar-trigger-tile")).toHaveStyle({ backgroundColor: "rgb(161, 70, 31)" });
+  expect(screen.getByRole("combobox", { name: "统计时间" })).toHaveDisplayValue("2026-11-09");
+  expect(screen.getByRole("region", { name: "Claude 用量" })).toHaveTextContent("$30.30");
+  const trend = screen.getByRole("region", { name: "每日估算金额" });
+  expect(within(trend).getByTitle("2026-11-03 – 2026-11-09")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("radio", { name: /Codex/ }));
+  expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog")).not.toHaveClass("control-center--calendar-open");
 });
 
 it("changes the UI font from Display while preserving the other preferences", () => {
@@ -137,7 +188,7 @@ it("keeps the heatmap basis, marker, and curve on the selected person's fitted k
   expect(basis()).toBe("Charlie · Default basis k 25.0% · no usable feedback");
 });
 
-afterEach(() => { cleanup(); delete document.documentElement.dataset.platform; vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); delete document.documentElement.dataset.platform; vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function installPointerEvent(): void {
   class TestPointerEvent extends MouseEvent {

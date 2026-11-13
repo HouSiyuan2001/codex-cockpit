@@ -819,8 +819,11 @@ async fn get_codex_website_reset_probability(
 }
 
 #[tauri::command]
-async fn get_claude_quota(state: State<'_, AppState>) -> Result<claude_quota::ClaudeQuota, String> {
-    Ok(claude_quota::fetch(&state.client).await)
+async fn get_claude_quota(
+    state: State<'_, AppState>,
+    manual: Option<bool>,
+) -> Result<claude_quota::ClaudeQuota, String> {
+    Ok(claude_quota::fetch(&state.client, manual.unwrap_or(false)).await)
 }
 
 #[tauri::command(async)]
@@ -3200,7 +3203,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 }
             }
             "refresh" => {
-                let _ = app.emit_to("widget", "refresh-requested", ());
+                let _ = app.emit_to("widget", "refresh-requested", true);
             }
             "update" => {
                 let _ = app.emit_to("widget", "update-check-requested", ());

@@ -26,7 +26,6 @@ export function resetWatchLabel(watch: ResetWatch, language: Language): string {
   if (watch.signalKind === "scheduled") {
     return language === "en" ? "Reset announced · scheduled time · tracked by codex-resets.com" : "重置已宣布 · 预计时间 · codex-resets.com 跟踪";
   }
-  const chance = watch.resetChancePercent === null ? "" : ` · ${watch.resetChancePercent}%`;
   const strength = watch.level === "strong" ? (language === "en" ? "strong signal" : "较强信号") : (language === "en" ? "elevated signal" : "关注信号");
-  return language === "en" ? `Reset Watch · ${strength}${chance} · third-party forecast` : `重置预警 · ${strength}${chance} · 第三方预测`;
+  return language === "en" ? `Reset Watch · ${strength} · third-party forecast` : `重置预警 · ${strength} · 第三方预测`;
 }

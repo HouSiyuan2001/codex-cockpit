@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeTaskName } from "./claudeUsageRows";
+import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeTaskName, claudeUsageDevice } from "./claudeUsageRows";
+import { calendarValue } from "./usageCalendar";
 import type { ClaudeDailyUsage, ClaudeModelUsage, ClaudeUsageReport } from "../types";
 
 const now = new Date("2026-11-10T12:00:00Z");
@@ -32,9 +33,22 @@ describe("Claude usage rows", () => {
     const today = aggregateClaudeRows(report, "today", "models", now);
     const unpriced = today.rows.find((item) => item.id === "s2abcdef99")!;
     expect(unpriced.costIncomplete).toBe(true);
+    expect(unpriced.estimatedCostUsd).toBeNull();
     expect(today.summary.costIncomplete).toBe(true);
     expect(today.summary.estimatedCostUsd).toBe(1);
     expect(claudeTaskName({ id: "s2abcdef99", name: " " })).toBe("Claude s2abcdef");
+  });
+
+  it("gives the calendar the same daily totals and preserves missing costs and dates", () => {
+    const usage = { ...report, days: [...report.days, day("2026-11-08", [row("unpriced", "Unknown", null)])] };
+    const devices = [claudeUsageDevice(usage)];
+    const range = (date: string) => ({ start: date, end: date, scale: "day" as const });
+    expect(calendarValue(devices, range("2026-11-10"), "tokens", now).value).toBe(270);
+    expect(calendarValue(devices, range("2026-11-10"), "cost", now)).toEqual({ value: 1, partial: true });
+    expect(calendarValue(devices, range("2026-11-08"), "cost", now)).toEqual({ value: null, partial: true });
+    expect(calendarValue(devices, range("2026-11-08"), "tokens", now).value).toBe(135);
+    expect(calendarValue(devices, range("2026-11-07"), "tokens", now).value).toBeNull();
+    expect(aggregateClaudeRows(usage, "all", "models", now, range("2026-11-08")).summary.estimatedCostUsd).toBeNull();
   });
 });
 
@@ -56,5 +70,7 @@ describe("AI usage merge", () => {
     expect(addClaudeMetrics(base, claude)).toMatchObject({ totalTokens: 66, estimatedCostUsd: 3, cachedInputTokens: 22 });
     expect(addClaudeMetrics({ ...base, estimatedCostUsd: null }, claude).estimatedCostUsd).toBeNull();
     expect(addClaudeMetrics(base, null)).toBe(base);
+    const empty = aggregateClaudeRows(report, "all", "models", now, { start: "2026-11-07", end: "2026-11-07" }).summary;
+    expect(addClaudeMetrics(base, empty)).toBe(base);
   });
 });

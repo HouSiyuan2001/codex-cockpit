@@ -222,6 +222,7 @@ describe("QuotaCard platform ledger", () => {
     expect(container.querySelector(".codex-focus-brand-copy > small")).not.toBeInTheDocument();
     expect(screen.queryByText(/LOCAL FIRST|本地优先 · 官方快照/)).not.toBeInTheDocument();
     const button = within(title as HTMLElement).getByRole("button", { name: /Reset Watch/ });
+    expect(button).not.toHaveTextContent("%");
     fireEvent.click(button);
     expect(onOpen).toHaveBeenCalledExactlyOnceWith("https://codex-resets.com/");
   });
@@ -386,7 +387,7 @@ describe("QuotaCard platform ledger", () => {
     expect(screen.queryByText("Codex 驾驶舱")).not.toBeInTheDocument();
   });
 
-  it("restores the risk slider and lets refresh return to website following", () => {
+  it("restores the risk slider to the automatic planning estimate", () => {
     const onRiskChange = vi.fn();
     render(
       <QuotaCard
@@ -407,15 +408,15 @@ describe("QuotaCard platform ledger", () => {
 
     fireEvent.change(screen.getByRole("slider", { name: "重置风险" }), { target: { value: "70" } });
     expect(onRiskChange).toHaveBeenLastCalledWith(70);
-    fireEvent.click(screen.getByRole("button", { name: "恢复网站风险" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复自动风险估算" }));
     expect(onRiskChange).toHaveBeenLastCalledWith(null);
     expect(screen.queryByText(/来源 18%/)).not.toBeInTheDocument();
   });
 
   it.each([
-    { language: "zh-CN" as const, label: "重置风险", website: "网站", manual: "手动", hint: "默认规划参考值", unofficial: "不是官方重置概率" },
-    { language: "en" as const, label: "Reset risk", website: "Website", manual: "Manual", hint: "default planning reference", unofficial: "not an official reset probability" },
-  ])("keeps fallback risk wording plain and explains the reference in $language", ({ language, label, website, manual, hint, unofficial }) => {
+    { language: "zh-CN" as const, label: "重置风险", history: "历史", manual: "手动", hint: "默认规划参考值" },
+    { language: "en" as const, label: "Reset risk", history: "History", manual: "Manual", hint: "default planning reference" },
+  ])("identifies the automatic and manual planning inputs in $language", ({ language, label, history, manual, hint }) => {
     const props = { snapshot: codex, snapshots: [codex], preferences: { ...preferences, codexFocusMode: true, language },
       resetWatch: { signalKind: "scheduled" as const, level: "strong" as const, resetChancePercent: null, observedAt: "2026-07-20T00:00:00Z", expiresAt: "2026-07-23T07:00:00Z" },
       onSelectProvider: noop, onLock: noop, onLanguage: noop, onDrag: noop, onHover: noop, consumingProviders: new Set<string>() };
@@ -424,11 +425,23 @@ describe("QuotaCard platform ledger", () => {
     expect(screen.queryByText(/备用|Fallback/)).not.toBeInTheDocument();
     const riskControl = screen.getByRole("slider", { name: label }).closest(".today-quota-advice-risk");
     expect(riskControl).toHaveAttribute("title", expect.stringContaining(hint));
-    expect(riskControl).toHaveAttribute("title", expect.stringContaining(unofficial));
-    rerender(<QuotaCard {...props} resetRiskSource="website" />);
-    expect(screen.getByText(`${label} · ${website}`)).toBeInTheDocument();
-    rerender(<QuotaCard {...props} preferences={{ ...props.preferences, resetRiskManualEnabled: true, resetRiskOverridePercent: 35 }} />);
+    rerender(<QuotaCard {...props} resetRiskSource="history" />);
+    expect(screen.getByText(`${label} · ${history}`)).toBeInTheDocument();
+    rerender(<QuotaCard {...props} resetRiskSource="manual" />);
     expect(screen.getByText(`${label} · ${manual}`)).toBeInTheDocument();
+  });
+
+  it("shows the current website risk in the slider even before a quota plan is ready", () => {
+    render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={{ ...preferences, codexFocusMode: true, language: "zh-CN" }}
+      resetWatch={{ level: "elevated", resetChancePercent: 65, observedAt: "2026-07-20T00:00:00Z", expiresAt: "2026-07-23T07:00:00Z" }}
+      resetRiskSource="website" onSelectProvider={noop} onLock={noop} onLanguage={noop} onDrag={noop} onHover={noop} consumingProviders={new Set()} />);
+
+    const slider = screen.getByRole("slider", { name: "重置风险" });
+    expect(slider).toHaveValue("65");
+    expect(slider).toBeDisabled();
+    expect(screen.getByText("重置风险 · 网站")).toBeInTheDocument();
+    expect(screen.getByText("65%").closest(".today-quota-advice-risk")).toContainElement(slider);
+    expect(screen.getByRole("button", { name: /重置预警/ })).not.toHaveTextContent("%");
   });
 
   it("turns the daily ring red and shows the over-cap ratio", () => {
