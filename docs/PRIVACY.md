@@ -4,7 +4,9 @@
 
 The native app reads available provider credentials for read-only provider usage requests. It scans local session files/databases for usage events and task/project metadata. Session files can contain conversations: do not describe this as never opening history files. The collector extracts usage/metadata; sync does not upload conversation bodies, prompts or provider credentials. Derived usage, preferences and caches stay in the app's per-user data directory.
 
-The Claude and AI cockpits read the existing Claude Code login read-only (macOS Keychain item `Claude Code-credentials`, or `.credentials.json` in the Claude config directory on Windows/Linux) to request the 5-hour and weekly limits from Anthropic, as Claude Code's `/usage` does. The token stays in memory; it is never logged, written, refreshed or synced, and macOS asks before the first Keychain read. Claude Code session files are read only for per-message usage, model, speed, region and timestamps; message text is discarded during parsing. Claude data is not part of cloud sync.
+When enabled, the Claude and AI cockpits read the existing Claude Code login (macOS Keychain item `Claude Code-credentials`, or `.credentials.json` in the Claude config directory on Windows/Linux) to request 5-hour and weekly limits from Anthropic. macOS may ask for Keychain access. Cockpit does not save, log or sync the token. If the login expires, it can start the installed Claude Code CLI in initialization-only mode, without passing the API key or base URL from its environment. The CLI can renew the subscription login in its own credential store. Cockpit does not edit Claude's API settings.
+
+Claude Code session files are read for per-message usage, model, speed, region and timestamps; message text is discarded during parsing. Claude usage, quota planning and comfort records are not part of cloud sync.
 
 ## Optional cloud sync
 
@@ -18,6 +20,6 @@ Backend retains latest per-device snapshots plus settings/plans. Owners can expl
 
 ## Other network access
 
-Provider requests go to the provider. Reset-risk data comes from the third-party public dashboard configured in `reset_forecast.rs`, without your usage payload; its operator sees ordinary request metadata such as IP. No dedicated analytics telemetry. Manual release links open GitHub. Legacy Git transport remains for compatibility but is not default onboarding.
+Provider requests go to the provider. Public reset notices and history come from Codex Resets or, when Claude is enabled, Claude Resets. These requests do not include your account or usage data; the sites see ordinary request metadata such as IP. No dedicated analytics telemetry. Manual release links open GitHub. Legacy Git transport remains for compatibility but is not default onboarding.
 
 Never publish runtime databases, provider files, local deployment IDs, personal screenshots or secrets. `audit:public` catches common mistakes but is not a full security audit. Do not post invites, tokens or setup secrets in issues.
