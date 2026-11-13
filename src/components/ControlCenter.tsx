@@ -6,8 +6,10 @@ import { personalizeComfortCurve } from "../lib/comfortFeedback";
 import { useModalDialog } from "../lib/modalDialog";
 import { setControlCenterCalendarOpen } from "../lib/bridge";
 import type { DailyRecommendation } from "../lib/dynamicQuota";
-import type { CodexDailyUsage, ComfortCode, ComfortFeedbackRecord, DailyUsageSummary, Language, PersonalizedComfortCurve, WidgetPreferences } from "../types";
+import type { CodexDailyUsage, ComfortCode, ComfortFeedbackRecord, DailyUsageSummary, Language, PersonalizedComfortCurve, QuotaDailyUsage, WidgetPreferences } from "../types";
 import { PersonComfortSection } from "./PersonComfortSection";
+import { ComfortCurvePanel } from "./ComfortCurvePanel";
+import { ComfortHistoryCalendar } from "./ComfortHistoryCalendar";
 import type { TokeiUsage } from "../lib/tokeiUsage";
 import { RangeSlider } from "./RangeSlider";
 import { ResetRiskQuotaHeatmap } from "./ResetRiskQuotaHeatmap";
@@ -48,9 +50,21 @@ interface Props {
   onSliderInteraction?: (active: boolean) => void;
   autostartEnabled: boolean;
   onAutostart: (enabled: boolean) => void;
+  claudeQuota?: {
+    recommendation: DailyRecommendation | null;
+    remaining: number | null;
+    curve: PersonalizedComfortCurve;
+    feedback: readonly ComfortFeedbackRecord[];
+    history: readonly QuotaDailyUsage[];
+    usage: TokeiUsage | null;
+    onFeedback: (date: string, comfort: ComfortCode) => void;
+    onRefreshSnapshot: (date: string) => void;
+    onRefresh: () => void;
+    onOpenResets: () => void;
+  };
 }
 
-export function ControlCenter({ preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onCheckUpdate = () => undefined, updateContent, updateBusy = false, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart }: Props) {
+export function ControlCenter({ preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onCheckUpdate = () => undefined, updateContent, updateBusy = false, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart, claudeQuota }: Props) {
   const dialogRef = useModalDialog<HTMLElement>(onClose);
   const selectedPersonCurve = useMemo(() => personalizeComfortCurve(
     comfortFeedback.filter(record => (record.personId ?? null) === comfortPersonId)
@@ -121,12 +135,17 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
   };
   const cockpitMode = preferences.claudeEnabled ? preferences.cockpitMode : "codex";
   const [selectedUsageSource, setSelectedUsageSource] = useState(cockpitMode);
+  const [selectedQuotaSource, setSelectedQuotaSource] = useState<"codex" | "claude">(cockpitMode === "claude" ? "claude" : "codex");
   const usageSource = preferences.claudeEnabled ? selectedUsageSource : "codex";
-  const colorMode = page === "usage" ? usageSource : cockpitMode;
+  const quotaSource = preferences.claudeEnabled && claudeQuota ? selectedQuotaSource : "codex";
+  const activeClaudeQuota = page === "quota" && quotaSource === "claude" ? claudeQuota : undefined;
+  const quotaRecommendation = activeClaudeQuota ? activeClaudeQuota.recommendation : dailyRecommendation;
+  const colorMode = page === "settings" ? cockpitMode : page === "quota" ? (activeClaudeQuota ? "claude" : "codex") : usageSource;
   const claudeUsage = useClaudeUsage(page === "usage" && usageSource === "ai", 400);
   const updatePreferences = (patch: Partial<WidgetPreferences>) => onPreferences({ ...preferences, ...patch });
   const fontNeedsLocalInstallation = UI_FONT_OPTIONS.find(option => option.id === preferences.fontFamily)?.localOnly === true;
-  const productName = zh ? "Codex 驾驶舱" : "Codex Cockpit";
+  const productName = `${activeClaudeQuota ? "Claude" : "Codex"} ${zh ? "驾驶舱" : "Cockpit"}`;
+  const resetsLabel = activeClaudeQuota ? (zh ? "打开 Claude Resets" : "Open Claude Resets") : labels.codexResets;
   const changeCalendarOpen = (open: boolean) => {
     setCalendarOpen(open);
     void setControlCenterCalendarOpen(open).catch(() => undefined);
@@ -186,10 +205,16 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
       </nav>
       <div className="control-body control-body--minimal">
+        {preferences.claudeEnabled && (page === "usage" || (page === "quota" && claudeQuota)) ? <div className="usage-source-switch" role="radiogroup" aria-label={page === "quota" ? (zh ? "额度来源" : "Quota source") : (zh ? "用量来源" : "Usage source")}>
+          {(["codex", "claude", "ai"] as const).filter(source => page === "usage" || source !== "ai").map((source) => {
+            const selected = (page === "quota" ? quotaSource : usageSource) === source;
+            return <button key={source} type="button" role="radio" aria-checked={selected} className={`usage-source-option usage-source-option--${source}${selected ? " is-active" : ""}`} onClick={() => {
+              if (page === "usage") changeUsageSource(source);
+              else if (source !== "ai") setSelectedQuotaSource(source);
+            }}>{source === "ai" ? null : <ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />}{source === "codex" ? "Codex" : source === "claude" ? "Claude" : "AI"}</button>;
+          })}
+        </div> : null}
         {page === "usage" ? <>
-          {preferences.claudeEnabled ? <div className="usage-source-switch" role="radiogroup" aria-label={zh ? "用量来源" : "Usage source"}>
-            {(["codex", "claude", "ai"] as const).map((source) => <button key={source} type="button" role="radio" aria-checked={usageSource === source} className={`usage-source-option usage-source-option--${source}${usageSource === source ? " is-active" : ""}`} onClick={() => changeUsageSource(source)}>{source === "ai" ? null : <ProviderMark provider={source} label={source === "codex" ? "Codex" : "Claude"} />}{source === "codex" ? "Codex" : source === "claude" ? "Claude" : "AI"}</button>)}
-          </div> : null}
           {usageSource === "claude"
             ? <ClaudeUsagePanel zh={zh} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} />
             : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} claudeReport={usageSource === "ai" ? claudeUsage.report : null} />}
@@ -285,25 +310,30 @@ export function ControlCenter({ preferences, language, comfortFeedback = [], dai
           <div className="minimal-status-mark" aria-hidden="true"><span /></div>
           <div><strong>{productName}</strong></div>
           <div className="minimal-status-actions">
-            <button type="button" className="minimal-external-link" onClick={onOpenCodexResets} aria-label={labels.codexResets} title={labels.codexResets}><ArrowSquareOut weight="bold" /></button>
-            <button type="button" className="minimal-refresh" onClick={onRefresh}><ArrowClockwise /><span>{labels.refresh}</span></button>
+            <button type="button" className="minimal-external-link" onClick={activeClaudeQuota?.onOpenResets ?? onOpenCodexResets} aria-label={resetsLabel} title={resetsLabel}><ArrowSquareOut weight="bold" /></button>
+            <button type="button" className="minimal-refresh" onClick={activeClaudeQuota?.onRefresh ?? onRefresh}><ArrowClockwise /><span>{labels.refresh}</span></button>
           </div>
         </section>
 
         <ResetRiskQuotaHeatmap
           language={language}
-          comfortPersonName={selectedPersonName}
-          comfortCurve={selectedPersonCurve}
-          currentRemainingPercent={dailyRecommendation?.dayPlan?.remainingPercent ?? weeklyRemainingPercent}
-          currentRiskPercent={dailyRecommendation?.resetRiskPercent ?? null}
-          daysLeftInCycle={dailyRecommendation?.futureDays ?? null}
-          todayUsedPercent={dailyRecommendation?.dayPlan ? 0 : dailyRecommendation?.todayUsedPercent ?? 0}
-          dayPlan={dailyRecommendation?.dayPlan}
-          todayFractionRemaining={dailyRecommendation?.todayFractionRemaining ?? 1}
-          isWeekend={(dailyRecommendation?.weekday ?? 0) >= 5}
+          comfortPersonName={activeClaudeQuota ? "Claude" : selectedPersonName}
+          comfortCurve={activeClaudeQuota?.curve ?? selectedPersonCurve}
+          currentRemainingPercent={quotaRecommendation?.dayPlan?.remainingPercent ?? (activeClaudeQuota ? activeClaudeQuota.remaining : weeklyRemainingPercent)}
+          currentRiskPercent={quotaRecommendation?.resetRiskPercent ?? null}
+          daysLeftInCycle={quotaRecommendation?.futureDays ?? null}
+          todayUsedPercent={quotaRecommendation?.dayPlan ? 0 : quotaRecommendation?.todayUsedPercent ?? 0}
+          dayPlan={quotaRecommendation?.dayPlan}
+          todayFractionRemaining={quotaRecommendation?.todayFractionRemaining ?? 1}
+          isWeekend={(quotaRecommendation?.weekday ?? 0) >= 5}
         />
 
-        <PersonComfortSection curve={selectedPersonCurve} data={comfortUsage} personId={comfortPersonId} records={comfortFeedback} dailyUsage={dailyUsage} dailyUsageHistory={dailyUsageHistory} language={language} loadingError={comfortUsageError} saving={comfortSaving} error={comfortSaveError} onPersonChange={onComfortPersonChange} onChange={onComfortFeedback} onRefreshSnapshot={onComfortSnapshotRefresh} />
+        {activeClaudeQuota ? <div className="person-comfort-section">
+          <ComfortCurvePanel curve={activeClaudeQuota.curve} language={language} />
+          <ComfortHistoryCalendar key="claude" records={activeClaudeQuota.feedback} dailyUsageHistory={activeClaudeQuota.history}
+            usageData={activeClaudeQuota.usage} personId={activeClaudeQuota.usage?.localGroupId}
+            language={language} onChange={activeClaudeQuota.onFeedback} onRefreshSnapshot={activeClaudeQuota.onRefreshSnapshot} />
+        </div> : <PersonComfortSection curve={selectedPersonCurve} data={comfortUsage} personId={comfortPersonId} records={comfortFeedback} dailyUsage={dailyUsage} dailyUsageHistory={dailyUsageHistory} language={language} loadingError={comfortUsageError} saving={comfortSaving} error={comfortSaveError} onPersonChange={onComfortPersonChange} onChange={onComfortFeedback} onRefreshSnapshot={onComfortSnapshotRefresh} />}
 
         <footer className="minimal-footer"><span>{labels.source}</span><button type="button" onClick={onClose}>{labels.done}</button></footer>
         </>}

@@ -107,6 +107,7 @@ vi.mock("./lib/bridge", () => ({
   createAutomaticBackup: vi.fn(async () => undefined),
   exportAppData: vi.fn(async () => null),
   fetchClaudeQuota: (manual: boolean) => mocks.fetchClaudeQuota(manual),
+  fetchClaudeResetForecast: vi.fn(async () => null),
   fetchClaudeUsage: vi.fn(async () => null),
   fetchCodexResetForecast: vi.fn(async () => null),
   fetchWebsiteResetProbability: vi.fn(async () => null),

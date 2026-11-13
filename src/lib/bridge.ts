@@ -1,4 +1,5 @@
-import type { AppDiagnostics, ClaudeQuota, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import type { AppDiagnostics, ClaudeQuota, ClaudeResetForecast, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import { CLAUDE_RESETS_URL } from "./externalLinks";
 import { EMPTY_RUNTIME_STATE, normalizeRuntimeState } from "./activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
 import { localDateKey as usageDateKeyCalendar, usageDateKey } from "./usageDay";
@@ -291,6 +292,21 @@ export async function fetchClaudeQuota(manual = false): Promise<ClaudeQuota> {
   }
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ClaudeQuota>("get_claude_quota", { manual });
+}
+
+/** Public Claude Resets announcements and historical risk for the subscription plan. */
+export async function fetchClaudeResetForecast(plan: string | null): Promise<ClaudeResetForecast | null> {
+  if (!isTauri()) {
+    const now = Date.now();
+    return {
+      checkedAt: new Date(now).toISOString(), historyRiskPercent: 8.4, historySampleCount: 7,
+      notice: new URLSearchParams(window.location.search).get("watch") === "active"
+        ? { observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 86_400_000).toISOString(), announcementUrl: CLAUDE_RESETS_URL }
+        : null,
+    };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ClaudeResetForecast | null>("get_claude_reset_forecast", { plan });
 }
 
 /** Read-only local Claude Code usage; the browser preview uses synthetic data. */

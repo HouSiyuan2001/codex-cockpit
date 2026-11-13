@@ -95,3 +95,9 @@
     justify-content: center;
   }
 }
+.comfort-history-refresh {
+  display: inline-grid;
+  place-items: center;
+  margin-inline-start: auto;
+  color: var(--glass-muted);
+}

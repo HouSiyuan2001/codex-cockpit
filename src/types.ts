@@ -45,15 +45,17 @@ export interface ProviderSnapshot {
   message: string | null;
 }
 
-export interface CodexDailyUsage {
+export interface QuotaDailyUsage {
   localDate: string;
   observedUsedPercent: number;
   sampleCount: number;
   firstObservedAt: string | null;
   lastObservedAt: string | null;
   coverage: "complete" | "partial" | "unavailable";
-  source: "official-snapshot" | "codex-session-rate-limits";
+  source: "official-snapshot" | "codex-session-rate-limits" | "claude-subscription";
 }
+
+export type CodexDailyUsage = QuotaDailyUsage & { source: Exclude<QuotaDailyUsage["source"], "claude-subscription"> };
 
 export type ComfortCode = "overloaded" | "comfortable" | "idle";
 export type ComfortUsageCoverage = "complete" | "partial" | "unavailable";
@@ -191,11 +193,19 @@ export interface TokenComfortModel {
 }
 
 export interface ResetWatch {
-  signalKind?: "watch" | "scheduled";
+  signalKind?: "watch" | "scheduled" | "claude-announcement";
   level: "elevated" | "strong";
   resetChancePercent: number | null;
   observedAt: string;
   expiresAt: string;
+  announcementUrl?: string;
+}
+
+export interface ClaudeResetForecast {
+  checkedAt: string;
+  historyRiskPercent: number | null;
+  historySampleCount: number;
+  notice: { observedAt: string; expiresAt: string; announcementUrl: string } | null;
 }
 
 /** Third-party estimate for the current website watch. */
@@ -282,6 +292,28 @@ export interface ClaudeQuota {
   plan: string | null;
   observedAt: string | null;
   message: string | null;
+}
+
+/** Calendar-day subscription usage; raw token and cost ledgers are separate. */
+export interface ClaudeQuotaDay {
+  localDate: string;
+  capturedAt: string;
+  lastObservedAt: string;
+  resetsAt: string;
+  baselineUsed: number;
+  highWaterUsed: number;
+  earlierCycleUsed: number;
+  sampleCount: number;
+  nearMidnight: boolean;
+  pendingDrop?: { capturedAt: string; usedPercent: number };
+}
+
+export interface ClaudePlanState {
+  quotaDays: ClaudeQuotaDay[];
+  cap: { localDate: string; percent: number } | null;
+  manualRiskPercent: number | null;
+  comfortFeedback: ComfortFeedbackRecord[];
+  comfortPromptedDates: string[];
 }
 
 export interface ClaudePrice {
@@ -415,6 +447,7 @@ export interface RuntimeState {
   lastNotifications: Record<string, string>;
   dailyPaceBaselines: Record<string, DailyPaceBaseline>;
   dailyRecommendations: DailyRecommendationRecord[];
+  claudePlan?: ClaudePlanState;
 }
 
 export interface AppDiagnostics {

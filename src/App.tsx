@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setAppIconTheme } from "./lib/appIcon";
 import { useSharedDailyPlan } from "./hooks/useSharedDailyPlan";
-import { useClaudeQuota, useClaudeUsage } from "./hooks/useClaudeUsage";
+import { readLegacyClaudeBaseline, useClaudeQuota, useClaudeUsage } from "./hooks/useClaudeUsage";
+import { useClaudeResets } from "./hooks/useClaudeResets";
 import { buildClaudeCockpitView } from "./lib/claudeCockpit";
+import { buildClaudeComfortPrompt, buildClaudePlan, claudeQuotaDays, claudeResetWatch, EMPTY_CLAUDE_PLAN, observeClaudeQuota } from "./lib/claudePlan";
+import { claudeUsageDevice } from "./lib/claudeUsageRows";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
 import { closeControlCenterWindow } from "./lib/bridge";
 import { buildDailyPersonCosts } from "./lib/dailyPersonCosts";
@@ -41,11 +44,11 @@ import { useComfortUsage } from "./lib/useComfortUsage";
 import { loadStartupState } from "./lib/startup";
 import { measureSurfaceHeight } from "./lib/windowMetrics";
 import { localDateKey } from "./lib/usageDay";
-import { CODEX_RESETS_URL } from "./lib/externalLinks";
+import { CLAUDE_RESETS_URL, CODEX_RESETS_URL } from "./lib/externalLinks";
 import { useWebsiteResetProbability } from "./lib/useWebsiteResetProbability";
 import { activeResetWatch } from "./lib/resetWatch";
 import { buildMidnightQuotaPlan } from "./lib/midnightQuotaPlan";
-import type { AppDiagnostics, ComfortCode, ComfortPrompt, ProviderId, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WidgetPreferences } from "./types";
+import type { AppDiagnostics, ClaudePlanState, ComfortCode, ComfortPrompt, ProviderId, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WidgetPreferences } from "./types";
 
 const DEFAULT_PREFS = DEFAULT_WIDGET_PREFERENCES;
 
@@ -95,6 +98,7 @@ export default function App() {
   const [runtimeState, setRuntimeState] = useState<RuntimeState>(EMPTY_RUNTIME_STATE);
   const [startupReady, setStartupReady] = useState(false);
   const [comfortPrompt, setComfortPrompt] = useState<ComfortPrompt | null>(null);
+  const [claudePrompt, setClaudePrompt] = useState<ComfortPrompt | null>(null);
   const [comfortSaving, setComfortSaving] = useState(false);
   const [comfortSaveError, setComfortSaveError] = useState<string | null>(null);
   const [comfortSyncError, setComfortSyncError] = useState(false);
@@ -130,10 +134,25 @@ export default function App() {
   const planSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const language = normalizeLanguage(preferences.language);
   const t = copy[language];
-  const claudeActive = startupReady && preferences.claudeEnabled && preferences.cockpitMode !== "codex";
-  const { report: claudeReport, refresh: refreshClaudeUsage } = useClaudeUsage(claudeActive);
-  const { quota: claudeQuota, baseline: claudeBaseline, refresh: refreshClaudeQuota } = useClaudeQuota(claudeActive);
+  const claudeActive = startupReady && preferences.claudeEnabled;
+  const { report: claudeReport, refresh: refreshClaudeUsage } = useClaudeUsage(claudeActive && (preferences.cockpitMode !== "codex" || controlOpen));
+  const { quota: claudeQuota, refresh: refreshClaudeQuota } = useClaudeQuota(claudeActive);
+  const { forecast: claudeResetForecast, refresh: refreshClaudeResets } = useClaudeResets(claudeActive, claudeQuota?.plan ?? null);
+  const claudeState = runtimeState.claudePlan ?? EMPTY_CLAUDE_PLAN;
+  const claudeHistory = useMemo(() => claudeQuotaDays(claudeState), [claudeState.quotaDays]);
+  const claudeCurve = useMemo(() => personalizeComfortCurve(claudeState.comfortFeedback, new Date(), null), [claudeState.comfortFeedback, usageDay]);
+  const claudePlan = useMemo(() => buildClaudePlan(claudeState, claudeQuota, claudeResetForecast, claudeCurve.xStarPercent, planningNow),
+    [claudeState, claudeQuota, claudeResetForecast, claudeCurve.xStarPercent, planningNow]);
+  const claudeWatch = claudeResetWatch(claudeResetForecast, planningNow);
+  const claudeComfortUsage = useMemo(() => {
+    if (claudeReport?.status !== "ok") return null;
+    const device = claudeUsageDevice(claudeReport);
+    return { fetchedAt: claudeReport.observedAt, status: "ready" as const,
+      groups: [{ id: device.id, name: "Claude", deviceIds: [device.id] }], devices: [device],
+      defaultGroupId: device.id, localGroupId: device.id, warnings: [], projectBreakdownAvailable: true };
+  }, [claudeReport]);
   const claudeFiveHourResetAt = claudeQuota?.fiveHour?.resetsAt;
+  const claudeWeeklyResetAt = claudeQuota?.sevenDay?.resetsAt;
   const resolvedAppearance = resolveAppearanceMode(preferences.appearanceMode, systemDark);
   const codexDailyUsageHistory = useMemo(() => {
     const now = new Date();
@@ -179,20 +198,65 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const delay = Date.parse(claudeFiveHourResetAt ?? "") - Date.now();
-    if (!claudeActive || !Number.isFinite(delay) || delay <= 0) return;
-    const timer = window.setTimeout(() => {
+    if (!claudeActive) return;
+    const now = Date.now();
+    const delays = [...new Set([claudeFiveHourResetAt, claudeWeeklyResetAt])]
+      .map(value => Date.parse(value ?? "") - now).filter(value => value > 0 && value <= 7 * 86_400_000);
+    const timers = delays.map(delay => window.setTimeout(() => {
       setPlanningNow(new Date());
       refreshClaudeQuota();
-    }, delay + 500);
-    return () => window.clearTimeout(timer);
-  }, [claudeActive, claudeFiveHourResetAt, refreshClaudeQuota]);
+    }, delay + 500));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [claudeActive, claudeFiveHourResetAt, claudeWeeklyResetAt, refreshClaudeQuota]);
 
   const commitRuntimeState = useCallback((next: RuntimeState) => {
     runtimeStateRef.current = next;
     setRuntimeState(next);
     void updateRuntimeState(next).catch(() => setOperationError("Activity history could not be saved."));
   }, []);
+
+  const updateClaudePlan = useCallback((change: (previous: ClaudePlanState) => ClaudePlanState) => {
+    const current = runtimeStateRef.current;
+    const previous = current.claudePlan ?? EMPTY_CLAUDE_PLAN;
+    const next = change(previous);
+    if (next !== previous) commitRuntimeState({ ...current, claudePlan: next });
+  }, [commitRuntimeState]);
+
+  useEffect(() => {
+    if (!claudeActive || !claudeQuota) return;
+    const now = new Date();
+    updateClaudePlan(previous => observeClaudeQuota(previous, claudeQuota, now, previous.quotaDays.length ? null : readLegacyClaudeBaseline()));
+    setPlanningNow(now);
+  }, [claudeActive, claudeQuota, updateClaudePlan]);
+
+  useEffect(() => {
+    if (!claudeActive || preferences.cockpitMode === "codex" || claudePrompt) return;
+    const target = getPersonComfortPromptTarget(null, planningNow, claudeState.comfortFeedback, claudeState.comfortPromptedDates);
+    if (!target) return;
+    const usage = claudeHistory.find(day => day.localDate === target.localDate);
+    const hadActivity = (usage?.observedUsedPercent ?? 0) > 0
+      || claudeReport?.days.some(day => day.localDate === target.localDate && day.requests > 0);
+    if (!hadActivity) return;
+    setClaudePrompt(buildClaudeComfortPrompt(target, usage));
+    updateClaudePlan(state => ({ ...state, comfortPromptedDates: appendComfortPromptedDate(state.comfortPromptedDates, target.localDate) }));
+  }, [claudeActive, claudeHistory, claudePrompt, claudeReport, claudeState.comfortFeedback, claudeState.comfortPromptedDates, planningNow, preferences.cockpitMode, updateClaudePlan]);
+
+  const saveClaudeComfort = useCallback((date: string, comfort: ComfortCode, refreshSnapshot = false) => {
+    const now = new Date();
+    if (date > localDateKey(now)) return;
+    const prompt = buildClaudeComfortPrompt({ localDate: date, isCatchUp: true }, claudeHistory.find(day => day.localDate === date));
+    const tokenSnapshot = claudeComfortUsage ? buildTokenComfortSnapshot(claudeComfortUsage, "claude-local", date, now) : null;
+    const record = createComfortFeedbackRecord({ ...prompt, tokenSnapshot }, comfort, now);
+    updateClaudePlan(state => {
+      const existing = state.comfortFeedback.find(item => item.localDate === date);
+      const useNewUsage = refreshSnapshot && record.usageCoverage !== "unavailable";
+      const saved = existing ? { ...(useNewUsage ? record : existing), comfort, observedAt: existing.observedAt,
+        tokenSnapshot: refreshSnapshot && tokenSnapshot?.coverage !== "unavailable" ? tokenSnapshot ?? existing.tokenSnapshot : existing.tokenSnapshot,
+        updatedAt: now.toISOString() } : record;
+      return { ...state, comfortFeedback: appendComfortFeedback(state.comfortFeedback, saved) };
+    });
+    setClaudePrompt(previous => previous?.localDate === date ? null : previous);
+  }, [claudeComfortUsage, claudeHistory, updateClaudePlan]);
 
   useEffect(() => {
     if (!startupReady || !quotaHistory?.length) return;
@@ -469,6 +533,7 @@ export default function App() {
         comfortFeedback: runtimeStateRef.current.comfortFeedback,
         comfortPromptedDates: runtimeStateRef.current.comfortPromptedDates,
         comfortPersonId: runtimeStateRef.current.comfortPersonId,
+        claudePlan: runtimeStateRef.current.claudePlan,
       });
       setSnapshots((current) => {
         const merged = mergeSnapshots(current, values);
@@ -730,11 +795,8 @@ export default function App() {
     });
     return dailyUsageRatio(todayAdvice.todayUsedPercent, totalPlanBudget);
   }, [codexDailyUsage, current, dailyRecommendation, totalPlanBudget]);
-  const claudeView = useMemo(
-    () => buildClaudeCockpitView(claudeReport, claudeQuota, planningNow, claudeBaseline),
-    [claudeBaseline, claudeQuota, claudeReport, planningNow],
-  );
-  const claudeCapsuleRatio = claudeView.fiveHourAwaitingRefresh ? null : claudeView.fiveHourUsed ?? claudeView.todayRatio;
+  const claudeView = useMemo(() => buildClaudeCockpitView(claudeQuota, planningNow), [claudeQuota, planningNow]);
+  const claudeCapsuleRatio = claudeView.fiveHourAwaitingRefresh ? null : claudeView.fiveHourUsed ?? claudePlan.ratio;
   const compactCapsuleWidth = compactLayout === "capsule"
     ? !preferences.claudeEnabled ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
     : preferences.cockpitMode === "claude"
@@ -1000,7 +1062,9 @@ export default function App() {
     }, usesWidgetMorph() ? 280 : 60);
   }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refreshClaudeUsage, refreshQuotas, stayExpanded, updateOpen]);
 
-  const comfortPromptKey = comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
+  const comfortPromptKey = preferences.cockpitMode !== "codex" && claudePrompt
+    ? `claude:${claudePrompt.localDate}`
+    : preferences.cockpitMode !== "claude" && comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
   useEffect(() => {
     if (!comfortPromptKey) {
       autoExpandedComfortPrompt.current = null;
@@ -1167,6 +1231,7 @@ export default function App() {
       <QuotaOrb
         snapshot={current}
         resetWatch={resetWatch}
+        claudeWatch={claudeWatch}
         language={language}
         compactLayout={compactLayout}
         colorTheme={preferences.colorTheme}
@@ -1180,7 +1245,7 @@ export default function App() {
         claudeWeeklyRemaining={claudeView.weeklyRemaining}
         claudeFiveHourUsed={claudeView.fiveHourUsed}
         claudeFiveHourAwaitingRefresh={claudeView.fiveHourAwaitingRefresh}
-        claudeTodayRatio={claudeView.todayRatio}
+        claudeTodayRatio={claudePlan.ratio}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}
       />
@@ -1202,6 +1267,12 @@ export default function App() {
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
       claudeView={preferences.claudeEnabled ? claudeView : null}
+      claudePlan={claudePlan}
+      claudeWatch={claudeWatch}
+      claudePrompt={claudePrompt}
+      onClaudeComfortSelect={(value) => { if (claudePrompt) saveClaudeComfort(claudePrompt.localDate, value); }}
+      onClaudeCapChange={(percent) => updateClaudePlan(state => ({ ...state, cap: percent === null ? null : { localDate: localDateKey(new Date()), percent } }))}
+      onClaudeRiskChange={(manualRiskPercent) => updateClaudePlan(state => ({ ...state, manualRiskPercent }))}
       onCockpitModeChange={handleCockpitModeChange}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
       onResetRiskChange={(value) => {
@@ -1313,6 +1384,21 @@ export default function App() {
           comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
           onComfortPersonChange={handleComfortPersonChange}
           onComfortSnapshotRefresh={handleComfortSnapshotRefresh}
+          claudeQuota={{
+            recommendation: claudePlan.recommendation,
+            remaining: claudeView.weeklyRemaining,
+            curve: claudeCurve,
+            feedback: claudeState.comfortFeedback,
+            history: claudeHistory,
+            usage: claudeComfortUsage,
+            onFeedback: saveClaudeComfort,
+            onRefreshSnapshot: date => {
+              const record = claudeState.comfortFeedback.find(item => item.localDate === date);
+              if (record) saveClaudeComfort(date, record.comfort, true);
+            },
+            onRefresh: () => { refreshClaudeQuota(true); refreshClaudeResets(); refreshClaudeUsage(); },
+            onOpenResets: () => void openExternalUrl(CLAUDE_RESETS_URL).catch(() => setOperationError(language === "en" ? "Claude Resets could not be opened." : "无法打开 Claude Resets。")),
+          }}
           onUsageGroupsChange={refreshComfortUsage}
           onCheckUpdate={() => checkUpdate(true, true)}
           updateBusy={["checking", "downloading", "installing"].includes(updateState.phase)}

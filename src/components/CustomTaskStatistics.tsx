@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { formatTokens, type AggregatedTaskUsage } from "../lib/tokeiUsage";
-import { copyCustomTaskCard, prepareCustomTaskCardFont } from "../lib/customTaskCard";
+import { copyCustomTaskCard, prepareCustomTaskCardFont, type ReceiptProvider } from "../lib/customTaskCard";
 import "./CustomTaskStatistics.css";
 
 const money = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -9,8 +9,8 @@ type TearPosition = { x: number; y: number };
 type TearGesture = { pointerId: number; startX: number; startY: number; position: TearPosition };
 
 /** Rows are already range-filtered and include descendants exactly once. Selection never alters the shared ledger. */
-export function CustomTaskStatistics({ rows, zh, loading = false, error = false, partial = false, periodLabel }: {
-  rows: AggregatedTaskUsage[]; zh: boolean; loading?: boolean; error?: boolean; partial?: boolean; periodLabel: string;
+export function CustomTaskStatistics({ rows, zh, loading = false, error = false, partial = false, periodLabel, provider }: {
+  rows: AggregatedTaskUsage[]; zh: boolean; loading?: boolean; error?: boolean; partial?: boolean; periodLabel: string; provider?: ReceiptProvider;
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -54,7 +54,7 @@ export function CustomTaskStatistics({ rows, zh, loading = false, error = false,
     setCopyError("");
     try {
       // Start clipboard.write in this pointer/keyboard gesture, before yielding user activation.
-      await copyCustomTaskCard(chosen, periodLabel, zh);
+      await copyCustomTaskCard(chosen, periodLabel, zh, ...(provider ? [provider] : []));
       if (generation !== printGeneration.current) return;
       tearTimer.current = window.setTimeout(() => {
         if (generation === printGeneration.current) setPrintPhase("success");
@@ -112,7 +112,7 @@ export function CustomTaskStatistics({ rows, zh, loading = false, error = false,
   return <section className="custom-task-statistics">
     <button type="button" className="usage-text-button custom-statistics-trigger" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>{zh ? "自定义统计" : "Custom statistics"}{open ? " ▴" : " ▾"}</button>
     {open && <div id={id} className="custom-statistics-panel" role="region" aria-label={zh ? "自定义任务统计" : "Custom task statistics"}>
-      <header><strong title={zh ? "任务含子 Agent，合计只计一次" : "Includes subagents, counted once"}>{periodLabel}</strong></header>
+      <header><strong title={provider === "claude" ? undefined : zh ? "任务含子 Agent，合计只计一次" : "Includes subagents, counted once"}>{periodLabel}</strong></header>
       <div className="custom-statistics-total" role="status" aria-live="polite">
         <span>{zh ? `已选 ${chosen.length} 项` : `${chosen.length} selected`}</span>
         <strong>{chosen.length && !known.length ? (zh ? "暂无估算" : "Estimate unavailable") : money(total)}</strong>

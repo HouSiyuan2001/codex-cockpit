@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchClaudeQuota, fetchClaudeUsage } from "../lib/bridge";
-import { nextClaudeDayBaseline, type ClaudeDayBaseline } from "../lib/claudeCockpit";
 import type { ClaudeQuota, ClaudeUsageReport } from "../types";
 
 const CLAUDE_REFRESH_MS = 60_000;
-const BASELINE_KEY = "claude-day-baseline";
 
-function readBaseline(): ClaudeDayBaseline | null {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(BASELINE_KEY) ?? "null") as ClaudeDayBaseline | null;
-    return value && typeof value.localDate === "string" && Number.isFinite(value.weeklyUsedPercent) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeBaseline(value: ClaudeDayBaseline): void {
-  try { window.localStorage.setItem(BASELINE_KEY, JSON.stringify(value)); } catch { /* storage unavailable: keep in memory */ }
+/** Only used when upgrading an existing installation before the first tracked day. */
+export function readLegacyClaudeBaseline(): { localDate: string; weeklyUsedPercent: number } | null {
+  try { return JSON.parse(window.localStorage.getItem("claude-day-baseline") ?? "null"); }
+  catch { return null; }
 }
 
 export function useClaudeUsage(enabled: boolean, days = 35) {
@@ -40,7 +31,6 @@ export function useClaudeUsage(enabled: boolean, days = 35) {
 
 export function useClaudeQuota(enabled: boolean) {
   const [quota, setQuota] = useState<ClaudeQuota | null>(null);
-  const [baseline, setBaseline] = useState<ClaudeDayBaseline | null>(() => readBaseline());
   const sequence = useRef(0);
   const refresh = useCallback((manual = false) => {
     if (!enabled) return;
@@ -49,11 +39,6 @@ export function useClaudeQuota(enabled: boolean) {
       .then((next) => {
         if (current !== sequence.current) return;
         setQuota(next);
-        setBaseline((previous) => {
-          const updated = nextClaudeDayBaseline(previous, next);
-          if (updated && updated !== previous) writeBaseline(updated);
-          return updated;
-        });
       })
       .catch(() => {
         if (current !== sequence.current) return;
@@ -66,5 +51,5 @@ export function useClaudeQuota(enabled: boolean) {
     const timer = window.setInterval(refresh, CLAUDE_REFRESH_MS);
     return () => { ++sequence.current; window.clearInterval(timer); };
   }, [enabled, refresh]);
-  return { quota, baseline, refresh };
+  return { quota, refresh };
 }

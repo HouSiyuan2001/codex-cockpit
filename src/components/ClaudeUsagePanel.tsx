@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchClaudeUsage, isTauri } from "../lib/bridge";
 import { formatTokens, metricValue, type ModelUsage, type UsageMetric, type UsagePeriod } from "../lib/tokeiUsage";
-import { aggregateClaudeRows, claudeUsageDevice, type ClaudeUsageView } from "../lib/claudeUsageRows";
+import { aggregateClaudeRows, claudeTaskAsCodexTask, claudeUsageDevice, type ClaudeUsageView } from "../lib/claudeUsageRows";
 import { rangeLabel, type UsageDateRange } from "../lib/usageCalendar";
 import type { ClaudeUsageReport } from "../types";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { UsageCalendar } from "./UsageCalendar";
 import { UsageChart, usageRankColor } from "./UsageChart";
+import { CustomTaskStatistics } from "./CustomTaskStatistics";
 
 const PERIODS: readonly UsagePeriod[] = ["today", "7d", "30d", "all"];
 const periodLabel = (period: UsagePeriod, zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", week: zh ? "本周" : "This week", month: zh ? "本月" : "This month", all: zh ? "全部时间" : "All time" })[period];
@@ -65,6 +66,11 @@ export function ClaudeUsagePanel({ zh, initialReport = null, calendarOpen, onCal
   const result = useMemo(() => report?.status === "ok" ? aggregateClaudeRows(report, period, view, new Date(), dateRange) : null, [report, period, view, dateRange]);
   const devices = useMemo(() => report?.status === "ok" ? [claudeUsageDevice(report, error)] : [], [report, error]);
   const rows = useMemo(() => [...(result?.rows ?? [])].sort((a, b) => (metricValue(b, metric) ?? -1) - (metricValue(a, metric) ?? -1) || a.name.localeCompare(b.name)), [result, metric]);
+  const tasks = useMemo(() => {
+    if (report?.status !== "ok") return [];
+    const taskData = view === "tasks" && result ? result : aggregateClaudeRows(report, period, "tasks", new Date(), dateRange);
+    return taskData.rows.map(row => claudeTaskAsCodexTask(row, taskData.projects[row.id]));
+  }, [report, result, view, period, dateRange]);
   const toggleMetric = () => setMetric((current) => current === "tokens" ? "cost" : "tokens");
 
   if (!report) return <section className="codex-usage-panel"><p className={error ? "usage-error" : "usage-note"} role="status">{error ? (zh ? "暂时无法读取 Claude 用量，请稍后重试。" : "Claude usage is unavailable. Try again shortly.") : (zh ? "正在读取 Claude 用量…" : "Loading Claude usage…")}</p></section>;
@@ -106,6 +112,7 @@ export function ClaudeUsagePanel({ zh, initialReport = null, calendarOpen, onCal
         onSelect={(range) => { setDateRange(range); setShowAll(false); }}
       />
     </div>
+    <CustomTaskStatistics rows={tasks} zh={zh} error={error} provider="claude" periodLabel={dateRange ? rangeLabel(dateRange) : periodLabel(period, zh)} />
     <div className="usage-total"><small>{metric === "tokens" ? `${costTitle} ${costLabel(summary.estimatedCostUsd, zh)}` : `${formatTokens(summary.totalTokens, zh)} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button></div>
     <div className="usage-model-today usage-task-today">
       {rows.length > 0 && <UsageChart rows={rows} total={total} knownTotal={knownTotal} period={period} devices={devices} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks={view !== "models"} summaryOnly colors={colors} />}

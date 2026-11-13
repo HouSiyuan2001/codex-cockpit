@@ -2,6 +2,7 @@ mod antigravity;
 mod app_icon;
 mod app_updater;
 mod claude_quota;
+mod claude_resets;
 mod claude_usage;
 mod cloud_sync;
 mod codex;
@@ -66,7 +67,8 @@ use tauri_plugin_window_state::Builder as WindowStateBuilder;
 const COLLAPSED_LOGICAL_WIDTH: f64 = 92.0;
 const COLLAPSED_LOGICAL_HEIGHT: f64 = 92.0;
 const CAPSULE_LOGICAL_WIDTH: f64 = 88.0;
-const CAPSULE_MAX_LOGICAL_WIDTH: f64 = 196.0;
+// The AI capsule contains two readings. Match aiCapsuleLogicalWidth in QuotaCard.tsx.
+const CAPSULE_MAX_LOGICAL_WIDTH: f64 = 320.0;
 const CAPSULE_LOGICAL_HEIGHT: f64 = 40.0;
 const ISLAND_LOGICAL_WIDTH: f64 = 400.0;
 const ISLAND_LOGICAL_HEIGHT: f64 = 38.0;
@@ -826,6 +828,14 @@ async fn get_claude_quota(
     Ok(claude_quota::fetch(&state.client, manual.unwrap_or(false)).await)
 }
 
+#[tauri::command]
+async fn get_claude_reset_forecast(
+    state: State<'_, AppState>,
+    plan: Option<String>,
+) -> Result<Option<claude_resets::ClaudeResetForecast>, String> {
+    Ok(claude_resets::fetch(&state.client, plan.as_deref()).await)
+}
+
 #[tauri::command(async)]
 fn get_claude_usage(days: Option<u32>) -> claude_usage::ClaudeUsageReport {
     claude_usage::read_usage(days.unwrap_or(35))
@@ -1556,15 +1566,14 @@ fn collapsed_geometry_for_expand(
     )
 }
 
-fn collapse_anchor_position(
-    current_position: PhysicalPosition<i32>,
+fn collapse_anchor(
+    fallback: WidgetRect,
     compact_mode: CompactMode,
     previous: Option<WidgetGeometryState>,
-) -> PhysicalPosition<i32> {
+) -> WidgetRect {
     previous
         .filter(|value| value.compact_mode == compact_mode)
-        .map(|value| value.collapsed_rect.position)
-        .unwrap_or(current_position)
+        .map_or(fallback, |value| value.collapsed_rect)
 }
 
 fn current_widget_rect(window: &tauri::WebviewWindow) -> Result<WidgetRect, String> {
@@ -1591,7 +1600,18 @@ fn monitor_and_scale(
     Ok((monitor, scale_factor))
 }
 
-fn infer_mode(rect: WidgetRect, collapsed_size: PhysicalSize<u32>) -> WidgetMode {
+fn infer_mode(
+    rect: WidgetRect,
+    compact_mode: CompactMode,
+    scale_factor: f64,
+    safe_inset: u32,
+) -> WidgetMode {
+    let collapsed_size = collapsed_physical_size_with_width(
+        compact_mode,
+        scale_factor,
+        safe_inset,
+        Some(CAPSULE_MAX_LOGICAL_WIDTH),
+    );
     if rect.size.width <= collapsed_size.width + POSITION_EPSILON
         && rect.size.height <= collapsed_size.height + POSITION_EPSILON
     {
@@ -1601,10 +1621,14 @@ fn infer_mode(rect: WidgetRect, collapsed_size: PhysicalSize<u32>) -> WidgetMode
     }
 }
 
-fn infer_compact_mode(rect: WidgetRect) -> CompactMode {
-    if rect.size.width > rect.size.height.saturating_mul(3) {
+fn infer_compact_mode(rect: WidgetRect, scale_factor: f64, safe_inset: u32) -> CompactMode {
+    let island_width = widget_window_size(ISLAND_LOGICAL_WIDTH, scale_factor, safe_inset);
+    if rect.size.width >= island_width.saturating_sub(POSITION_EPSILON)
+        && rect.size.width > rect.size.height.saturating_mul(3)
+    {
         CompactMode::Island
-    } else if rect.size.width >= rect.size.height.saturating_mul(2) {
+    } else if rect.size.width.saturating_add(POSITION_EPSILON) >= rect.size.height.saturating_mul(2)
+    {
         CompactMode::Capsule
     } else {
         CompactMode::Float
@@ -1671,6 +1695,8 @@ fn expand_widget(
     };
     let threshold = logical_to_physical(SNAP_THRESHOLD_LOGICAL, scale_factor) as i32;
     let previous = state.geometry.lock().ok().and_then(|value| *value);
+    let saved_compact = previous.filter(|saved| saved.compact_mode == compact_mode);
+    let collapsed_size = saved_compact.map_or(collapsed_size, |saved| saved.collapsed_rect.size);
     let (bounds_position, bounds_size) = work_area
         .map(|area| {
             (
@@ -1679,29 +1705,28 @@ fn expand_widget(
             )
         })
         .unwrap_or_else(|| (*monitor.position(), *monitor.size()));
-    let (collapsed_rect, dock) = if let Some(saved) = previous.filter(|saved| {
-        saved.compact_mode == compact_mode && current.size != saved.collapsed_rect.size
-    }) {
-        // A reversal starts at the live frame, but keeps the original capsule anchor.
-        (saved.collapsed_rect, saved.dock)
-    } else if compact_mode == CompactMode::Island {
-        island_collapsed_geometry(
-            current,
-            collapsed_size,
-            &monitor,
-            safe_inset as i32,
-            previous,
-        )
-    } else {
-        collapsed_geometry_for_expand(
-            current.position,
-            collapsed_size,
-            bounds_position,
-            bounds_size,
-            threshold,
-            safe_inset as i32,
-        )
-    };
+    let (collapsed_rect, dock) =
+        if let Some(saved) = saved_compact.filter(|_| current.size != collapsed_size) {
+            // A reversal starts at the live frame, but keeps the original capsule anchor.
+            (saved.collapsed_rect, saved.dock)
+        } else if compact_mode == CompactMode::Island {
+            island_collapsed_geometry(
+                current,
+                collapsed_size,
+                &monitor,
+                safe_inset as i32,
+                previous,
+            )
+        } else {
+            collapsed_geometry_for_expand(
+                current.position,
+                collapsed_size,
+                bounds_position,
+                bounds_size,
+                threshold,
+                safe_inset as i32,
+            )
+        };
     let expanded_rect = WidgetRect {
         position: expanded_position(
             collapsed_rect,
@@ -2260,19 +2285,56 @@ mod geometry_tests {
             PhysicalSize::new(408, 46)
         );
         assert_eq!(
-            infer_compact_mode(WidgetRect {
-                position: PhysicalPosition::new(0, 0),
-                size: PhysicalSize::new(96, 48),
-            }),
+            infer_compact_mode(
+                WidgetRect {
+                    position: PhysicalPosition::new(0, 0),
+                    size: PhysicalSize::new(96, 48),
+                },
+                1.0,
+                4
+            ),
             CompactMode::Capsule
         );
         assert_eq!(
-            infer_compact_mode(WidgetRect {
-                position: PhysicalPosition::new(0, 0),
-                size: PhysicalSize::new(408, 46),
-            }),
+            infer_compact_mode(
+                WidgetRect {
+                    position: PhysicalPosition::new(0, 0),
+                    size: PhysicalSize::new(408, 46),
+                },
+                1.0,
+                4
+            ),
             CompactMode::Island
         );
+    }
+
+    #[test]
+    fn dual_capsule_preserves_both_readouts_at_normal_and_retina_scale() {
+        for (width, scale_factor, expected_size) in [
+            (228.0, 1.0, PhysicalSize::new(236, 48)),
+            (320.0, 2.0, PhysicalSize::new(656, 96)),
+        ] {
+            let inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
+            let size = collapsed_physical_size_with_width(
+                CompactMode::Capsule,
+                scale_factor,
+                inset,
+                Some(width),
+            );
+            assert_eq!(size, expected_size);
+            let rect = WidgetRect {
+                position: PhysicalPosition::new(0, 0),
+                size,
+            };
+            assert_eq!(
+                infer_compact_mode(rect, scale_factor, inset),
+                CompactMode::Capsule
+            );
+            assert_eq!(
+                infer_mode(rect, CompactMode::Capsule, scale_factor, inset),
+                WidgetMode::Collapsed
+            );
+        }
     }
 
     #[test]
@@ -2309,14 +2371,9 @@ mod geometry_tests {
             user_moved_expanded: true,
         };
 
-        assert_eq!(
-            collapse_anchor_position(
-                PhysicalPosition::new(120, 80),
-                CompactMode::Capsule,
-                Some(previous),
-            ),
-            saved_position
-        );
+        let anchor = collapse_anchor(rect(120, 80, 236), CompactMode::Capsule, Some(previous));
+        assert_eq!(anchor.position, previous.collapsed_rect.position);
+        assert_eq!(anchor.size, previous.collapsed_rect.size);
     }
 
     #[test]
@@ -2710,18 +2767,33 @@ fn collapse_widget(
     } else {
         // The compact widget owns its anchor. Moving or interacting with the
         // expanded panel must never relocate the capsule when it collapses.
-        let candidate = collapse_anchor_position(current.position, compact_mode, previous);
+        let anchor = collapse_anchor(
+            WidgetRect {
+                position: current.position,
+                size: collapsed_size,
+            },
+            compact_mode,
+            previous,
+        );
+        // Find the dock from the previous footprint so a change in width
+        // does not detach a capsule that was against the right edge.
         let dock = detect_dock(
-            candidate,
-            collapsed_size,
+            anchor.position,
+            anchor.size,
             &monitor,
             threshold,
             safe_inset as i32,
         );
         let next_position = if dock.is_docked() {
-            snap_position(candidate, collapsed_size, dock, &monitor, safe_inset as i32)
+            snap_position(
+                anchor.position,
+                collapsed_size,
+                dock,
+                &monitor,
+                safe_inset as i32,
+            )
         } else {
-            clamp_position_to_monitor(candidate, collapsed_size, &monitor, safe_inset as i32)
+            clamp_position_to_monitor(anchor.position, collapsed_size, &monitor, safe_inset as i32)
         };
         (
             WidgetRect {
@@ -2780,21 +2852,16 @@ fn begin_widget_drag(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
     let current = current_widget_rect(&window)?;
     let (_, scale_factor) = monitor_and_scale(&window)?;
     let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
-    let compact_mode = state
-        .geometry
-        .lock()
-        .ok()
-        .and_then(|value| *value)
-        .map(|value| value.compact_mode)
-        .unwrap_or_else(|| infer_compact_mode(current));
-    let collapsed_size = collapsed_physical_size(compact_mode, scale_factor, safe_inset);
     let mode = state
         .geometry
         .lock()
         .ok()
         .and_then(|value| *value)
         .map(|value| value.mode)
-        .unwrap_or_else(|| infer_mode(current, collapsed_size));
+        .unwrap_or_else(|| {
+            let compact_mode = infer_compact_mode(current, scale_factor, safe_inset);
+            infer_mode(current, compact_mode, scale_factor, safe_inset)
+        });
     if let Ok(mut drag_mode) = state.drag_mode.lock() {
         *drag_mode = Some(mode);
     }
@@ -2837,17 +2904,17 @@ fn finish_widget_drag(
     let previous_geometry = state.geometry.lock().ok().and_then(|value| *value);
     let compact_mode = previous_geometry
         .map(|value| value.compact_mode)
-        .unwrap_or_else(|| infer_compact_mode(current));
-    let collapsed_size = collapsed_physical_size(compact_mode, scale_factor, safe_inset);
+        .unwrap_or_else(|| infer_compact_mode(current, scale_factor, safe_inset));
     let current_mode = previous_geometry
         .map(|value| value.mode)
-        .unwrap_or_else(|| infer_mode(current, collapsed_size));
+        .unwrap_or_else(|| infer_mode(current, compact_mode, scale_factor, safe_inset));
     let Some(mode) = drag_completion_mode(started_mode, current_mode) else {
         return Ok(());
     };
 
     match mode {
         WidgetMode::Collapsed => {
+            let collapsed_size = current.size;
             let (collapsed_rect, dock) = if compact_mode == CompactMode::Island {
                 island_collapsed_geometry(
                     current,
@@ -3507,6 +3574,7 @@ pub fn run() {
             get_codex_daily_usage_history,
             get_claude_usage,
             get_claude_quota,
+            get_claude_reset_forecast,
             get_volcengine_diagnostics,
             reconnect_volcengine,
             expand_widget,

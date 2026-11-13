@@ -6,7 +6,7 @@ export type TodayQuotaAdviceState = "live" | "fallback" | "stale" | "missing";
 
 export interface TodayQuotaAdvice {
   state: TodayQuotaAdviceState;
-  source: RateLimitSnapshot["source"] | "local-session" | "none";
+  source: RateLimitSnapshot["source"] | "local-session" | "claude-subscription" | "none";
   usedPercent: number | null;
   remainingPercent: number | null;
   todaySuggestedPercent: number | null;

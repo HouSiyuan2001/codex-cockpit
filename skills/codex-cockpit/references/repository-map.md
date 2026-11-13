@@ -37,7 +37,8 @@
 | 共享计划、个人手调 | `src/hooks/useSharedDailyPlan.ts`、`src/lib/sharedDailyPlan.ts`、`src/lib/personPlanSync.ts`、`cloud/usage-sync-worker/src/daily-plan.js` | 对应前端 `.test.ts`、`docs/SHARED-DAILY-PLAN.md` |
 | 舒适度拟合、建议额度、风险 | `src/lib/personComfort.ts`、`src/lib/comfortFeedback.ts`、`src/lib/quotaPace.ts`、`src/components/ResetRiskQuotaHeatmap.tsx` | 对应测试、`docs/COMFORT-RECENCY-WEIGHTING.md`、`docs/REMAINING-QUOTA-PLAN.md` |
 | Claude 额度、用量、价格与驾驶舱模式 | `src-tauri/src/claude_quota.rs`、`src-tauri/src/claude_usage.rs`、`src/lib/claudeCockpit.ts`、`src/components/ClaudeCockpit.tsx`、`src/hooks/useClaudeUsage.ts` | Rust 模块内测试、`src/lib/claudeCockpit.test.ts`、`src/components/ClaudeCockpit.test.tsx`；只读 Claude Code 登录取 5 小时/周额度，只读会话 usage 字段估算 API 等价费用 |
-| 第三方重置观察 | `src-tauri/src/reset_forecast.rs`、`src/components/ResetWatchBell.tsx` | `src/components/ResetWatchBell.test.tsx`、`docs/RESET-WATCH-BELL.md`；不是官方保证 |
+| 第三方重置观察 | `src-tauri/src/reset_forecast.rs`、`src-tauri/src/claude_resets.rs`、`src/components/ResetWatchBell.tsx` | 模块内测试、`src/components/ResetWatchBell.test.tsx`、`docs/RESET-WATCH-BELL.md`；不是官方保证 |
+| Claude 今日计划与舒适度 | `src/lib/claudePlan.ts`、`src/components/QuotaCard.tsx`、`src/components/ControlCenter.tsx` | `src/lib/claudePlan.test.ts`、`src/components/ClaudeCockpit.test.tsx`；周额度观测与 Claude 用量日志分开，计划和体验独立保存在本机 |
 | Worker 路由/权限、限流与快照校验 | `cloud/usage-sync-worker/src/index.js`、`snapshot-schema.js`、`request-body.js`（同目录）、`cloud/usage-sync-worker/migrations/` | `cloud/usage-sync-worker/test/`、`docs/SYNC-CONTRACT-V2.md`；维护见 `skills/cloudflare-sync/references/maintenance.md` |
 | 下载更新、打包、扫描 | `src/lib/appUpdate.ts`、`scripts/release.mjs`、`.github/workflows/` | `src/lib/appUpdate.test.ts`、`docs/RELEASING.md`、`docs/RELEASE.md` |
 

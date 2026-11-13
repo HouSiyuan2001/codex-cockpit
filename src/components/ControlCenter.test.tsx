@@ -7,7 +7,7 @@ import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import type { WidgetPreferences } from "../types";
 import { ControlCenter } from "./ControlCenter";
 import { buildMidnightQuotaPlan } from "../lib/midnightQuotaPlan";
-import { COMFORT_CURVE_VERSION } from "../lib/comfortFeedback";
+import { COMFORT_CURVE_VERSION, personalizeComfortCurve } from "../lib/comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
 import { UI_FONT_OPTIONS } from "../lib/fonts";
 
@@ -52,9 +52,11 @@ it("puts Usage first in the control center navigation", () => {
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
 });
 
-it("colors Usage by its selected source and other pages by the cockpit mode", () => {
+it("keeps provider choices separate for Usage and Quota, including Claude comfort and refresh", () => {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, cockpitMode: "claude" as const, claudeEnabled: true };
-  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn() };
+  const claudeQuota = { recommendation: null, remaining: 43, curve: personalizeComfortCurve([]), feedback: [], history: [],
+    usage: null, onFeedback: vi.fn(), onRefreshSnapshot: vi.fn(), onRefresh: vi.fn(), onOpenResets: vi.fn() };
+  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn(), claudeQuota };
   const { rerender } = render(<ControlCenter {...props} preferences={preferences} />);
   const dialog = screen.getByRole("dialog");
 
@@ -65,6 +67,15 @@ it("colors Usage by its selected source and other pages by the cockpit mode", ()
   expect(dialog).toHaveAttribute("data-cockpit-mode", "ai");
   fireEvent.click(screen.getByRole("button", { name: "Quota" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh quota" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open Claude Resets" }));
+  fireEvent.click(within(screen.getByRole("region", { name: "Experience history" })).getByRole("radio", { name: "Just right" }));
+  expect(claudeQuota.onRefresh).toHaveBeenCalledOnce();
+  expect(claudeQuota.onOpenResets).toHaveBeenCalledOnce();
+  expect(claudeQuota.onFeedback).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d\d-\d\d$/), "comfortable");
+  expect(props.onRefresh).not.toHaveBeenCalled();
+  fireEvent.click(within(screen.getByRole("radiogroup", { name: "Quota source" })).getByRole("radio", { name: /Codex/ }));
+  expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
   fireEvent.click(screen.getByRole("button", { name: "Usage" }));

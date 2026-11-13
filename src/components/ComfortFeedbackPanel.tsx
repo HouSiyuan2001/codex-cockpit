@@ -8,6 +8,7 @@ interface ComfortFeedbackPanelProps {
   onSelect: (comfort: ComfortCode) => void;
   saving?: boolean;
   error?: string | null;
+  compact?: boolean;
 }
 
 const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
@@ -16,7 +17,7 @@ const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
   { code: "idle", icon: SmileyWink },
 ];
 
-export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null }: ComfortFeedbackPanelProps) {
+export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null, compact = false }: ComfortFeedbackPanelProps) {
   const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
   const observedTime = prompt.usageObservedAt
     ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(prompt.usageObservedAt))
@@ -29,9 +30,9 @@ export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = fals
       <header>
         <div>
           <strong>{prompt.personName ? `${prompt.personName} · ` : ""}{labels.title}</strong>
-          <small>{labels.hint}</small>
+          {(!compact || prompt.isCatchUp) && <small>{labels.hint}</small>}
         </div>
-        <span className="comfort-feedback-time">22:00</span>
+        {!compact && <span className="comfort-feedback-time">22:00</span>}
       </header>
       <div className="comfort-feedback-options">
         {options.map(({ code, icon: Icon }) => (
@@ -49,7 +50,7 @@ export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = fals
           </button>
         ))}
       </div>
-      <footer>
+      {!compact && <footer>
         {prompt.personId ? <>
           <span>{prompt.quotaAllocation?.allocatedUsedPercent != null && prompt.quotaAllocation.coverage !== "unavailable" ? `≈${number.format(prompt.quotaAllocation.allocatedUsedPercent)}%` : (language === "en" ? "Percentage unavailable" : "暂无百分比")}</span>
           <span>{language === "en" ? "By cost share" : "按金额分摊"}</span>
@@ -57,7 +58,7 @@ export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = fals
           <span>{prompt.observedUsedPercent === null ? labels.missing : `${labels.usage} ${number.format(prompt.observedUsedPercent)}% ${labels.observed}`}</span>
           <span>{prompt.usageCoverage === "complete" ? (language === "en" ? "official" : "官方快照") : prompt.usageCoverage === "partial" ? (language === "en" ? "partial" : "部分记录") : "—"}</span>
         </>}
-      </footer>
+      </footer>}
       {error ? <p role="alert">{error}</p> : null}
     </section>
   );

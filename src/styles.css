@@ -2138,7 +2138,7 @@ textarea {
 
 /* The collapsed Codex capsule is now a small glass instrument, not a badge. */
 .quota-card--compact-capsule.quota-orb {
-  width: var(--capsule-logical-width, calc(100% - (var(--edge-safe-inset) * 2)));
+  width: calc(100% - (var(--edge-safe-inset) * 2));
   height: calc(100% - (var(--edge-safe-inset) * 2));
   max-width: var(--capsule-logical-width, 88px);
   max-height: 40px;

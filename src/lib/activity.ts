@@ -1,6 +1,7 @@
 import { MAX_DAILY_OBSERVED_PERCENT } from "../types";
 import type { ActivityEvent, DailyPaceBaseline, DailyRecommendationRecord, DailyUsageSummary, Language, ProviderId, ProviderSnapshot, QuotaHistoryPoint, ResetForecast, RuntimeState } from "../types";
 import { normalizeComfortFeedbackRecords, normalizeComfortPromptedKeys } from "./comfortFeedback";
+import { normalizeClaudePlan } from "./claudePlan";
 import type { RecentCodexReset } from "./resetDetection";
 import { DEFAULT_PROVIDER_ORDER, normalizeProviderOrder } from "./providers";
 import { calculateQuotaPace, mostOverPaceWindow, paceBaselineKey, refreshDailyPaceBaselines, trackedQuotaWindows, type NamedQuotaWindow, type QuotaPace } from "./quotaPace";
@@ -194,6 +195,7 @@ export function normalizeRuntimeState(value: unknown): RuntimeState {
     dailyUsage: Array.isArray(candidate.dailyUsage) ? candidate.dailyUsage.map(dailyUsageSummary).filter((item): item is DailyUsageSummary => item !== null).slice(-600) : [],
     comfortFeedback: normalizeComfortFeedbackRecords(candidate.comfortFeedback),
     comfortPromptedDates: normalizeComfortPromptedKeys(candidate.comfortPromptedDates),
+    ...(candidate.claudePlan ? { claudePlan: normalizeClaudePlan(candidate.claudePlan) } : {}),
     ...(candidate.comfortPersonId === null || (typeof candidate.comfortPersonId === "string" && candidate.comfortPersonId.length > 0 && candidate.comfortPersonId.length <= 160 && !/[\x00-\x1f\x7f]/.test(candidate.comfortPersonId)) ? { comfortPersonId: candidate.comfortPersonId } : {}),
     events: Array.isArray(candidate.events) ? candidate.events.map(activityEvent).filter((item): item is ActivityEvent => item !== null).slice(0, 200) : [],
     savedLayouts: Array.isArray(candidate.savedLayouts) ? candidate.savedLayouts.map(savedLayout).filter((item): item is RuntimeState["savedLayouts"][number] => item !== null).slice(0, 12) : [],

@@ -23,6 +23,9 @@ export function activeResetWatch(forecast: ResetForecast | null | undefined, now
 }
 
 export function resetWatchLabel(watch: ResetWatch, language: Language): string {
+  if (watch.signalKind === "claude-announcement") {
+    return language === "en" ? "Claude reset announcement" : "Claude 重置公告";
+  }
   if (watch.signalKind === "scheduled") {
     return language === "en" ? "Reset announced · scheduled time · tracked by codex-resets.com" : "重置已宣布 · 预计时间 · codex-resets.com 跟踪";
   }

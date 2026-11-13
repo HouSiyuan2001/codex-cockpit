@@ -5,7 +5,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import { buildClaudeCockpitView } from "../lib/claudeCockpit";
-import type { ClaudeQuota, ClaudeUsageReport, CockpitMode, ProviderSnapshot } from "../types";
+import { buildClaudePlan, claudeResetWatch, EMPTY_CLAUDE_PLAN, observeClaudeQuota } from "../lib/claudePlan";
+import type { ClaudeQuota, CockpitMode, ProviderSnapshot } from "../types";
 import { aiCapsuleLogicalWidth, capsuleLogicalWidth, QuotaCard, QuotaOrb } from "./QuotaCard";
 
 afterEach(cleanup);
@@ -23,18 +24,6 @@ const codex: ProviderSnapshot = {
 };
 
 const now = new Date("2026-11-10T12:00:00Z");
-const usage: ClaudeUsageReport = {
-  status: "ok",
-  observedAt: now.toISOString(),
-  latestActivityAt: null,
-  priceCheckedAt: "2026-11-09",
-  days: [
-    { localDate: "2026-11-10", requests: 3, inputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 1, costUsd: 72.1, unpricedRequests: 0, models: [
-      { id: "claude-opus-5-5", name: "Opus 5.5", requests: 3, inputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0, costUsd: 72.1 },
-    ] },
-  ],
-  prices: [{ id: "claude-opus-5-5", name: "Opus 5.5", price: { input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20 } }],
-};
 const quota: ClaudeQuota = {
   status: "ok",
   fiveHour: { usedPercent: 38, resetsAt: "2026-11-10T14:30:00Z" },
@@ -48,13 +37,26 @@ const quota: ClaudeQuota = {
 
 interface ModeHandlers {
   onCockpitModeChange?: (mode: CockpitMode) => void;
+  onOpenResetForecast?: (url: string) => void;
+  onClaudeCapChange?: (value: number | null) => void;
+  onClaudeRiskChange?: (value: number | null) => void;
+  onResetRiskChange?: (value: number | null) => void;
 }
+
+const forecast = {
+  checkedAt: now.toISOString(), historyRiskPercent: 8.4, historySampleCount: 7,
+  notice: {
+    observedAt: "2026-11-09T18:00:00Z", expiresAt: "2026-12-10T22:00:00Z",
+    announcementUrl: "https://x.com/ClaudeDevs/status/2120275296637321476",
+  },
+};
 
 function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota) {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode, claudeEnabled: true };
-  const claudeView = buildClaudeCockpitView(usage, claudeQuota, now);
+  const claudeView = buildClaudeCockpitView(claudeQuota, now);
+  const claudePlan = buildClaudePlan(observeClaudeQuota(EMPTY_CLAUDE_PLAN, claudeQuota, now), claudeQuota, forecast, 25, now);
   return render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={preferences}
-    claudeView={claudeView} {...handlers}
+    claudeView={claudeView} claudePlan={claudePlan} claudeWatch={claudeResetWatch(forecast, now)} {...handlers}
     onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
 }
 
@@ -69,24 +71,32 @@ it("switches between the Codex, Claude and AI cockpits from one control", () => 
   expect(onCockpitModeChange.mock.calls).toEqual([["claude"], ["ai"]]);
 });
 
-it("shows Claude weekly remaining and 5-hour used, without dollar caps", () => {
-  const { container } = renderCard("claude");
+it("shows the shared daily controls next to Claude quota and opens the original announcement", () => {
+  const onOpenResetForecast = vi.fn(), onClaudeCapChange = vi.fn(), onClaudeRiskChange = vi.fn(), onResetRiskChange = vi.fn();
+  const { container } = renderCard("claude", { onOpenResetForecast, onClaudeCapChange, onClaudeRiskChange, onResetRiskChange });
   expect(container.querySelector(".codex-focus-card")).toHaveClass("cockpit-mode--claude");
   expect(screen.getByText("Claude 驾驶舱")).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: "本周剩余 43%" })).toHaveClass("codex-ring-card--claude");
-  const fiveHour = screen.getByRole("group", { name: "5h 已用 38%" });
-  expect(fiveHour).toHaveClass("codex-ring-card--claude");
-  expect(fiveHour.querySelector(".codex-ring-progress")).toHaveAttribute("stroke-dasharray", "38 62");
-  expect(screen.queryByText(/个人上限|重置风险/)).not.toBeInTheDocument();
-  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
-  expect(fiveHour).toHaveTextContent("$72.1");
+  const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
+  expect(weekly).toHaveClass("codex-ring-card--claude");
+  expect(weekly).toHaveTextContent("5h 已用 38%");
+  expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "38 62");
+  fireEvent.change(screen.getByRole("slider", { name: "个人上限" }), { target: { value: "26" } });
+  expect(onClaudeCapChange).toHaveBeenCalledWith(26);
+  const risk = screen.getByRole("slider", { name: "重置风险" });
+  expect(risk).toBeEnabled(); // A banked grant is an announcement, not a probability.
+  fireEvent.change(risk, { target: { value: "32" } });
+  expect(onClaudeRiskChange).toHaveBeenCalledWith(32);
+  expect(onResetRiskChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /Claude 重置公告/ }));
+  expect(onOpenResetForecast).toHaveBeenCalledWith(forecast.notice.announcementUrl);
   expect(screen.queryByText("近 7 天模型")).not.toBeInTheDocument();
 });
 
 it("renders zero used when the 5-hour window is unused", () => {
   renderCard("claude", {}, { ...quota, fiveHour: { usedPercent: 0, resetsAt: null } });
-  const fiveHour = screen.getByRole("group", { name: "5h 已用 0%" });
-  expect(fiveHour.querySelector(".codex-ring-progress")).toHaveAttribute("stroke-dasharray", "0 100");
+  const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
+  expect(weekly).toHaveTextContent("5h 已用 0%");
+  expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "0 100");
 });
 
 it("explains a missing Claude login instead of showing numbers", () => {
@@ -132,7 +142,7 @@ it("falls back to today's use when the plan reports no 5-hour window", () => {
   expect(screen.queryByRole("group", { name: /5h 已用/ })).not.toBeInTheDocument();
   expect(screen.getByRole("group", { name: /^今日已用/ })).toHaveClass("codex-ring-card--claude");
   const { container } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourUsed={null} claudeTodayRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
-  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/今日已用\/今日建议 50%/);
+  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/今日已用\/个人上限 50%/);
 });
 
 it("keeps a Codex-only cockpit when Claude is switched off", () => {

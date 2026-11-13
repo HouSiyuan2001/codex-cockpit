@@ -69,7 +69,10 @@ fn normalize(response: WebsiteResponse, now: DateTime<Utc>) -> Option<WebsiteRes
     })
 }
 
-async fn read_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Option<T> {
+pub(crate) async fn read_json<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    url: &str,
+) -> Option<T> {
     let mut response = client
         .get(url)
         .header(reqwest::header::ACCEPT, "application/json")

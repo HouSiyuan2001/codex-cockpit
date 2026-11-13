@@ -9,12 +9,14 @@ export function ResetWatchBell({ watch, language, onOpen }: {
   onOpen: (url: string) => void;
 }) {
   const label = resetWatchLabel(watch, language);
-  const action = language === "en" ? "Open codex-resets.com" : "打开 codex-resets.com";
+  const action = watch.signalKind === "claude-announcement"
+    ? (language === "en" ? "Open announcement · Claude Resets" : "打开公告 · Claude Resets")
+    : (language === "en" ? "Open codex-resets.com" : "打开 codex-resets.com");
   return (
     <button type="button" className="reset-watch-bell" aria-label={`${label} · ${action}`} title={`${label} · ${action}`}
       onPointerDown={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => { event.stopPropagation(); onOpen(CODEX_RESETS_URL); }}>
+      onClick={(event) => { event.stopPropagation(); onOpen(watch.announcementUrl ?? CODEX_RESETS_URL); }}>
       <Bell weight="fill" aria-hidden="true" />
     </button>
   );

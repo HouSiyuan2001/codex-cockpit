@@ -9,3 +9,7 @@
 胶囊徽标不增加点击目标，仍点击展开；展开标题旁按钮阻止拖动冒泡，固定打开 https://codex-resets.com/，不使用上游任意URL。无 Watch 时不占位。
 
 浏览器本地预览 ?watch=active 使用合成70% Watch；页面标明 synthetic，Tauri分支完全忽略该查询参数，始终走真实 API。不能把预览当作实时预警。
+
+Claude 模式读取 [Claude Resets 的公开公告目录](https://claude-resets.com/llms.txt)，不向网站发送账号信息。有适用公告时亮铃，点击打开原帖。可手动领取的重置提醒保留到公告截止时间；无截止时间的公告显示 48 小时。提醒不代表账号仍有可领取的次数。
+
+Claude Resets 不提供预测概率。Claude 的风险滑条使用和 Codex 相同的历史估算，只纳入已核实、适用套餐的直接周额度重置。手动值只影响 Claude，恢复按钮回到历史值。Claude 的额度计划和使用舒适度保存在本机，和 Codex 的共享记录分开。

@@ -336,11 +336,11 @@ impl QuotaState {
         {
             return Some(result.clone());
         }
-        let crossed_reset = result
-            .five_hour
-            .as_ref()
-            .and_then(|window| DateTime::parse_from_rfc3339(window.resets_at.as_deref()?).ok())
-            .is_some_and(|reset| last_wall_time < reset && wall_time >= reset);
+        let crossed_reset = [&result.five_hour, &result.seven_day]
+            .into_iter()
+            .flatten()
+            .filter_map(|window| DateTime::parse_from_rfc3339(window.resets_at.as_deref()?).ok())
+            .any(|reset| last_wall_time < reset && wall_time >= reset);
         (elapsed < MIN_REFRESH && !manual_ready && !crossed_reset).then(|| result.clone())
     }
 

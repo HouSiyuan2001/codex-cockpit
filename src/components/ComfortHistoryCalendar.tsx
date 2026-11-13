@@ -1,16 +1,16 @@
 import { calendarDate, dateAtBeijingNoon, USAGE_TIME_ZONE } from "../lib/usageDay";
-import { CaretLeft, CaretRight } from "@phosphor-icons/react";
+import { ArrowClockwise, CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { localDateKey } from "../lib/comfortFeedback";
 import { buildTokenComfortSnapshot } from "../lib/tokenComfort";
 import { formatTokens, type TokeiUsage } from "../lib/tokeiUsage";
-import type { CodexDailyUsage, ComfortCode, ComfortFeedbackRecord, ComfortQuotaAllocation, DailyUsageSummary, Language } from "../types";
+import type { QuotaDailyUsage, ComfortCode, ComfortFeedbackRecord, ComfortQuotaAllocation, DailyUsageSummary, Language } from "../types";
 import "./ComfortHistoryCalendar.css";
 
 interface ComfortHistoryCalendarProps {
   records: readonly ComfortFeedbackRecord[];
   dailyUsage?: readonly DailyUsageSummary[];
-  dailyUsageHistory?: readonly CodexDailyUsage[];
+  dailyUsageHistory?: readonly QuotaDailyUsage[];
   language: Language;
   onChange: (localDate: string, comfort: ComfortCode) => void;
   tokenMode?: boolean;
@@ -75,7 +75,7 @@ function formatWeekRange(days: readonly Date[], language: Language): string {
   return `${start}–${end}`;
 }
 
-function formatUsagePercent(value: number, language: Language, coverage: CodexDailyUsage["coverage"] | "legacy" = "complete"): string {
+function formatUsagePercent(value: number, language: Language, coverage: QuotaDailyUsage["coverage"] | "legacy" = "complete"): string {
   const formatted = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 }).format(value);
   return `${coverage === "partial" ? "≥" : ""}${formatted}%`;
 }
@@ -127,7 +127,7 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
   const periodLabel = view === "week" ? formatWeekRange(days, language) : formatMonth(visibleMonth, language);
   const recordsByDate = useMemo(() => new Map(records.map((record) => [record.localDate, record])), [records]);
   const dailyUsageByDate = useMemo(() => {
-    const result = new Map<string, Omit<Pick<CodexDailyUsage, "localDate" | "observedUsedPercent" | "sampleCount" | "coverage">, "coverage"> & { coverage: CodexDailyUsage["coverage"] | "legacy" }>();
+    const result = new Map<string, Omit<Pick<QuotaDailyUsage, "localDate" | "observedUsedPercent" | "sampleCount" | "coverage">, "coverage"> & { coverage: QuotaDailyUsage["coverage"] | "legacy" }>();
     if (dailyUsageHistory.length > 0) {
       for (const usage of dailyUsageHistory) {
         if (usage.coverage === "unavailable" || usage.sampleCount <= 0 || !Number.isFinite(usage.observedUsedPercent)) continue;
@@ -243,6 +243,9 @@ export function ComfortHistoryCalendar({ records, dailyUsage = [], dailyUsageHis
           {!personPercentMode && <div className="comfort-history-editor-heading">
             <strong>{formatSelectedDate(selectedDate, language)}</strong>
             <small>{selectedRecord ? labels.recorded : labels.noRecord}</small>
+            {!tokenMode && selectedRecord && onRefreshSnapshot && <button type="button" className="comfort-history-refresh" disabled={saving}
+              aria-label={language === "en" ? "Refresh snapshot" : "刷新快照"} title={language === "en" ? "Refresh snapshot" : "刷新快照"}
+              onClick={() => onRefreshSnapshot(selectedDate)}><ArrowClockwise aria-hidden="true" /></button>}
           </div>}
           {tokenMode && <div className="comfort-token-detail">
             <p>{selectedTokenText ? `${selectedRecord?.tokenSnapshot ? (language === "en" ? "Saved snapshot" : "已保存快照") : (language === "en" ? "Current daily ledger" : "当前日账")} · ${selectedTokenText} Token` : (language === "en" ? "No token snapshot for this day" : "这一天暂无 Token 快照")}</p>

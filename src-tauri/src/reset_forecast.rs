@@ -141,7 +141,7 @@ fn sanitize_history(
     dates
 }
 
-fn history_risk(dates: &[DateTime<Utc>], as_of: DateTime<Utc>) -> f64 {
+pub(crate) fn history_risk(dates: &[DateTime<Utc>], as_of: DateTime<Utc>) -> f64 {
     if dates.len() < 2 {
         return 10.0;
     }
