@@ -60,7 +60,7 @@ git diff --check
 
 ### macOS release signing
 
-Configure these GitHub Actions variables and secrets before tagging a release.
+Configure these GitHub Actions variables and secrets to enable Developer ID signing and notarization.
 
 | Setting | Where | Value |
 | --- | --- | --- |
@@ -77,10 +77,10 @@ first upgrade from an ad-hoc build, macOS may ask to authorize the existing
 cloud-sync Keychain item again. Smoke-test the next signed-to-signed upgrade
 with cloud sync enabled to verify that the permission carries forward.
 
-Untagged validation can use ad-hoc signing when the Apple settings are all
-absent. Tagged builds require the Apple settings and verify the signed,
-notarized app inside the updater archive. The Tauri updater key is separate
-from the Developer ID certificate.
+When all Apple settings are absent, the workflow uses ad-hoc signing for macOS.
+When configured, it requires the full set and verifies the signed, notarized app
+inside the updater archive. The Tauri updater key is separate from the
+Developer ID certificate and is required in both cases.
 
 ## Authorization boundary
 

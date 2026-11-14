@@ -10,7 +10,7 @@ Linux is built on Ubuntu 22.04. The disposable runner installs the Debian packag
 
 Release builds restore Rust caches when available but do not save them (`save-if: 'false'`). This avoids expensive post-job cache cleanup/compression blocking publication after the signed packages have already been uploaded. Tests, signatures and Windows security scans remain mandatory; a cache miss simply rebuilds dependencies.
 
-For new version tags, macOS requires Developer ID signing and notarization; see [the desktop release gate](DESKTOP-DEVELOPMENT-SOP.md#macos-release-signing). Prior public Mac packages and validation builds without Apple credentials use ad-hoc signing. Windows is not Authenticode-signed. Updater archives and installers have a separate Tauri signature. See [automatic update setup](AUTO-UPDATE.md).
+macOS packages use ad-hoc signing when Apple credentials are absent. To publish Developer ID signed and notarized packages, configure the full set of [Apple signing settings](DESKTOP-DEVELOPMENT-SOP.md#macos-release-signing). Windows is not Authenticode-signed. Updater archives and installers have a separate Tauri signature. See [automatic update setup](AUTO-UPDATE.md).
 
 Automated checks do not replace clean-machine install/launch/clipboard/uninstall/rollback tests. No paid cloud plan is required.
 

@@ -102,8 +102,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != refs/tags/v* &&
-                -z "$APPLE_SIGNING_IDENTITY$APPLE_TEAM_ID$APPLE_CERTIFICATE$APPLE_CERTIFICATE_PASSWORD$APPLE_ID$APPLE_PASSWORD" ]]; then
+          if [[ -z "$APPLE_SIGNING_IDENTITY$APPLE_TEAM_ID$APPLE_CERTIFICATE$APPLE_CERTIFICATE_PASSWORD$APPLE_ID$APPLE_PASSWORD" ]]; then
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
             APPLE_SIGNING_IDENTITY=- npm run tauri build -- --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
             exit

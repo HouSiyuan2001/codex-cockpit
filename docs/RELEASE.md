@@ -8,4 +8,4 @@
 
 下载：Mac 选 `universal.dmg`，Windows x64 选 `x64-setup.exe`，Linux x64 选 `.AppImage` 或 Debian/Ubuntu 的 `.deb`。校验文件见 `SHA256SUMS`。
 
-Windows 无发布者签名。Linux 的 `.deb` 需手动更新。
+Mac 安装包未公证，Windows 无发布者签名。Linux 的 `.deb` 需手动更新。
