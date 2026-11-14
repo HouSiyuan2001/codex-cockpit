@@ -123,14 +123,12 @@ export function claudeResetWatch(forecast: ClaudeResetForecast | null, now: Date
 }
 
 export function buildClaudePlan(
-  state: ClaudePlanState, quota: ClaudeQuota | null, forecast: ClaudeResetForecast | null, fatigueKneePercent: number, now: Date,
+  state: ClaudePlanState, quota: ClaudeQuota | null, fatigueKneePercent: number, now: Date,
 ) {
   const localDate = localDateKey(now);
   const midnight = beijingMidnight(now);
-  const age = now.getTime() - Date.parse(forecast?.checkedAt ?? "");
-  const historyRisk = age >= -60_000 && age < DAY_MS && percent(forecast?.historyRiskPercent) ? forecast.historyRiskPercent : null;
-  const risk = state.manualRiskPercent ?? historyRisk ?? 10;
-  const riskSource = state.manualRiskPercent !== null ? "manual" as const : historyRisk !== null ? "history" as const : "fallback" as const;
+  const risk = state.manualRiskPercent ?? 0;
+  const riskSource = state.manualRiskPercent !== null ? "manual" as const : "scheduled-only" as const;
   const readable = quota?.status === "ok" || quota?.status === "stale";
   const weekly = readable ? quota.sevenDay : null;
   const observedUsed = percent(weekly?.usedPercent) ? weekly.usedPercent : null;
@@ -151,8 +149,8 @@ export function buildClaudePlan(
       todayFractionRemaining: Math.min(1, Math.max(0, (midnight + DAY_MS - anchor) / DAY_MS)),
       resetRiskPercent: risk, fatigueKneePercent, carryInPercent: 0, futureDays: (reset - anchor) / DAY_MS,
       cycleAge: Math.max(0, 7 - (reset - anchor) / DAY_MS), weekday: (new Date(midnight + 8 * 3_600_000).getUTCDay() + 6) % 7,
-      historySampleCount: historyRisk !== null ? forecast?.historySampleCount ?? 0 : 0,
-      source: historyRisk === null ? "local-fallback" : "remote-history",
+      historySampleCount: 0,
+      source: "local-fallback",
       policyVersion: "shared-account-plan-v2",
     };
   }
@@ -163,7 +161,7 @@ export function buildClaudePlan(
     remainingPercent: observedUsed === null ? null : round(100 - observedUsed),
     todaySuggestedPercent: recommendation?.targetPercent ?? null, todayUsedPercent: todayUsed,
     todayRemainingPercent: recommendation && todayUsed !== null ? round(Math.max(0, recommendation.targetPercent - todayUsed)) : null,
-    safetyCapPercent: recommendation?.safetyCapPercent ?? null, resetRiskPercent: risk,
+    safetyCapPercent: recommendation?.safetyCapPercent ?? null, resetRiskPercent: state.manualRiskPercent,
     recommendationSource: recommendation?.source ?? "none", resetsAt: weekly?.resetsAt ?? null,
   };
   return { advice, cap, ratio: dailyUsageRatio(todayUsed, cap), recommendation, riskSource };

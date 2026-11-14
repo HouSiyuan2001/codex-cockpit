@@ -10,6 +10,6 @@
 
 浏览器本地预览 ?watch=active 使用合成70% Watch；页面标明 synthetic，Tauri分支完全忽略该查询参数，始终走真实 API。不能把预览当作实时预警。
 
-Claude 模式读取 [Claude Resets 的公开公告目录](https://claude-resets.com/llms.txt)，不向网站发送账号信息。有适用公告时亮铃，点击打开原帖。可手动领取的重置提醒保留到公告截止时间；无截止时间的公告显示 48 小时。提醒不代表账号仍有可领取的次数。
+Claude 模式读取 [Claude Resets 的公开公告目录](https://claude-resets.com/llms.txt)。适用公告发布后最多显示 48 小时，可领取的重置如果先到期，铃铛也会提前消失。点铃铛可打开原帖，仍可从控制中心打开网站查看往期公告。公开公告不包含账号的领取状态。
 
-Claude Resets 不提供预测概率。Claude 的风险滑条使用和 Codex 相同的历史估算，只纳入已核实、适用套餐的直接周额度重置。手动值只影响 Claude，恢复按钮回到历史值。Claude 的额度计划和使用舒适度保存在本机，和 Codex 的共享记录分开。
+Claude 的今日建议默认按账号剩余周额度和周重置时间分配。手动风险值只影响 Claude，恢复按钮回到默认分配。Claude 的额度计划和使用舒适度保存在本机，和 Codex 的共享记录分开。

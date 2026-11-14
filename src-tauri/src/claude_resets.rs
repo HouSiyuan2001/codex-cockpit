@@ -1,5 +1,5 @@
 //! Public Claude subscription reset catalog (claude-resets.com, CC BY 4.0).
-use crate::{reset_forecast::history_risk, website_reset_probability::read_json};
+use crate::website_reset_probability::read_json;
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -13,8 +13,6 @@ const SOURCE_ACCOUNTS: &[&str] = &["ClaudeDevs", "bcherny", "lydiahallie"];
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeResetForecast {
     checked_at: String,
-    history_risk_percent: Option<f64>,
-    history_sample_count: usize,
     notice: Option<ClaudeResetNotice>,
 }
 
@@ -50,7 +48,6 @@ struct Event {
     reset_type: Option<String>,
     usable_until: Option<String>,
     scope: Option<String>,
-    note: Option<String>,
     url: Option<String>,
     verification: Option<String>,
 }
@@ -90,7 +87,7 @@ fn plan_key(plan: Option<&str>) -> Option<&'static str> {
         .next()
 }
 
-fn applies(scope: Option<&str>, plan: Option<&str>, notice: bool) -> bool {
+fn applies(scope: Option<&str>, plan: Option<&str>) -> bool {
     let scope = scope.unwrap_or("").trim().to_ascii_lowercase();
     if matches!(
         scope.as_str(),
@@ -99,7 +96,7 @@ fn applies(scope: Option<&str>, plan: Option<&str>, notice: bool) -> bool {
         return true;
     }
     if scope == "paid plans" {
-        return plan.is_some_and(|key| key != "free") || (notice && plan.is_none());
+        return plan.is_some_and(|key| key != "free") || plan.is_none();
     }
     // Don't claim an account was among a cohort affected by an incident.
     if scope.contains("affected") {
@@ -108,38 +105,17 @@ fn applies(scope: Option<&str>, plan: Option<&str>, notice: bool) -> bool {
     let words: Vec<_> = scope.split(|ch: char| !ch.is_ascii_alphabetic()).collect();
     plan.map_or_else(
         || {
-            notice
-                && (scope.is_empty()
-                    || words.iter().any(|word| {
-                        matches!(*word, "pro" | "max" | "ultra" | "team" | "enterprise")
-                    }))
+            scope.is_empty()
+                || words
+                    .iter()
+                    .any(|word| matches!(*word, "pro" | "max" | "ultra" | "team" | "enterprise"))
         },
         |key| words.contains(&key),
     )
 }
 
-fn resets_weekly(event: &Event) -> bool {
-    // The feed doesn't provide a structured weekly-window field. Require an
-    // explicit full/weekly reset in the curated description; skip ambiguous rows.
-    let note = event
-        .note
-        .as_deref()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    [
-        "and weekly",
-        "reset weekly",
-        "reset the weekly",
-        "reset usage limits for all subscribers",
-        "reset all usage limits",
-    ]
-    .iter()
-    .any(|phrase| note.contains(phrase))
-}
-
 fn normalize(catalog: Catalog, plan: Option<&str>, now: DateTime<Utc>) -> ClaudeResetForecast {
     let plan = plan_key(plan);
-    let mut dates = Vec::new();
     let mut latest = None;
     for event in catalog.providers.claude.events {
         let curated = event.verification.as_deref() == Some("curated");
@@ -160,19 +136,13 @@ fn normalize(catalog: Catalog, plan: Option<&str>, now: DateTime<Utc>) -> Claude
         if !curated && post.is_none() {
             continue;
         }
-        if curated
-            && !banked
-            && resets_weekly(&event)
-            && applies(event.scope.as_deref(), plan, false)
-        {
-            dates.push(date);
-        }
-        if !applies(event.scope.as_deref(), plan, true) {
+        if !applies(event.scope.as_deref(), plan) {
             continue;
         }
+        let reminder_end = date + ChronoDuration::hours(ANNOUNCEMENT_HOURS);
         let expires = match (banked, event.usable_until.as_deref()) {
-            (true, Some(raw)) => parse(raw),
-            _ => Some(date + ChronoDuration::hours(ANNOUNCEMENT_HOURS)),
+            (true, Some(raw)) => parse(raw).map(|until| until.min(reminder_end)),
+            _ => Some(reminder_end),
         };
         if let Some(expires) = expires.filter(|until| *until > now) {
             if latest.as_ref().is_none_or(|(previous, _)| date > *previous) {
@@ -187,12 +157,8 @@ fn normalize(catalog: Catalog, plan: Option<&str>, now: DateTime<Utc>) -> Claude
             }
         }
     }
-    dates.sort_unstable();
-    dates.dedup_by(|later, earlier| (*later - *earlier).num_seconds() <= 300);
     ClaudeResetForecast {
         checked_at: iso(now),
-        history_risk_percent: (dates.len() >= 2).then(|| history_risk(&dates, now)),
-        history_sample_count: dates.len(),
         notice: latest.map(|(_, notice)| notice),
     }
 }
@@ -226,26 +192,23 @@ mod tests {
     }
 
     #[test]
-    fn banked_announcement_stays_active_without_driving_weekly_risk() {
-        let max = result(Some("max_20x"), "2026-11-12T22:00:00Z");
+    fn banked_announcement_expires_even_if_the_grant_is_still_claimable() {
+        let max = result(Some("max_20x"), "2026-11-12T21:59:57Z");
         let notice = max.notice.unwrap();
         assert_eq!(
             notice.announcement_url,
             "https://x.com/ClaudeDevs/status/105"
         );
-        assert_eq!(notice.expires_at, "2026-12-10T22:00:00.000Z");
-        assert_eq!(max.history_sample_count, 3);
-        let enterprise = result(Some("enterprise"), "2026-11-12T22:00:00Z");
-        assert!(enterprise.notice.is_none());
-        assert_eq!(enterprise.history_sample_count, 2);
-        assert!(max.history_risk_percent > enterprise.history_risk_percent);
-        assert!(result(None, "2026-12-10T22:00:00Z").notice.is_none());
+        assert_eq!(notice.expires_at, "2026-11-12T21:59:58.000Z");
+        assert!(result(Some("enterprise"), "2026-11-12T21:59:57Z")
+            .notice
+            .is_none());
+        assert!(result(Some("max"), "2026-11-12T21:59:58Z").notice.is_none());
     }
 
     #[test]
     fn rejects_mismatched_links_for_provisional_news() {
-        let result = result(None, "2026-11-12T22:00:00Z");
-        assert_eq!(result.history_sample_count, 2);
+        let result = result(None, "2026-11-12T21:59:57Z");
         assert_eq!(
             result.notice.unwrap().announcement_url,
             "https://x.com/ClaudeDevs/status/105"

@@ -203,8 +203,6 @@ export interface ResetWatch {
 
 export interface ClaudeResetForecast {
   checkedAt: string;
-  historyRiskPercent: number | null;
-  historySampleCount: number;
   notice: { observedAt: string; expiresAt: string; announcementUrl: string } | null;
 }
 

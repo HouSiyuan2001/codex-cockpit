@@ -30,7 +30,7 @@ import type { ResetWatch } from "../types";
 import { PersonCostArcs } from "./PersonCostRing";
 import type { DailyPersonCosts } from "../lib/dailyPersonCosts";
 
-type ResetRiskSource = "website" | "manual" | "history" | "fallback";
+type ResetRiskSource = "website" | "manual" | "history" | "fallback" | "scheduled-only";
 
 interface Props {
   snapshot: ProviderSnapshot;
@@ -46,6 +46,7 @@ interface Props {
   comfortSaveError?: string | null;
   onComfortSelect?: (comfort: ComfortCode) => void;
   claudeView?: ClaudeCockpitView | null;
+  now?: Date;
   claudePlan?: ReturnType<typeof buildClaudePlan> | null;
   claudeWatch?: ResetWatch | null;
   claudePrompt?: ComfortPrompt | null;
@@ -129,6 +130,30 @@ function focusResetDate(value: string | null, language: Language): string {
   }).format(new Date(value));
 }
 
+function QuotaResetRow({ label, resetsAt, now, language, awaitingRefresh }: {
+  label: string;
+  resetsAt: string | null;
+  now: Date;
+  language: Language;
+  awaitingRefresh?: boolean;
+}) {
+  const resetMs = Date.parse(resetsAt ?? "");
+  const known = resetsAt !== null && Number.isFinite(resetMs);
+  const pending = awaitingRefresh || (known && resetMs <= now.getTime());
+  return (
+    <span>
+      {label}{" "}
+      <strong>
+        {pending ? (language === "en" ? "Pending" : "待更新") : known ? (
+          <time dateTime={resetsAt} title={`${focusResetDate(resetsAt, language)} ${language === "en" ? "Beijing time" : "北京时间"}`}>
+            {compactResetTime(resetsAt, now, language)}
+          </time>
+        ) : <span title={copy[language].resetTimeUnknown}>{language === "en" ? "Unknown" : "未知"}</span>}
+      </strong>
+    </span>
+  );
+}
+
 function QuotaPaceHint({ pace, language, provider }: { pace: QuotaPace; language: Language; provider: ProviderId }) {
   const t = copy[language];
   const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
@@ -186,11 +211,12 @@ function TodayQuotaAdvicePanel({
   const riskPercent = followsWebsite ? websiteRisk ?? advice.resetRiskPercent : advice.resetRiskPercent;
   const riskLabel = english ? "Reset risk" : "重置风险";
   const riskSourceLabel = (english
-    ? { website: "Website", manual: "Manual", history: "History", fallback: null }
-    : { website: "网站", manual: "手动", history: "历史", fallback: null })[riskSource];
+    ? { website: "Website", manual: "Manual", history: "History", fallback: null, "scheduled-only": null }
+    : { website: "网站", manual: "手动", history: "历史", fallback: null, "scheduled-only": null })[riskSource];
   const riskHint = {
     website: english ? "Current Codex Resets watch." : "Codex Resets 当前预警。",
     manual: undefined,
+    "scheduled-only": english ? "The plan uses your scheduled weekly reset." : "按账户的周重置时间安排用量。",
     history: english
       ? "24-hour planning estimate based on recent resets that immediately refilled quota."
       : "按近期直接补充额度的重置记录估算未来 24 小时的风险。",
@@ -586,6 +612,7 @@ export const QuotaCard = memo(function QuotaCard({
   comfortSaveError = null,
   onComfortSelect = () => undefined,
   claudeView = null,
+  now = new Date(),
   claudePlan = null,
   claudeWatch = null,
   claudePrompt = null,
@@ -823,6 +850,11 @@ export const QuotaCard = memo(function QuotaCard({
     const weeklyLabel = language === "en" ? "Weekly remaining" : "本周剩余";
     const dailyLabel = language === "en" ? "Today's used" : "今日已用";
     const claudeFiveHourLabel = language === "en" ? "5h used" : "5h 已用";
+    const weeklyResetLabel = language === "en" ? "Weekly reset" : "周重置";
+    const fiveHourResetLabel = language === "en" ? "5h reset" : "5h 重置";
+    const codexResetLabel = focusWindow?.period === "5h" ? fiveHourResetLabel
+      : focusWindow?.period === "monthly" ? (language === "en" ? "Monthly reset" : "月重置")
+      : weeklyResetLabel;
     const resetCreditsLabel = snapshot.resetCredits === null || snapshot.resetCredits <= 0
       ? (language === "en" ? "None" : "暂无")
       : snapshot.resetCredits;
@@ -834,6 +866,13 @@ export const QuotaCard = memo(function QuotaCard({
       <section className="codex-focus-unavailable" role="status"><strong>{claudeQuotaMessage(claudeView, language)}</strong></section>
     ) : null;
     const codexFiveHourFooter = hasFiveHour ? <span>{language === "en" ? "5h remaining" : "5 小时剩余"} <strong>{number.format(shortRemaining)}%</strong></span> : null;
+    const claudeResetRows = claudeView && <>
+      <QuotaResetRow label={weeklyResetLabel} resetsAt={claudeView.weeklyResetsAt} now={now} language={language} />
+      {claudeView.fiveHourUsed !== null || claudeView.fiveHourResetsAt !== null || claudeView.fiveHourAwaitingRefresh ? <>
+        <span>{claudeFiveHourLabel} <strong>{claudeView.fiveHourUsed === null ? "—" : number.format(claudeView.fiveHourUsed) + "%"}</strong></span>
+        <QuotaResetRow label={fiveHourResetLabel} resetsAt={claudeView.fiveHourResetsAt} now={now} language={language} awaitingRefresh={claudeView.fiveHourAwaitingRefresh} />
+      </> : null}
+    </>;
     return (
       <main
         className={`quota-card codex-focus-card cockpit-mode--${cockpitMode} quota-card--${snapshot.status} quota-card--${tier} quota-card--style-${preferences.colorTheme} quota-card--theme-${resolvedAppearance}${controlOpen || updateOpen ? " quota-card--overlay-open" : ""}`}
@@ -873,15 +912,9 @@ export const QuotaCard = memo(function QuotaCard({
                     tone="weekly"
                     variant="claude"
                     badge={claudeQuotaBadge}
-                    caption={formatResetTime(claudeView.weeklyResetsAt, new Date(), language)}
-                    detail={language === "en" ? "weekly cycle" : "周额度周期"}
                     footer={(
-                      <div className="weekly-reset-footer">
-                        <span>{language === "en" ? "Next reset" : "下次重置"} <strong>{focusResetDate(claudeView.weeklyResetsAt, language)}</strong></span>
-                        {claudeView.fiveHourUsed !== null || claudeView.fiveHourAwaitingRefresh ? <>
-                          <span>{claudeFiveHourLabel} <strong>{claudeView.fiveHourUsed === null ? pendingBadge : number.format(claudeView.fiveHourUsed) + "%"}</strong></span>
-                          <span>{language === "en" ? "5h reset" : "5h 重置"} <strong>{focusResetDate(claudeView.fiveHourResetsAt, language)}</strong></span>
-                        </> : null}
+                      <div className="weekly-reset-footer reset-countdown-footer">
+                        {claudeResetRows}
                         {claudeView.opusWeeklyRemaining !== null ? <span>Opus <strong>{number.format(claudeView.opusWeeklyRemaining)}%</strong></span> : null}
                       </div>
                     )}
@@ -913,10 +946,11 @@ export const QuotaCard = memo(function QuotaCard({
                 innerProgress={hasFiveHour ? shortRemaining : undefined}
                 tone="weekly"
                 footer={(
-                  <div className="weekly-reset-footer">
-                    <span>{weeklyLabel} <strong>{available && focusRemaining !== null ? `${number.format(focusRemaining)}%` : "—"}</strong></span>
-                    {codexFiveHourFooter}
-                    <span>{language === "en" ? "Next reset" : "下次重置"} <strong>{focusWindow ? focusResetDate(focusWindow.window.resetsAt, language) : "—"}</strong></span>
+                  <div className="weekly-reset-footer reset-countdown-footer">
+                    <span>{focusWindow?.period === "5h" ? (language === "en" ? "5h remaining" : "5h 剩余") : focusWindow?.period === "monthly" ? t.monthlyShort : weeklyLabel} <strong>{available && focusRemaining !== null ? `${number.format(focusRemaining)}%` : "—"}</strong></span>
+                    <QuotaResetRow label={codexResetLabel} resetsAt={available ? focusWindow?.window.resetsAt ?? null : null} now={now} language={language} />
+                    {focusWindow?.period !== "5h" && codexFiveHourFooter}
+                    {hasFiveHour && focusWindow?.period !== "5h" && <QuotaResetRow label={fiveHourResetLabel} resetsAt={available ? short?.resetsAt ?? null : null} now={now} language={language} />}
                   </div>
                 )}
               />
@@ -929,10 +963,9 @@ export const QuotaCard = memo(function QuotaCard({
                 variant="claude"
                 badge={claudeView.fiveHourAwaitingRefresh ? pendingBadge : claudeQuotaBadge}
                 footer={claudeQuotaReady ? (
-                  <div className="weekly-reset-footer">
+                  <div className="weekly-reset-footer reset-countdown-footer">
                     <span>{weeklyLabel} <strong>{claudeView.weeklyRemaining === null ? "—" : number.format(claudeView.weeklyRemaining) + "%"}</strong></span>
-                    <span>{claudeFiveHourLabel} <strong>{claudeView.fiveHourUsed === null ? "—" : `${number.format(claudeView.fiveHourUsed)}%`}</strong></span>
-                    <span>{language === "en" ? "Weekly reset" : "周重置"} <strong>{focusResetDate(claudeView.weeklyResetsAt, language)}</strong></span>
+                    {claudeResetRows}
                   </div>
                 ) : <div className="weekly-reset-footer"><span>{claudeQuotaMessage(claudeView, language)}</span></div>}
               />
@@ -1461,12 +1494,17 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
   );
 });
 
-function compactResetTime(value: string | null, now = new Date()): string {
+function compactResetTime(value: string | null, now = new Date(), language: Language = "en"): string {
   if (!value) return "—";
   const remaining = Math.max(0, new Date(value).getTime() - now.getTime());
   if (!Number.isFinite(remaining)) return "—";
   const minutes = Math.max(1, Math.ceil(remaining / 60_000));
   const hours = Math.floor(minutes / 60);
+  if (language !== "en") {
+    if (hours >= 24) return `${Math.floor(hours / 24)}天${hours % 24 ? `${hours % 24}小时` : ""}`;
+    if (hours > 0) return `${hours}小时${minutes % 60 ? `${minutes % 60}分` : ""}`;
+    return `${minutes}分`;
+  }
   if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`;
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   return `${minutes}m`;

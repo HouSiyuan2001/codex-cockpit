@@ -2690,6 +2690,18 @@ textarea {
   margin-left: auto;
   white-space: nowrap;
 }
+.codex-ring-footer .reset-countdown-footer {
+  gap: 2px;
+  line-height: 1.2;
+}
+.codex-ring-footer .reset-countdown-footer > span {
+  column-gap: 6px;
+  row-gap: 1px;
+}
+.codex-ring-footer .reset-countdown-footer strong {
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+}
 .codex-ring-card--daily .codex-ring-footer {
   min-height: 48px;
 }

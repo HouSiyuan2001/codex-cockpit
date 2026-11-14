@@ -16,11 +16,11 @@ describe("Claude subscription plan", () => {
   it("keeps the same target as usage rises and distinguishes unknown use from an observed zero", () => {
     const first = snapshot(20, "01:00");
     const state = observe(EMPTY_CLAUDE_PLAN, first);
-    const initial = buildClaudePlan(state, first, null, 25, new Date(first.observedAt!));
+    const initial = buildClaudePlan(state, first, 25, new Date(first.observedAt!));
     expect(initial.advice.todayUsedPercent).toBeNull();
     expect(initial.advice.todaySuggestedPercent).toBeGreaterThan(0);
     const second = snapshot(30, "04:00");
-    const after = buildClaudePlan({ ...observe(state, second), cap: { localDate: "2026-11-10", percent: 8 } }, second, null, 25, new Date(second.observedAt!));
+    const after = buildClaudePlan({ ...observe(state, second), cap: { localDate: "2026-11-10", percent: 8 } }, second, 25, new Date(second.observedAt!));
     expect(after.advice.todaySuggestedPercent).toBe(initial.advice.todaySuggestedPercent);
     expect(after.advice.todayUsedPercent).toBe(10);
     expect(after.ratio).toBe(125);
@@ -48,13 +48,12 @@ describe("Claude subscription plan", () => {
     const nextDay = snapshot(9, "16:00", "2026-11-10", changed.sevenDay!.resetsAt!);
     const rolled = observe(state, nextDay);
     expect(rolled.quotaDays.map(day => day.localDate)).toEqual(["2026-11-10", "2026-11-11"]);
-    expect(buildClaudePlan(rolled, nextDay, null, 25, new Date(nextDay.observedAt!)).cap).not.toBe(17);
+    expect(buildClaudePlan(rolled, nextDay, 25, new Date(nextDay.observedAt!)).cap).not.toBe(17);
   });
 
-  it("restores the provider's history risk after clearing manual risk; feedback is separate from Codex", () => {
+  it("uses the scheduled quota window after clearing manual risk; feedback is separate from Codex", () => {
     const q = snapshot(27, "03:00");
     const now = new Date(q.observedAt!);
-    const forecast = { checkedAt: now.toISOString(), notice: null, historyRiskPercent: 9.4, historySampleCount: 9 };
     const state = observeClaudeQuota(EMPTY_CLAUDE_PLAN, q, now, { localDate: "2026-11-10", weeklyUsedPercent: 12 });
     const prompt = buildClaudeComfortPrompt({ localDate: "2026-11-10", isCatchUp: false }, claudeQuotaDays(state)[0]);
     const feedback = createComfortFeedbackRecord(prompt, "comfortable", now);
@@ -62,11 +61,11 @@ describe("Claude subscription plan", () => {
     expect(runtime.comfortFeedback).toEqual([]);
     const saved = runtime.claudePlan!;
     expect(personalizeComfortCurve(saved.comfortFeedback, now, null).observations[0].usedPercent).toBe(15);
-    const manual = buildClaudePlan(saved, q, forecast, 25, now);
-    const auto = buildClaudePlan({ ...saved, manualRiskPercent: null }, q, forecast, 25, now);
+    const manual = buildClaudePlan(saved, q, 25, now);
+    const auto = buildClaudePlan({ ...saved, manualRiskPercent: null }, q, 25, now);
     expect(manual.riskSource).toBe("manual");
-    expect(auto.riskSource).toBe("history");
-    expect(auto.advice.resetRiskPercent).toBe(9.4);
+    expect(auto.riskSource).toBe("scheduled-only");
+    expect(auto.advice.resetRiskPercent).toBeNull();
     expect(manual.advice.todaySuggestedPercent).toBeGreaterThan(auto.advice.todaySuggestedPercent!);
   });
 });
@@ -74,8 +73,8 @@ describe("Claude subscription plan", () => {
 it("keeps a Claude announcement independent of its numerical forecast and expires stale checks", () => {
   const now = new Date("2026-11-12T12:00:00Z");
   const forecast: ClaudeResetForecast = {
-    checkedAt: now.toISOString(), historyRiskPercent: 9, historySampleCount: 7,
-    notice: { observedAt: "2026-11-10T21:59:58Z", expiresAt: "2026-12-10T22:00:00Z", announcementUrl: "https://x.com/ClaudeDevs/status/2120275296637321476" },
+    checkedAt: now.toISOString(),
+    notice: { observedAt: "2026-11-10T21:59:58Z", expiresAt: "2026-11-12T21:59:58Z", announcementUrl: "https://x.com/ClaudeDevs/status/2120275296637321476" },
   };
   expect(claudeResetWatch(forecast, now)?.resetChancePercent).toBeNull();
   expect(claudeResetWatch(forecast, new Date(now.getTime() + 10 * 60_000))).toBeNull();

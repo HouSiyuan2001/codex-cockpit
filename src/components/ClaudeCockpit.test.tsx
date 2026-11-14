@@ -16,9 +16,9 @@ const codex: ProviderSnapshot = {
   displayName: "CODEX",
   plan: "PRO",
   shortWindow: null,
-  weeklyWindow: { remainingPercent: 74, resetsAt: "2026-07-19T00:00:00Z", windowSeconds: 604_800 },
+  weeklyWindow: { remainingPercent: 74, resetsAt: "2026-11-16T14:00:00Z", windowSeconds: 604_800 },
   resetCredits: 1,
-  updatedAt: "2026-07-16T00:00:00Z",
+  updatedAt: "2026-11-10T12:00:00Z",
   status: "ok",
   message: null,
 };
@@ -44,9 +44,9 @@ interface ModeHandlers {
 }
 
 const forecast = {
-  checkedAt: now.toISOString(), historyRiskPercent: 8.4, historySampleCount: 7,
+  checkedAt: now.toISOString(),
   notice: {
-    observedAt: "2026-11-09T18:00:00Z", expiresAt: "2026-12-10T22:00:00Z",
+    observedAt: "2026-11-09T18:00:00Z", expiresAt: "2026-11-11T18:00:00Z",
     announcementUrl: "https://x.com/ClaudeDevs/status/2120275296637321476",
   },
 };
@@ -54,9 +54,9 @@ const forecast = {
 function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota) {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode, claudeEnabled: true };
   const claudeView = buildClaudeCockpitView(claudeQuota, now);
-  const claudePlan = buildClaudePlan(observeClaudeQuota(EMPTY_CLAUDE_PLAN, claudeQuota, now), claudeQuota, forecast, 25, now);
+  const claudePlan = buildClaudePlan(observeClaudeQuota(EMPTY_CLAUDE_PLAN, claudeQuota, now), claudeQuota, 25, now);
   return render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={preferences}
-    claudeView={claudeView} claudePlan={claudePlan} claudeWatch={claudeResetWatch(forecast, now)} {...handlers}
+    now={now} claudeView={claudeView} claudePlan={claudePlan} claudeWatch={claudeResetWatch(forecast, now)} {...handlers}
     onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
 }
 
@@ -79,6 +79,9 @@ it("shows the shared daily controls next to Claude quota and opens the original 
   const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
   expect(weekly).toHaveClass("codex-ring-card--claude");
   expect(weekly).toHaveTextContent("5h 已用 38%");
+  expect(weekly).toHaveTextContent("5h 重置 2小时30分");
+  expect(weekly).toHaveTextContent("周重置 2天20小时");
+  expect(weekly).not.toHaveTextContent("周额度周期");
   expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "38 62");
   fireEvent.change(screen.getByRole("slider", { name: "个人上限" }), { target: { value: "26" } });
   expect(onClaudeCapChange).toHaveBeenCalledWith(26);
@@ -96,6 +99,7 @@ it("renders zero used when the 5-hour window is unused", () => {
   renderCard("claude", {}, { ...quota, fiveHour: { usedPercent: 0, resetsAt: null } });
   const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
   expect(weekly).toHaveTextContent("5h 已用 0%");
+  expect(weekly).toHaveTextContent("5h 重置 未知");
   expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "0 100");
 });
 
@@ -109,10 +113,12 @@ it("puts Codex and Claude weekly quotas side by side in the AI cockpit", () => {
   const { container } = renderCard("ai");
   expect(container.querySelector(".codex-focus-card")).toHaveClass("cockpit-mode--ai");
   expect(screen.getByText("AI 驾驶舱")).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: "Codex 74%" })).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Codex 74%" })).toHaveTextContent("周重置 6天2小时");
   const claude = screen.getByRole("group", { name: "Claude 43%" });
   expect(claude).toHaveClass("codex-ring-card--claude");
   expect(claude).toHaveTextContent("5h 已用 38%");
+  expect(claude).toHaveTextContent("周重置 2天20小时");
+  expect(claude).toHaveTextContent("5h 重置 2小时30分");
   expect(claude.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "38 62");
 });
 
@@ -121,6 +127,7 @@ it("marks a Claude session awaiting a fresh reading once its reset time passes",
   renderCard("ai", {}, expired);
   const claude = screen.getByRole("group", { name: "Claude 43%" });
   expect(claude).toHaveTextContent("5h 已用 —");
+  expect(claude).toHaveTextContent("5h 重置 待更新");
   expect(claude).toHaveTextContent("待更新");
   expect(claude).not.toHaveTextContent("85%");
   expect(claude).not.toHaveTextContent("LIVE");

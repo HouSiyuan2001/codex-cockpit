@@ -294,12 +294,12 @@ export async function fetchClaudeQuota(manual = false): Promise<ClaudeQuota> {
   return invoke<ClaudeQuota>("get_claude_quota", { manual });
 }
 
-/** Public Claude Resets announcements and historical risk for the subscription plan. */
+/** Recent public Claude Resets announcements for the subscription plan. */
 export async function fetchClaudeResetForecast(plan: string | null): Promise<ClaudeResetForecast | null> {
   if (!isTauri()) {
     const now = Date.now();
     return {
-      checkedAt: new Date(now).toISOString(), historyRiskPercent: 8.4, historySampleCount: 7,
+      checkedAt: new Date(now).toISOString(),
       notice: new URLSearchParams(window.location.search).get("watch") === "active"
         ? { observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 86_400_000).toISOString(), announcementUrl: CLAUDE_RESETS_URL }
         : null,

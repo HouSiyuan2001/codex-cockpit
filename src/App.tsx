@@ -141,8 +141,8 @@ export default function App() {
   const claudeState = runtimeState.claudePlan ?? EMPTY_CLAUDE_PLAN;
   const claudeHistory = useMemo(() => claudeQuotaDays(claudeState), [claudeState.quotaDays]);
   const claudeCurve = useMemo(() => personalizeComfortCurve(claudeState.comfortFeedback, new Date(), null), [claudeState.comfortFeedback, usageDay]);
-  const claudePlan = useMemo(() => buildClaudePlan(claudeState, claudeQuota, claudeResetForecast, claudeCurve.xStarPercent, planningNow),
-    [claudeState, claudeQuota, claudeResetForecast, claudeCurve.xStarPercent, planningNow]);
+  const claudePlan = useMemo(() => buildClaudePlan(claudeState, claudeQuota, claudeCurve.xStarPercent, planningNow),
+    [claudeState, claudeQuota, claudeCurve.xStarPercent, planningNow]);
   const claudeWatch = claudeResetWatch(claudeResetForecast, planningNow);
   const claudeComfortUsage = useMemo(() => {
     if (claudeReport?.status !== "ok") return null;
@@ -1267,6 +1267,7 @@ export default function App() {
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
       claudeView={preferences.claudeEnabled ? claudeView : null}
+      now={planningNow}
       claudePlan={claudePlan}
       claudeWatch={claudeWatch}
       claudePrompt={claudePrompt}
