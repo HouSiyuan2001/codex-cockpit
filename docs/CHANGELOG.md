@@ -3,6 +3,7 @@
 ## 0.3.8 - 2026-11-18
 
 - Add GPT-6.2 pricing and Claude reconnect, tighten paired capsule
+- Pin the build-only picomatch alias to [the patched fork](https://github.com/ryotsu-kankichi/secured-picomatch) for [CVE-2026-112366](https://github.com/advisories/GHSA-fc5q-39xc-vjpf). Remove the override when the upstream package has a verified fix.
 
 ## 0.3.7
 
