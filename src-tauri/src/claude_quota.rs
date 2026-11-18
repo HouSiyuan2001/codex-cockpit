@@ -21,8 +21,9 @@ const MIN_REFRESH: Duration = Duration::from_secs(55);
 const MIN_MANUAL_REFRESH: Duration = Duration::from_secs(10);
 const FAILURE_BACKOFF: Duration = Duration::from_secs(15 * 60);
 const RENEWAL_TIMEOUT: Duration = Duration::from_secs(45);
-/// Set while a Claude Code renewal child is alive, so two never overlap.
-static RENEWAL_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Serializes login and renewal so Claude Code never updates its credentials concurrently.
+static CLAUDE_AUTH_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
@@ -182,10 +183,56 @@ fn claude_program() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-async fn renew_with_claude_code(config_directory: Option<&Path>) -> Option<Credential> {
+fn claude_subscription_command() -> Option<Command> {
     let mut command = Command::new(claude_program()?);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
+
+    command
+        .current_dir(std::env::temp_dir())
+        .env("DISABLE_AUTOUPDATER", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    for key in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_PROFILE",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+    ] {
+        command.env_remove(key);
+    }
+    Some(command)
+}
+
+pub async fn login() -> Result<(), &'static str> {
+    use std::sync::atomic::Ordering;
+
+    let mut command = claude_subscription_command().ok_or("cli_missing")?;
+    command.args(["--setting-sources", "", "auth", "login", "--claudeai"]);
+    if CLAUDE_AUTH_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("auth_busy");
+    }
+    let result = command.status().await;
+    let logged_in = result.is_ok_and(|status| status.success());
+    if logged_in {
+        if let Some(state) = STATE.lock().await.as_mut() {
+            state.credential = None;
+            state.last_attempt = None;
+            state.backoff_until = None;
+            state.last_renewal_attempt = None;
+        }
+    }
+    CLAUDE_AUTH_RUNNING.store(false, Ordering::SeqCst);
+    logged_in.then_some(()).ok_or("login_failed")
+}
+
+async fn renew_with_claude_code(config_directory: Option<&Path>) -> Option<Credential> {
+    let mut command = claude_subscription_command()?;
 
     // Initialization checks the subscription login without starting a chat.
     // The child uses the credential store that supplied the expired login.
@@ -200,28 +247,9 @@ async fn renew_with_claude_code(config_directory: Option<&Path>) -> Option<Crede
             "",
             "--init-only",
         ])
-        .current_dir(std::env::temp_dir())
-        .env("DISABLE_AUTOUPDATER", "1")
         .env_remove("CLAUDE_CONFIG_DIR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        // Never kill a renewal: Claude Code rotates the refresh token, and a
-        // child stopped between the server's answer and the Keychain write
-        // leaves a spent token behind, which signs the user out next time.
+        // A child killed while rotating the token can leave a spent token behind.
         .kill_on_drop(false);
-    for key in [
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_PROFILE",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CODE_USE_FOUNDRY",
-    ] {
-        command.env_remove(key);
-    }
     let default_directory =
         dirs::home_dir().and_then(|home| home.join(".claude").canonicalize().ok());
     if let Some(directory) =
@@ -230,23 +258,23 @@ async fn renew_with_claude_code(config_directory: Option<&Path>) -> Option<Crede
         command.env("CLAUDE_CONFIG_DIR", directory);
     }
     use std::sync::atomic::Ordering;
-    if RENEWAL_RUNNING.swap(true, Ordering::SeqCst) {
+    if CLAUDE_AUTH_RUNNING.swap(true, Ordering::SeqCst) {
         return None;
     }
     let Ok(mut child) = command.spawn() else {
-        RENEWAL_RUNNING.store(false, Ordering::SeqCst);
+        CLAUDE_AUTH_RUNNING.store(false, Ordering::SeqCst);
         return None;
     };
     if tokio::time::timeout(RENEWAL_TIMEOUT, child.wait())
         .await
         .is_ok()
     {
-        RENEWAL_RUNNING.store(false, Ordering::SeqCst);
+        CLAUDE_AUTH_RUNNING.store(false, Ordering::SeqCst);
     } else {
         // Slow network or machine: let it finish on its own and reap it later.
         tokio::spawn(async move {
             let _ = child.wait().await;
-            RENEWAL_RUNNING.store(false, Ordering::SeqCst);
+            CLAUDE_AUTH_RUNNING.store(false, Ordering::SeqCst);
         });
         return None;
     }

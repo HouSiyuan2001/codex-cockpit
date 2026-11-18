@@ -294,6 +294,11 @@ export async function fetchClaudeQuota(manual = false): Promise<ClaudeQuota> {
   return invoke<ClaudeQuota>("get_claude_quota", { manual });
 }
 
+export async function loginClaudeCode(): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke("login_claude_code");
+}
+
 /** Recent public Claude Resets announcements for the subscription plan. */
 export async function fetchClaudeResetForecast(plan: string | null): Promise<ClaudeResetForecast | null> {
   if (!isTauri()) {

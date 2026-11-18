@@ -1721,6 +1721,19 @@ button.usage-stat-card:hover { border-color: color-mix(in srgb, var(--accent-col
 .codex-focus-footer { min-height: 35px; margin-top: 12px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; color: rgba(34, 43, 47, .55); background: rgba(235, 241, 241, .58); font-size: calc(10px * var(--ui-font-scale, 1)); }
 .codex-focus-footer strong { color: rgba(34, 43, 47, .65); font-weight: 650; }
 .codex-focus-unavailable { min-height: 270px; display: grid; place-items: center; color: rgba(34, 43, 47, .55); font-size: calc(12px * var(--ui-font-scale, 1)); }
+.claude-login-panel { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.claude-login-button {
+  min-height: 28px;
+  padding: 3px 12px;
+  border: 1px solid color-mix(in srgb, var(--p-orange) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--p-orange) 14%, transparent);
+  color: var(--glass-ink, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+.claude-login-button:hover:enabled { background: color-mix(in srgb, var(--p-orange) 24%, transparent); }
+.claude-login-button:disabled { opacity: .65; cursor: wait; }
 .usage-color-key { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
 .usage-model-today { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; align-items: center; margin: 18px 0 8px; }
 .usage-model-today .usage-ranking { min-width: 0; }
@@ -4066,11 +4079,11 @@ textarea {
   --ai-codex-surface: #294977;
   --ai-claude-surface: #743b29;
   --ai-divider: #d6c8ca;
-  padding-inline: 6px;
+  padding-inline: 0;
   background: linear-gradient(90deg,
-    var(--ai-codex-surface) 0 calc(50% - .5px),
-    var(--ai-divider) calc(50% - .5px) calc(50% + .5px),
-    var(--ai-claude-surface) calc(50% + .5px) 100%);
+    var(--ai-codex-surface) 0 calc(var(--ai-split, 50%) - .5px),
+    var(--ai-divider) calc(var(--ai-split, 50%) - .5px) calc(var(--ai-split, 50%) + .5px),
+    var(--ai-claude-surface) calc(var(--ai-split, 50%) + .5px) 100%);
 }
 .quota-card--compact-capsule.quota-orb.cockpit-mode--ai.quota-card--theme-light {
   --ai-codex-surface: #bed5fa;
@@ -4079,12 +4092,12 @@ textarea {
 }
 .capsule-ai-pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, var(--ai-split, 50%)) minmax(0, 1fr);
   align-items: center;
   width: 100%;
   min-width: 0;
 }
-.capsule-ai-pair .capsule-quota-readout { justify-content: center; gap: 5px; }
+.capsule-ai-pair .capsule-quota-readout { justify-content: center; gap: 4px; }
 .capsule-ai-pair .capsule-daily-value { flex: 0 0 auto; }
 .capsule-ai-pair .orb-unavailable { width: auto; }
 /* Clip without a scroll container: a resize or focus can no longer leave the

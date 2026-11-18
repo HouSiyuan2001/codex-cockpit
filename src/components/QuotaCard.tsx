@@ -67,6 +67,8 @@ interface Props {
   onDrag: () => void;
   onHover: (hovered: boolean) => void;
   onRefresh?: () => void;
+  onClaudeLogin?: () => void;
+  claudeLogin?: { pending: boolean; error: string | null };
   onDiagnostics?: () => void;
   onCloseDiagnostics?: () => void;
   onReconnect?: () => void;
@@ -633,6 +635,8 @@ export const QuotaCard = memo(function QuotaCard({
   onDrag,
   onHover,
   onRefresh,
+  onClaudeLogin,
+  claudeLogin,
   onDiagnostics = () => undefined,
   onCloseDiagnostics = () => undefined,
   onReconnect = () => undefined,
@@ -862,8 +866,26 @@ export const QuotaCard = memo(function QuotaCard({
     const claudeQuotaReady = claudeView !== null && (claudeView.weeklyRemaining !== null || claudeView.fiveHourUsed !== null || claudeView.fiveHourAwaitingRefresh);
     const pendingBadge = language === "en" ? "STALE" : "待更新";
     const claudeQuotaBadge = claudeView?.quotaStatus === "ok" ? undefined : claudeQuotaReady ? pendingBadge : "—";
+    const english = language === "en";
+    const loginError = claudeLogin?.error;
+    const claudeUnavailableContent = claudeView && (
+      <div className="claude-login-panel">
+        <strong role="status">{claudeQuotaMessage(claudeView, language)}</strong>
+        {claudeView.quotaStatus === "signed_out" && onClaudeLogin && <>
+          <button type="button" className="claude-login-button" onMouseDown={(event) => event.stopPropagation()}
+            onClick={onClaudeLogin} disabled={claudeLogin?.pending}>
+            {claudeLogin?.pending ? (english ? "Waiting for sign-in…" : "等待登录…") : (english ? "Sign in again" : "重新登录")}
+          </button>
+          {loginError && <span role="alert">
+            {loginError === "cli_missing" ? (english ? "Claude Code CLI not found." : "未找到 Claude Code 命令行。")
+              : loginError === "auth_busy" ? (english ? "Claude Code is signing in. Try again shortly." : "Claude Code 正在更新登录，请稍后再试。")
+              : (english ? "Sign-in incomplete. Try again or run claude auth login." : "登录未完成。请重试，或运行 claude auth login。")}
+          </span>}
+        </>}
+      </div>
+    );
     const claudeUnavailable = claudeView ? (
-      <section className="codex-focus-unavailable" role="status"><strong>{claudeQuotaMessage(claudeView, language)}</strong></section>
+      <section className="codex-focus-unavailable">{claudeUnavailableContent}</section>
     ) : null;
     const codexFiveHourFooter = hasFiveHour ? <span>{language === "en" ? "5h remaining" : "5 小时剩余"} <strong>{number.format(shortRemaining)}%</strong></span> : null;
     const claudeResetRows = claudeView && <>
@@ -967,7 +989,7 @@ export const QuotaCard = memo(function QuotaCard({
                     <span>{weeklyLabel} <strong>{claudeView.weeklyRemaining === null ? "—" : number.format(claudeView.weeklyRemaining) + "%"}</strong></span>
                     {claudeResetRows}
                   </div>
-                ) : <div className="weekly-reset-footer"><span>{claudeQuotaMessage(claudeView, language)}</span></div>}
+                ) : claudeUnavailableContent}
               />
             </div>
           ) : available && focusWindow && focusRemaining !== null ? (
@@ -1283,12 +1305,29 @@ function compactPercent(value: number | null): string {
   return rounded.toFixed(1).replace(/\.0$/, "");
 }
 
-/** Two readouts share one capsule in the AI cockpit. */
-export function aiCapsuleLogicalWidth(codexRatio: number | null, claudeRatio: number | null, fontScale = 1.15): number {
+/** Budget each half for its own digits at the selected font scale. */
+function aiCapsuleSegmentWidth(ratio: number | null, scale: number): number {
+  const label = compactPercent(ratio);
+  const digits = label.replace(".", "").length;
+  const decimal = label.includes(".") ? 4.5 : 0;
+  const suffix = ratio === null ? 0 : 7;
+  // 31px ring, 4px gap, and 14px for the segment edges.
+  return Math.ceil(49 + (digits * 10 + decimal + suffix) * scale);
+}
+
+function aiCapsuleDimensions(codexRatio: number | null, claudeRatio: number | null, fontScale: number) {
   const scale = Number.isFinite(fontScale) ? Math.min(2, Math.max(1.15, fontScale)) : 1.15;
-  const widerReadout = Math.max(capsuleLogicalWidth(codexRatio, scale), capsuleLogicalWidth(claudeRatio, scale));
-  // Equal halves both need room for the wider reading, including at large text sizes.
-  return Math.min(320, widerReadout * 2 - 26 + Math.ceil((scale - 1.15) * 30));
+  const codexWidth = aiCapsuleSegmentWidth(codexRatio, scale);
+  const claudeWidth = aiCapsuleSegmentWidth(claudeRatio, scale);
+  const totalWidth = codexWidth + claudeWidth;
+  const width = Math.min(320, totalWidth);
+  // The grid spans the capsule interior, one pixel inside each border.
+  const split = (width * (codexWidth / totalWidth) - 1) / (width - 2);
+  return { width, split };
+}
+
+export function aiCapsuleLogicalWidth(codexRatio: number | null, claudeRatio: number | null, fontScale = 1.15): number {
+  return aiCapsuleDimensions(codexRatio, claudeRatio, fontScale).width;
 }
 
 export function capsuleLogicalWidth(dailyRatio: number | null, fontScale = 1.15): number {
@@ -1365,13 +1404,12 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
   const capsuleValue = plus ? shortRemaining ?? remaining : dailyBudgetUsageRatio;
   const capsuleMode: CockpitMode = compactLayout === "capsule" ? cockpitMode : "codex";
   const claudeRatio = claudeFiveHourAwaitingRefresh ? null : claudeFiveHourUsed ?? claudeTodayRatio;
+  const aiCapsule = capsuleMode === "ai" ? aiCapsuleDimensions(capsuleValue, claudeRatio, fontScale) : null;
   const compactCapsuleWidth = compactLayout !== "capsule"
     ? null
     : capsuleMode === "claude"
       ? capsuleLogicalWidth(claudeRatio, fontScale)
-      : capsuleMode === "ai"
-        ? aiCapsuleLogicalWidth(capsuleValue, claudeRatio, fontScale)
-        : capsuleLogicalWidth(capsuleValue, fontScale);
+      : aiCapsule?.width ?? capsuleLogicalWidth(capsuleValue, fontScale);
   const claudeCapsuleLabel = claudeWeeklyRemaining === null
     ? (activeLanguage === "en" ? "Claude quota unavailable" : "未读取到 Claude 额度")
     : claudeFiveHourUsed !== null || claudeFiveHourAwaitingRefresh
@@ -1457,6 +1495,7 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onActivate = 
         "--accent-color": accentColor,
         "--quota-progress-angle": `${Math.round(compactProgress * 36) / 10}deg`,
         ...(compactCapsuleWidth === null ? {} : { "--capsule-logical-width": `${compactCapsuleWidth}px` }),
+        ...(aiCapsule ? { "--ai-split": `${aiCapsule.split * 100}%` } : {}),
       } as CSSProperties}
       role="button"
       tabIndex={0}

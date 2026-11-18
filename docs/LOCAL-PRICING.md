@@ -11,12 +11,14 @@ Token 来自本机 Codex 的用量记录；金额是拿这些记录按参考价�
 ## 内置参考价
 
 以下是 2026-10-12 核对的 **Standard API 文本价格**，单位为美元 / 百万 Token。
-GPT-6.1 Terra 于 2026-10-27 按官方模型页补充核对。
+GPT-6.1 Terra 于 2026-10-27 补充核对，GPT-6.2 Astra 和 Sol 于 2026-11-17 补充核对。
 价格表编进 App，可以离线使用；并非每次启动联网更新价格。
 以后官方调整价格，需要更新 App 或使用自己的价格表。
 
 | 模型及官方来源 | 非缓存输入 | 缓存读取 | 输出 |
 | --- | ---: | ---: | ---: |
+| [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) | 8.00 | 0.40 | 40.00 |
+| [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) | 2.00 | 0.10 | 10.00 |
 | [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) | 2.00 | 0.10 | 10.00 |
 | [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) | 1.00 | 0.05 | 5.00 |
 | [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) | 10.00 | 1.00 | 50.00 |

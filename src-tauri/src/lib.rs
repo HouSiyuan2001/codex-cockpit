@@ -829,6 +829,11 @@ async fn get_claude_quota(
 }
 
 #[tauri::command]
+async fn login_claude_code() -> Result<(), String> {
+    claude_quota::login().await.map_err(str::to_owned)
+}
+
+#[tauri::command]
 async fn get_claude_reset_forecast(
     state: State<'_, AppState>,
     plan: Option<String>,
@@ -3574,6 +3579,7 @@ pub fn run() {
             get_codex_daily_usage_history,
             get_claude_usage,
             get_claude_quota,
+            login_claude_code,
             get_claude_reset_forecast,
             get_volcengine_diagnostics,
             reconnect_volcengine,

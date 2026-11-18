@@ -512,9 +512,11 @@ impl Pricing {
         // Offline Standard API-equivalent text rates per 1M tokens, checked
         // against the exact official model pages on 2026-10-12. See
         // docs/LOCAL-PRICING.md for sources and estimation limits.
-        // GPT-6.1 Terra added from its official model page on 2026-10-27.
+        // GPT-6.1 Terra checked on 2026-10-27; GPT-6.2 Astra and Sol on 2026-11-17.
         // Existing catalog entries and local overrides take precedence.
         for (id, input, cache_read, output) in [
+            ("openai/gpt-6.2-astra", 8.0, 0.40, 40.0),
+            ("openai/gpt-6.2-sol", 2.0, 0.10, 10.0),
             ("openai/gpt-6.1-sol", 2.0, 0.10, 10.0),
             ("openai/gpt-6.1-terra", 1.0, 0.05, 5.0),
             ("openai/gpt-6-astra", 10.0, 1.0, 50.0),
@@ -648,7 +650,7 @@ impl Pricing {
         if origin == PricingOrigin::None {
             origin = PricingOrigin::Builtin;
             pricing.meta = Some(PricingMeta {
-                updated_at: Some("2026-10-27".into()),
+                updated_at: Some("2026-11-17".into()),
             });
         }
         if !app_catalog.is_some_and(|p| p.file_name().is_some_and(|n| n == "cloud-pricing.json")) {
@@ -709,6 +711,8 @@ impl Pricing {
                     | "gpt-6-sol"
                     | "gpt-6-astra"
                     | "gpt-6-luna"
+                    | "gpt-6.2-astra"
+                    | "gpt-6.2-sol"
                     | "gpt-6.1-sol"
                     | "gpt-6.1-terra"
             );
@@ -3176,7 +3180,7 @@ mod tests {
         assert_eq!(pricing.origin.label(), "bundled-catalog");
         assert_eq!(
             pricing.meta.as_ref().unwrap().updated_at.as_deref(),
-            Some("2026-10-27")
+            Some("2026-11-17")
         );
         let counts = Counts {
             input_tokens: 200_000,
@@ -3185,6 +3189,8 @@ mod tests {
             reasoning_output_tokens: 10_000,
         };
         for (model, expected) in [
+            ("gpt-6.2-astra", 2.02),
+            ("gpt-6.2-sol", 0.505),
             ("gpt-6.1-sol", 0.505),
             ("gpt-6.1-terra", 0.2525),
             ("gpt-6-astra", 2.55),
@@ -3217,7 +3223,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_session_prices_the_reported_four_models_and_survives_a_second_scan() {
+    fn fresh_session_prices_models_and_survives_a_second_scan() {
         let home = metadata_fixture_dir("fresh-priced-session");
         let codex = home.join(".codex");
         fs::create_dir_all(codex.join("sessions")).unwrap();
@@ -3229,6 +3235,8 @@ mod tests {
             "gpt-6-astra",
             "gpt-6.1-sol",
             "gpt-6.1-terra",
+            "gpt-6.2-astra",
+            "gpt-6.2-sol",
         ]
         .into_iter()
         .enumerate()
@@ -3268,9 +3276,9 @@ mod tests {
                 .any(|warning| warning == "missing_model_price"
                     || warning == "cost_context_unavailable"));
             let day = result.projects[0].daily.values().next().unwrap();
-            assert_eq!(day.metrics.total_tokens, 880_000);
-            assert!((day.metrics.estimated_cost_usd.unwrap() - 3.3625).abs() < 1e-10);
-            assert_eq!(day.models.len(), 4);
+            assert_eq!(day.metrics.total_tokens, 1_320_000);
+            assert!((day.metrics.estimated_cost_usd.unwrap() - 5.8875).abs() < 1e-10);
+            assert_eq!(day.models.len(), 6);
             assert!(day
                 .models
                 .iter()
@@ -3442,7 +3450,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_sol_pricing_checks_the_exact_long_context_boundary() {
+    fn builtin_sol_and_astra_prices_check_the_exact_long_context_boundary() {
         let home = metadata_fixture_dir("builtin-context-boundary");
         let pricing = Pricing::load(&home, None);
         let base = Counts {
@@ -3451,16 +3459,22 @@ mod tests {
             output_tokens: 20_000,
             reasoning_output_tokens: 10_000,
         };
-        assert!((pricing.estimate("gpt-6.1-sol", base, Some(base)).unwrap() - 0.649).abs() < 1e-10);
         let long = Counts {
             input_tokens: 272_001,
             ..base
         };
-        assert!(
-            (pricing.estimate("gpt-6.1-sol", long, Some(long)).unwrap() - 1.198004).abs() < 1e-10
-        );
-        assert!(pricing.estimate("gpt-6.1-sol", long, None).is_none());
-        assert!(pricing.estimate("gpt-6.1-sol", long, Some(base)).is_none());
+        for (model, short_cost, long_cost) in [
+            ("gpt-6.1-sol", 0.649, 1.198004),
+            ("gpt-6.2-sol", 0.649, 1.198004),
+            ("gpt-6.2-astra", 2.596, 4.792016),
+        ] {
+            assert!(
+                (pricing.estimate(model, base, Some(base)).unwrap() - short_cost).abs() < 1e-10
+            );
+            assert!((pricing.estimate(model, long, Some(long)).unwrap() - long_cost).abs() < 1e-10);
+            assert!(pricing.estimate(model, long, None).is_none());
+            assert!(pricing.estimate(model, long, Some(base)).is_none());
+        }
         fs::remove_dir_all(home).unwrap();
     }
     #[test]

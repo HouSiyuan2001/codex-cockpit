@@ -36,6 +36,7 @@ const quota: ClaudeQuota = {
 };
 
 interface ModeHandlers {
+  onClaudeLogin?: () => void;
   onCockpitModeChange?: (mode: CockpitMode) => void;
   onOpenResetForecast?: (url: string) => void;
   onClaudeCapChange?: (value: number | null) => void;
@@ -103,9 +104,12 @@ it("renders zero used when the 5-hour window is unused", () => {
   expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "0 100");
 });
 
-it("explains a missing Claude login instead of showing numbers", () => {
-  renderCard("claude", {}, { ...quota, status: "signed_out", fiveHour: null, sevenDay: null, message: "Claude Code login not found." });
+it.each(["claude", "ai"] as const)("offers Claude re-login in %s mode when signed out", (mode) => {
+  const onClaudeLogin = vi.fn();
+  renderCard(mode, { onClaudeLogin }, { ...quota, status: "signed_out", fiveHour: null, sevenDay: null, message: "Claude Code login not found." });
   expect(screen.getByRole("status")).toHaveTextContent("未找到 Claude Code 登录");
+  fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
+  expect(onClaudeLogin).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("group", { name: /本周剩余/ })).not.toBeInTheDocument();
 });
 

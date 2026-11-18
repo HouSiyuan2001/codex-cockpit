@@ -7,7 +7,7 @@ import { buildClaudeCockpitView } from "./lib/claudeCockpit";
 import { buildClaudeComfortPrompt, buildClaudePlan, claudeQuotaDays, claudeResetWatch, EMPTY_CLAUDE_PLAN, observeClaudeQuota } from "./lib/claudePlan";
 import { claudeUsageDevice } from "./lib/claudeUsageRows";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
-import { closeControlCenterWindow } from "./lib/bridge";
+import { closeControlCenterWindow, loginClaudeCode } from "./lib/bridge";
 import { buildDailyPersonCosts } from "./lib/dailyPersonCosts";
 import { mergeSyncedComfortFeedback } from "./lib/comfortSync";
 import { getSyncedComfortFeedback } from "./lib/usageSyncBridge";
@@ -86,6 +86,7 @@ export default function App() {
   const [hovered, setHovered] = useState(false);
   const [compact, setCompact] = useState(true);
   const [consumingProviders, setConsumingProviders] = useState<Set<string>>(() => new Set());
+  const [claudeLogin, setClaudeLogin] = useState({ pending: false, error: null as string | null });
   const [operationError, setOperationError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateViewState>(EMPTY_UPDATE_STATE);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -137,6 +138,16 @@ export default function App() {
   const claudeActive = startupReady && preferences.claudeEnabled;
   const { report: claudeReport, refresh: refreshClaudeUsage } = useClaudeUsage(claudeActive && (preferences.cockpitMode !== "codex" || controlOpen));
   const { quota: claudeQuota, refresh: refreshClaudeQuota } = useClaudeQuota(claudeActive);
+  const handleClaudeLogin = useCallback(async () => {
+    setClaudeLogin({ pending: true, error: null });
+    try {
+      await loginClaudeCode();
+      refreshClaudeQuota(true);
+      setClaudeLogin({ pending: false, error: null });
+    } catch (error) {
+      setClaudeLogin({ pending: false, error: String(error) });
+    }
+  }, [refreshClaudeQuota]);
   const { forecast: claudeResetForecast, refresh: refreshClaudeResets } = useClaudeResets(claudeActive, claudeQuota?.plan ?? null);
   const claudeState = runtimeState.claudePlan ?? EMPTY_CLAUDE_PLAN;
   const claudeHistory = useMemo(() => claudeQuotaDays(claudeState), [claudeState.quotaDays]);
@@ -1267,6 +1278,8 @@ export default function App() {
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
       claudeView={preferences.claudeEnabled ? claudeView : null}
+      onClaudeLogin={handleClaudeLogin}
+      claudeLogin={claudeLogin}
       now={planningNow}
       claudePlan={claudePlan}
       claudeWatch={claudeWatch}
