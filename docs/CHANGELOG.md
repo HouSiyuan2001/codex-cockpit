@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8 - 2026-11-18
+
+- Add GPT-6.2 pricing and Claude reconnect, tighten paired capsule
+
 ## 0.3.7
 
 - Add a Codex / Claude / AI switch to the expanded cockpit header and capsule on macOS, Windows and Linux. Claude is off by default for new installations.
