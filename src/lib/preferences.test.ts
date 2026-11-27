@@ -3,6 +3,12 @@ import { DEFAULT_WIDGET_PREFERENCES, defaultFontScaleForPlatform, effectiveCompa
 import { UI_FONT_OPTIONS, defaultFontFamilyForPlatform } from "./fonts";
 
 describe("widget preference migration", () => {
+  it("only enables Codex in a fresh profile", () => {
+    const defaults = { cockpitMode: "codex", codexEnabled: true, claudeEnabled: false, geminiEnabled: false };
+    expect(DEFAULT_WIDGET_PREFERENCES).toMatchObject(defaults);
+    expect(normalizeWidgetPreferences({})).toMatchObject(defaults);
+  });
+
   it("keeps Claude off after restoring Codex and Gemini in AI mode", () => {
     const toggled = normalizeWidgetPreferences({ cockpitMode: "ai", codexEnabled: true, claudeEnabled: false, geminiEnabled: true });
     const restored = normalizeWidgetPreferences(JSON.parse(JSON.stringify(toggled)));

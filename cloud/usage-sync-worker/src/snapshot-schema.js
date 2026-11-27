@@ -45,8 +45,14 @@ export function validAggregates(payload) {
     || !Object.values(payload._range_bounds).every(v => fields(v, ["start", "end"])
       && (v.start === null || date(v.start)) && (v.end === null || date(v.end))))) return false;
   const meta = payload._cockpit;
-  return meta === undefined || (fields(meta, ["schemaVersion", "collectedAt", "status", "retainedDays", "nativeDays"])
-    && meta.schemaVersion === 1 && optional(meta.collectedAt, timestamp)
+  return meta === undefined || (fields(meta, ["schemaVersion", "collectedAt", "status", "retainedDays", "nativeDays", "timeZone", "timeZonePending", "protocolVersion", "appVersion", "settingsRevision", "pricingSource"])
+    && meta.schemaVersion === 1 && optional(meta.collectedAt, v => v === null || timestamp(v))
+    && optional(meta.timeZone, v => v === null || typeof v === "string" && /^[A-Za-z0-9_+/-]{1,64}$/.test(v))
+    && optional(meta.timeZonePending, v => typeof v === "boolean")
+    && optional(meta.protocolVersion, v => v === 2)
+    && optional(meta.appVersion, v => typeof v === "string" && /^[A-Za-z0-9.+-]{1,64}$/.test(v))
+    && optional(meta.settingsRevision, count)
+    && optional(meta.pricingSource, v => ["app-catalog", "local-catalog", "bundled-catalog", "none"].includes(v))
     && optional(meta.status, v => ["ready", "partial", "unavailable"].includes(v))
     && optional(meta.retainedDays, count) && optional(meta.nativeDays, v => list(v, 4096, date)));
 }
@@ -79,4 +85,17 @@ export function validFeedback(payload) {
     && ["p014-t014-ordinal-map-v3", "p014-t014-smooth-knee-v2", "p014-t014-y-v1"].includes(v.curveVersion)
     && (v.tokenSnapshot === null || tokenSnapshot(v.tokenSnapshot, v.localDate))
     && (v.quotaAllocation === null || allocation(v.quotaAllocation, v.localDate)));
+}
+
+const providerCounts = ["requests", "inputTokens", "cacheWriteTokens", "cacheReadTokens", "outputTokens"];
+export function validProviderUsage(value) {
+  return fields(value, ["claude", "gemini"]) && Object.values(value).every(report =>
+    fields(report, ["observedAt", "latestActivityAt", "days"]) && timestamp(report.observedAt)
+    && (report.latestActivityAt === null || timestamp(report.latestActivityAt))
+    && list(report.days, 400, day => fields(day, ["localDate", ...providerCounts, "costUsd", "unpricedRequests", "models"])
+      && date(day.localDate) && providerCounts.every(key => count(day[key]))
+      && number(day.costUsd) && count(day.unpricedRequests) && day.unpricedRequests <= day.requests
+      && list(day.models, 256, row => fields(row, ["id", "name", ...providerCounts, "costUsd"])
+        && text(row.id) && text(row.name) && providerCounts.every(key => count(row[key])) && nullable(row.costUsd)))
+    && new Set(report.days.map(day => day.localDate)).size === report.days.length);
 }

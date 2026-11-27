@@ -1,10 +1,11 @@
+import { providerQuota } from "./claude-quota.js";
 import { dailyPlan } from "./daily-plan.js";
-import { validAggregates, validFeedback } from "./snapshot-schema.js";
+import { validAggregates, validFeedback, validProviderUsage } from "./snapshot-schema.js";
 import { readBody } from "./request-body.js";
 const MAX_MEMBERS = 32;
 const ALLOWED_PAYLOAD_KEYS = new Set([
   "_cockpit", "_device", "_ledger", "_range_bounds", "_ts", "codex",
-  "comfortFeedback", "comfortFeedbackVersion", "taskUsage",
+  "comfortFeedback", "comfortFeedbackVersion", "taskUsage", "providerUsage",
 ]);
 
 function response(body, status = 200) {
@@ -74,8 +75,8 @@ async function updateSettings(request, env, member) {
   const body = await readBody(request);
   const clean = cleanSharedSettings(body.value);
   if (!clean || !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) return fail("settings_invalid");
-  const result = await env.DB.prepare("UPDATE spaces SET shared_settings = ?, group_settings = ?, settings_revision = settings_revision + 1 WHERE id = ? AND settings_revision = ?")
-    .bind(JSON.stringify(clean), JSON.stringify(clean.groups), member.space_id, body.expectedRevision).run();
+  const result = await env.DB.prepare("UPDATE spaces SET shared_settings = ?, group_settings = ?, claude_quota_groups = CASE WHEN shared_settings IS NULL THEN ? ELSE claude_quota_groups END, settings_revision = settings_revision + 1 WHERE id = ? AND settings_revision = ?")
+    .bind(JSON.stringify(clean), JSON.stringify(clean.groups), JSON.stringify(clean.groups), member.space_id, body.expectedRevision).run();
   if (result.meta.changes !== 1) return fail("settings_conflict", 409);
   return response({ ok: true, sharedSettings: await sharedSettings(env, member.space_id) });
 }
@@ -88,8 +89,8 @@ async function updateGroups(request, env, member) {
   if (current.revision !== body.expectedRevision) return fail("settings_conflict", 409);
   const groups = { groups: body.groups.groups.map(group => ({ id: group.id, name: group.name, deviceIds: group.deviceIds })), defaultGroupId: body.groups.defaultGroupId };
   const value = { ...current.value, groups };
-  const result = await env.DB.prepare("UPDATE spaces SET shared_settings = ?, group_settings = ?, settings_revision = settings_revision + 1 WHERE id = ? AND settings_revision = ?")
-    .bind(JSON.stringify(value), JSON.stringify(groups), member.space_id, body.expectedRevision).run();
+  const result = await env.DB.prepare("UPDATE spaces SET shared_settings = ?, group_settings = ?, claude_quota_groups = CASE WHEN ? THEN ? ELSE claude_quota_groups END, settings_revision = settings_revision + 1 WHERE id = ? AND settings_revision = ?")
+    .bind(JSON.stringify(value), JSON.stringify(groups), member.role === "owner" ? 1 : 0, JSON.stringify(groups), member.space_id, body.expectedRevision).run();
   if (result.meta.changes !== 1) return fail("settings_conflict", 409);
   return response({ ok: true, sharedSettings: await sharedSettings(env, member.space_id) });
 }
@@ -123,6 +124,7 @@ export function validateSnapshot(payload, deviceId, nowSeconds = Math.floor(Date
   if (payload._device !== deviceId || !safeId(payload._device)) return "snapshot_identity_mismatch";
   if (!Number.isInteger(payload._ts) || payload._ts <= 0 || payload._ts > nowSeconds + 300) return "snapshot_timestamp_invalid";
   if (!validAggregates(payload)) return "snapshot_schema_invalid";
+  if (payload.providerUsage !== undefined && !validProviderUsage(payload.providerUsage)) return "snapshot_provider_usage_invalid";
   if (!validFeedback(payload)) return "snapshot_feedback_invalid";
   if (payload.taskUsage !== undefined && !validTaskUsage(payload.taskUsage)) return "snapshot_tasks_invalid";
   return null;
@@ -150,7 +152,7 @@ async function memberFor(request, env) {
     .bind(await hash(token)).first();
 }
 
-async function snapshots(env, spaceId) {
+async function snapshots(env, spaceId, providerUsage) {
   const rows = await env.DB.prepare("SELECT snapshots.device_id, members.display_name, snapshots.payload_json, snapshots.updated_at FROM snapshots JOIN members ON members.space_id = snapshots.space_id AND members.device_id = snapshots.device_id WHERE snapshots.space_id = ? AND members.revoked_at IS NULL ORDER BY members.created_at LIMIT ?")
     .bind(spaceId, MAX_MEMBERS).all();
   return rows.results.map(row => ({
@@ -158,7 +160,13 @@ async function snapshots(env, spaceId) {
     displayName: row.display_name,
     updatedAt: row.updated_at,
     payload: JSON.parse(row.payload_json),
-  })).filter(row => validateSnapshot(row.payload, row.deviceId) === null);
+  })).filter(row => validateSnapshot(row.payload, row.deviceId) === null)
+    .flatMap(row => {
+      if (providerUsage || row.payload.providerUsage === undefined) return [row];
+      if (!Object.keys(row.payload.codex.ranges).length && !Object.keys(row.payload._ledger.tools.codex).length) return [];
+      const { providerUsage: _providerUsage, ...payload } = row.payload;
+      return [{ ...row, payload }];
+    });
 }
 
 async function createSpace(request, env) {
@@ -214,7 +222,7 @@ async function createInvite(request, env, member) {
   return response({ ok: true, inviteCode, inviteExpiresAt: now + expiresHours * 3600 }, 201);
 }
 
-async function sync(request, env, member) {
+async function sync(request, env, member, providerUsage) {
   const body = await readBody(request);
   if (body.deviceId !== member.device_id) return fail("device_identity_mismatch", 403);
   const error = validateSnapshot(body.payload, member.device_id);
@@ -235,7 +243,7 @@ async function sync(request, env, member) {
   const now = Math.floor(Date.now() / 1000);
   await env.DB.prepare("INSERT INTO snapshots(space_id, device_id, payload_json, payload_hash, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(space_id, device_id) DO UPDATE SET payload_json = excluded.payload_json, payload_hash = excluded.payload_hash, updated_at = excluded.updated_at WHERE snapshots.payload_hash <> excluded.payload_hash AND json_extract(excluded.payload_json, '$._ts') > json_extract(snapshots.payload_json, '$._ts')")
     .bind(member.space_id, member.device_id, payloadJson, payloadHash, now).run();
-  return response({ ok: true, snapshots: await snapshots(env, member.space_id) });
+  return response({ ok: true, snapshots: await snapshots(env, member.space_id, providerUsage) });
 }
 
 async function revokeDevice(request, env, member) {
@@ -252,7 +260,8 @@ async function revokeDevice(request, env, member) {
 export default {
   async fetch(request, env) {
     try {
-      const { pathname } = new URL(request.url);
+      const { pathname, searchParams } = new URL(request.url);
+      const providerUsage = searchParams.get("providerUsageVersion") === "1";
       if (request.method === "GET" && pathname === "/health") return response({ ok: true, service: "codex-cockpit-sync", version: 1 });
       // Fail closed on old configs: do not silently deploy an unprotected service.
       if (!env.AUTH_RATE_LIMITER?.limit || !env.API_RATE_LIMITER?.limit) return fail("rate_limit_unconfigured", 503);
@@ -274,6 +283,9 @@ export default {
         limited.headers.set("retry-after", "60");
         return limited;
       }
+      if (["/v2/claude-quota", "/v2/gemini-quota"].includes(pathname) && ["GET", "POST"].includes(request.method)) {
+        return await providerQuota(request, env, member, { response, fail, validGroups }, pathname === "/v2/gemini-quota");
+      }
       if (request.method === "POST" && pathname === "/v2/daily-plan") return await dailyPlan(request, env, member);
       if (request.method === "GET" && pathname === "/v1/me") {
         const space = await env.DB.prepare("SELECT id, name, group_settings FROM spaces WHERE id = ?").bind(member.space_id).first();
@@ -285,8 +297,8 @@ export default {
       if (request.method === "POST" && pathname === "/v2/groups") return await updateGroups(request, env, member);
       if (request.method === "POST" && pathname === "/v1/invites") return await createInvite(request, env, member);
       if (request.method === "POST" && pathname === "/v1/devices/revoke") return await revokeDevice(request, env, member);
-      if (request.method === "POST" && pathname === "/v1/sync") return await sync(request, env, member);
-      if (request.method === "GET" && pathname === "/v1/snapshots") return response({ ok: true, snapshots: await snapshots(env, member.space_id) });
+      if (request.method === "POST" && pathname === "/v1/sync") return await sync(request, env, member, providerUsage);
+      if (request.method === "GET" && pathname === "/v1/snapshots") return response({ ok: true, providerUsageVersion: 1, snapshots: await snapshots(env, member.space_id, providerUsage) });
       return fail("not_found", 404);
     } catch (error) {
       const code = error instanceof Error && ["body_too_large", "invalid_json"].includes(error.message) ? error.message : "internal_error";
