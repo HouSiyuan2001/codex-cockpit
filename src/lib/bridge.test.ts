@@ -45,7 +45,9 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: opener.openUrl }));
 
 beforeEach(async () => {
   vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+  vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh" });
   await closeControlCenterWindow();
+  await setWidgetExpanded(false);
   vi.clearAllMocks();
   api.calls.length = 0;
   events.listen.mockReset();
@@ -68,23 +70,8 @@ describe("widget transitions", () => {
   });
 
   it("finishes a native drag against the active monitor work area", async () => {
-    const timer: { tick: () => void } = { tick: () => undefined };
-    vi.stubGlobal("window", {
-      __TAURI_INTERNALS__: {},
-      setInterval: vi.fn((callback: () => void) => {
-        timer.tick = callback;
-        return 7;
-      }),
-      clearInterval: vi.fn(),
-    });
-
     await startDragging();
     expect(api.invoke).toHaveBeenCalledWith("begin_widget_drag");
-    timer.tick();
-    await Promise.resolve();
-    timer.tick();
-    await Promise.resolve();
-    timer.tick();
     await vi.waitFor(() => expect(api.invoke).toHaveBeenCalledWith("finish_widget_drag", {
       workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1040 } },
     }));
@@ -136,6 +123,14 @@ describe("widget transitions", () => {
     });
   });
 
+  it("keeps the top edge when resizing the cockpit below its mode switch", async () => {
+    await resizeWidgetToContent(790, true);
+    expect(api.invoke).toHaveBeenCalledWith("resize_expanded_widget", expect.objectContaining({
+      contentHeight: 790,
+      keepTop: true,
+    }));
+  });
+
   it("discards a queued content resize after a newer collapse intent", async () => {
     let finishExpansion!: () => void;
     api.invoke.mockImplementationOnce(async () => new Promise<void>((resolve) => { finishExpansion = resolve; }));
@@ -149,14 +144,30 @@ describe("widget transitions", () => {
   });
 
   it("does not cancel an entering expansion when the same press starts a drag", async () => {
-    vi.stubGlobal("window", {
-      __TAURI_INTERNALS__: {},
-      setInterval: vi.fn(() => 7),
-      clearInterval: vi.fn(),
-    });
     await Promise.all([setWidgetExpanded(true), startDragging()]);
     expect(api.invoke.mock.calls.some(([command]) => command === "expand_widget")).toBe(true);
     await setWidgetExpanded(false);
+  });
+
+  it("defers changing capsule width until the drag settles", async () => {
+    let releaseDrag!: () => void;
+    api.invoke.mockImplementationOnce(async () => new Promise<void>(resolve => { releaseDrag = resolve; }));
+    const drag = startDragging();
+    await vi.waitFor(() => expect(releaseDrag).toBeTypeOf("function"));
+    const first = setWidgetExpanded(false, "capsule", undefined, 180, 79);
+    const latest = setWidgetExpanded(false, "capsule", undefined, 208, 79);
+    await Promise.resolve();
+    expect(api.invoke.mock.calls.some(([command]) => command === "collapse_widget")).toBe(false);
+    releaseDrag();
+    await Promise.all([drag, first, latest]);
+    expect(api.calls).toEqual([
+      "start:is_widget_drag_button_pressed", "end:is_widget_drag_button_pressed",
+      "start:finish_widget_drag", "end:finish_widget_drag",
+      "start:collapse_widget", "end:collapse_widget",
+    ]);
+    expect(api.invoke).toHaveBeenCalledWith("collapse_widget", {
+      compactLayout: "capsule", compactWidth: 208, compactHeight: 79,
+    });
   });
 
   it("keeps resize and control-center positioning on the capsule's original display", async () => {

@@ -1,4 +1,4 @@
-import { formatCost, formatTokens, metricValue, type AggregatedTaskUsage, type TaskUsageDetail, type UsageMetric } from "../lib/tokeiUsage";
+import { formatCost, formatTokens, metricValue, taskUsageMetadata, type AggregatedTaskUsage, type TaskUsageDetail, type UsageMetric } from "../lib/tokeiUsage";
 import "./taskUsage.css";
 
 function Cost({ detail, zh }: { detail: { estimatedCostUsd: number | null; knownCostUsd?: number | null; totalTokens: number }; zh: boolean }) {
@@ -35,13 +35,11 @@ export function TaskUsageRow({ task, max, color, zh, metric, total }: { task: Ag
     totalTokens: task.children.reduce((sum, child) => sum + child.totalTokens, 0),
   };
   const summaryOnly = task.self.id === "__unattributed";
-  const shortId = task.self.id.length <= 8 ? task.self.id : task.self.id.slice(-8);
   return <details className="usage-row task-usage-row">
     <summary>
       <span className="task-usage-heading">
         <span className="usage-row-name"><i className="usage-color-key" style={{ background: color }} />{summaryOnly ? (zh ? "设备用量汇总" : "Device usage summary") : task.rawName}</span>
-        {!summaryOnly && <small>{task.projectName ? `${task.projectName} · ` : ""}{shortId}{task.children.length ? ` · ${zh ? `含 ${task.children.length} 个子 Agent` : `${task.children.length} subagent${task.children.length === 1 ? "" : "s"}`}` : ""}</small>}
-        {task.sourceDevice && <small>{zh ? "来自 " : "From "}{task.sourceDevice}</small>}
+        <small>{taskUsageMetadata(task, zh)}</small>
       </span>
       <strong>{metric === "cost" ? <Cost detail={task} zh={zh} /> : formatTokens(task.totalTokens, zh)}
         {metric === "cost" && value !== null && total > 0 && <small className="usage-share">{(value / total * 100).toFixed(1)}%</small>}

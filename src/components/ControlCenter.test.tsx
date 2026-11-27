@@ -7,7 +7,7 @@ import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import type { WidgetPreferences } from "../types";
 import { ControlCenter } from "./ControlCenter";
 import { buildMidnightQuotaPlan } from "../lib/midnightQuotaPlan";
-import { COMFORT_CURVE_VERSION, personalizeComfortCurve } from "../lib/comfortFeedback";
+import { COMFORT_CURVE_VERSION } from "../lib/comfortFeedback";
 import type { ComfortFeedbackRecord } from "../types";
 import { UI_FONT_OPTIONS } from "../lib/fonts";
 
@@ -52,11 +52,13 @@ it("puts Usage first in the control center navigation", () => {
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
 });
 
-it("keeps provider choices separate for Usage and Quota, including Claude comfort and refresh", () => {
+it("keeps provider choices separate for Usage and Quota, with refreshable Claude quota cards", () => {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, cockpitMode: "claude" as const, claudeEnabled: true };
-  const claudeQuota = { recommendation: null, remaining: 43, curve: personalizeComfortCurve([]), feedback: [], history: [],
-    usage: null, onFeedback: vi.fn(), onRefreshSnapshot: vi.fn(), onRefresh: vi.fn(), onOpenResets: vi.fn() };
-  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn(), claudeQuota };
+  const claudeView = { quotaStatus: "ok" as const, quotaMessage: null, plan: "max",
+    weeklyRemaining: 43, weeklyResetsAt: null, fiveHourUsed: 38, fiveHourResetsAt: null,
+    fiveHourAwaitingRefresh: false, opusWeeklyRemaining: null };
+  const onRefreshClaude = vi.fn();
+  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn(), claudeView, onRefreshClaude };
   const { rerender } = render(<ControlCenter {...props} preferences={preferences} />);
   const dialog = screen.getByRole("dialog");
 
@@ -68,11 +70,11 @@ it("keeps provider choices separate for Usage and Quota, including Claude comfor
   fireEvent.click(screen.getByRole("button", { name: "Quota" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
   fireEvent.click(screen.getByRole("button", { name: "Refresh quota" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open Claude Resets" }));
-  fireEvent.click(within(screen.getByRole("region", { name: "Experience history" })).getByRole("radio", { name: "Just right" }));
-  expect(claudeQuota.onRefresh).toHaveBeenCalledOnce();
-  expect(claudeQuota.onOpenResets).toHaveBeenCalledOnce();
-  expect(claudeQuota.onFeedback).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d\d-\d\d$/), "comfortable");
+  expect(screen.getByRole("group", { name: "Weekly remaining 43%" })).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "5h used 38%" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Open Claude Resets" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Experience history" })).not.toBeInTheDocument();
+  expect(onRefreshClaude).toHaveBeenCalledOnce();
   expect(props.onRefresh).not.toHaveBeenCalled();
   fireEvent.click(within(screen.getByRole("radiogroup", { name: "Quota source" })).getByRole("radio", { name: /Codex/ }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
@@ -85,6 +87,28 @@ it("keeps provider choices separate for Usage and Quota, including Claude comfor
   rerender(<ControlCenter {...props} preferences={{ ...preferences, cockpitMode: "codex", claudeEnabled: false }} />);
   expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
   expect(screen.queryByRole("radiogroup", { name: "Usage source" })).not.toBeInTheDocument();
+});
+
+it("offers AI usage for Codex and Gemini with Claude disabled", async () => {
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, cockpitMode: "ai" as const, geminiEnabled: true };
+  render(<ControlCenter preferences={preferences} language="en" onClose={vi.fn()} onRefresh={vi.fn()} onPreferences={vi.fn()} autostartEnabled={false} onAutostart={vi.fn()} />);
+  const sources = screen.getByRole("radiogroup", { name: "Usage source" });
+  expect(within(sources).getAllByRole("radio").map(button => button.textContent)).toEqual(["Codex", "Gemini", "AI"]);
+  expect(within(sources).getByRole("radio", { name: "AI" })).toHaveAttribute("aria-checked", "true");
+  const aiUsage = await screen.findByRole("region", { name: "AI usage" });
+  fireEvent.change(within(aiUsage).getByRole("combobox", { name: "Usage group" }), { target: { value: "global" } });
+  fireEvent.change(within(aiUsage).getByRole("combobox", { name: "Usage view" }), { target: { value: "models" } });
+  expect(await within(aiUsage).findByText("Gemini")).toBeVisible();
+  expect(within(aiUsage).queryByText("Opus 5.5")).toBeNull();
+  fireEvent.click(within(aiUsage).getByRole("button", { name: "Calendar" }));
+  const calendar = screen.getByRole("region", { name: "Usage calendar" });
+  expect(calendar).toHaveAttribute("data-calendar-palette", "ai");
+  expect(calendar.querySelector(".usage-calendar-legend i")).toHaveStyle({
+    background: "linear-gradient(90deg, rgb(48, 91, 132) 0%, rgb(150, 207, 211) 50%, rgb(255, 224, 164) 68%, rgb(250, 159, 72) 84%, rgb(230, 88, 81) 100%)",
+  });
+  expect(calendar.querySelector('.usage-calendar-cell[style*="background-color: rgb(230, 88, 81)"]')).toBeInTheDocument();
+  fireEvent.click(within(sources).getByRole("radio", { name: "Gemini" }));
+  expect(await screen.findByRole("region", { name: "Gemini usage" })).toBeInTheDocument();
 });
 
 it("filters Claude usage through the calendar and shares the cost metric with the trend", async () => {
@@ -365,6 +389,18 @@ describe("ControlCenter essentials", () => {
     fireEvent.click(screen.getByRole("button", { name: /^(Refresh quota|刷新额度)$/ }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(onOpenCodexResets).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Liquid Glass opt-in on Mac and saves an enable request", () => {
+    const platform = vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    const onPreferences = vi.fn();
+    renderControlCenter(vi.fn(), onPreferences, vi.fn(), { ...DEFAULT_WIDGET_PREFERENCES, language: "en" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const liquidGlass = screen.getByRole("checkbox", { name: "Liquid Glass" });
+    expect(liquidGlass).not.toBeChecked();
+    fireEvent.click(liquidGlass);
+    expect(onPreferences).toHaveBeenLastCalledWith(expect.objectContaining({ capsuleLiquidGlass: true }));
+    platform.mockRestore();
   });
 
   it("applies the essential appearance and behavior preferences", () => {

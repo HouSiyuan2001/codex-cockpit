@@ -10,6 +10,7 @@ import workbuddyLogo from "../assets/providers/workbuddy.svg";
 const providerLogos: Record<string, string> = {
   claude: claudeLogo,
   codex: codexLogo,
+  gemini: antigravityLogo,
   qoder: qoderLogo,
   trae: traeLogo,
   workbuddy: workbuddyLogo,

@@ -45,8 +45,10 @@ gtk = "0.18"
 keyring = { version = "3.6", features = ["sync-secret-service"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+security-framework = "3"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSApplication", "NSImage"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSApplication", "NSImage", "NSAppearance", "NSAttributedString", "NSEvent", "NSBezierPath", "NSButton", "NSColor", "NSFont", "NSStatusBarButton", "NSTextAttachment", "block2"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation", "NSData"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

@@ -9,6 +9,7 @@ interface ComfortFeedbackPanelProps {
   saving?: boolean;
   error?: string | null;
   compact?: boolean;
+  onOpenCodex?: () => void;
 }
 
 const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
@@ -17,7 +18,7 @@ const options: Array<{ code: ComfortCode; icon: typeof SmileySad }> = [
   { code: "idle", icon: SmileyWink },
 ];
 
-export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null, compact = false }: ComfortFeedbackPanelProps) {
+export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = false, error = null, compact = false, onOpenCodex }: ComfortFeedbackPanelProps) {
   const number = new Intl.NumberFormat(language === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
   const observedTime = prompt.usageObservedAt
     ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", { timeZone: USAGE_TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(prompt.usageObservedAt))
@@ -32,7 +33,9 @@ export function ComfortFeedbackPanel({ prompt, language, onSelect, saving = fals
           <strong>{prompt.personName ? `${prompt.personName} · ` : ""}{labels.title}</strong>
           {(!compact || prompt.isCatchUp) && <small>{labels.hint}</small>}
         </div>
-        {!compact && <span className="comfort-feedback-time">22:00</span>}
+        {onOpenCodex ? <button type="button" className="usage-text-button" onMouseDown={event => event.stopPropagation()} onClick={onOpenCodex}>
+          {language === "en" ? "Codex Cockpit" : "Codex 驾驶舱"}
+        </button> : !compact && <span className="comfort-feedback-time">22:00</span>}
       </header>
       <div className="comfort-feedback-options">
         {options.map(({ code, icon: Icon }) => (

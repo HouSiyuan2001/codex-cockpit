@@ -7,10 +7,10 @@ import App from "./App";
 import { EMPTY_RUNTIME_STATE } from "./lib/activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./lib/preferences";
 import type { ClaudeQuota, ComfortFeedbackRecord, ProviderSnapshot, ResetForecast, ResetWatch, RuntimeState } from "./types";
-import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpanded, openControlCenterWindow, openExternalUrl, closeControlCenterWindow } from "./lib/bridge";
+import { fetchCodexResetForecast, fetchWebsiteResetProbability, setWidgetExpanded, openControlCenterWindow, openExternalUrl, closeControlCenterWindow, listenDesktopEvents } from "./lib/bridge";
 import type { TokeiUsage } from "./lib/tokeiUsage";
 import { savePersonPlan, planDateKey } from "./lib/personPlanSync";
-import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./lib/appUpdate";
+import { checkForAppUpdate, discardAppUpdate, downloadAppUpdate, installAppUpdate, type AppUpdateInfo } from "./lib/appUpdate";
 import { copy } from "./lib/i18n";
 
 vi.mock("./lib/personPlanSync", async (importOriginal) => ({
@@ -44,10 +44,12 @@ vi.mock("./components/QuotaCard", () => ({
   capsuleLogicalWidth: () => 100,
   QuotaIsland: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
   QuotaOrb: ({ onActivate }: { onActivate: () => void }) => <button onClick={onActivate}>expand</button>,
-  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, resetRiskSource, dailyRecommendation, onResetRiskChange, comfortPrompt, onDiagnostics, updateOpen, diagnosticsOpen }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; resetRiskSource: string; dailyRecommendation: { resetRiskPercent: number; targetPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null; onDiagnostics: () => void; updateOpen: boolean; diagnosticsOpen: boolean }) => <div>
+  QuotaCard: ({ onHover, onControlOpen, onOpenResetForecast, onRefresh, controlCenter, resetForecast, resetWatch, resetRiskSource, dailyRecommendation, onResetRiskChange, comfortPrompt, onCockpitModeChange, onDiagnostics, updateOpen, diagnosticsOpen }: { onHover: (value: boolean) => void; onControlOpen: () => void; onOpenResetForecast: (url: string) => void; onRefresh: () => void; controlCenter: React.ReactNode; resetForecast: ResetForecast | null; resetWatch: ResetWatch | null; resetRiskSource: string; dailyRecommendation: { resetRiskPercent: number; targetPercent: number } | null; onResetRiskChange: (value: number | null) => void; comfortPrompt: { localDate: string } | null; onCockpitModeChange: (mode: "claude" | "ai") => void; onDiagnostics: () => void; updateOpen: boolean; diagnosticsOpen: boolean }) => <div>
     <button onClick={() => { onHover(false); onControlOpen(); }}>leave then open control</button>
     <button onClick={() => onOpenResetForecast("https://codex-resets.com/")}>open reset watch</button>
     <button onClick={() => onHover(false)}>leave widget</button>
+    <button onClick={() => onCockpitModeChange("claude")}>switch to Claude</button>
+    <button onClick={() => onCockpitModeChange("ai")}>switch to AI</button>
     <button onClick={onDiagnostics}>open diagnostics</button>
     <output data-testid="panel-state">{updateOpen ? "update" : diagnosticsOpen ? "diagnostics" : "none"}</output>
     <output data-testid="pending-comfort">{comfortPrompt?.localDate ?? "none"}</output>
@@ -61,6 +63,7 @@ vi.mock("./components/QuotaCard", () => ({
 
 vi.mock("./components/ControlCenter", () => ({
   ControlCenter: (props: {
+    page: string;
     comfortFeedback: ComfortFeedbackRecord[];
     comfortSaveError: string | null;
     onComfortFeedback: (date: string, comfort: "comfortable") => void;
@@ -69,6 +72,7 @@ vi.mock("./components/ControlCenter", () => ({
     updateContent: React.ReactNode;
     onClose: () => void;
   }) => <section>
+    <output data-testid="control-page">{props.page}</output>
     <button onClick={props.onCheckUpdate}>check update</button>
     {props.updateContent}
     <button onClick={props.onClose}>close control</button>
@@ -109,6 +113,7 @@ vi.mock("./lib/bridge", () => ({
   fetchClaudeQuota: (manual: boolean) => mocks.fetchClaudeQuota(manual),
   fetchClaudeResetForecast: vi.fn(async () => null),
   fetchClaudeUsage: vi.fn(async () => null),
+  fetchGeminiQuota: vi.fn(async () => ({ status: "unavailable", gemini: null, claudeGpt: null, plan: null, observedAt: null, message: null })),
   fetchCodexResetForecast: vi.fn(async () => null),
   fetchWebsiteResetProbability: vi.fn(async () => null),
   fetchSnapshots: (...args: unknown[]) => mocks.fetchSnapshots(...args),
@@ -117,12 +122,14 @@ vi.mock("./lib/bridge", () => ({
   getPreferences: (...args: unknown[]) => mocks.getPreferences(...args),
   getRuntimeState: (...args: unknown[]) => mocks.getRuntimeState(...args),
   getVolcengineDiagnostics: vi.fn(async () => null),
+  getWidgetCorner: vi.fn(async () => "right-bottom"),
   importAppData: vi.fn(async () => null),
   listenDesktopEvents: vi.fn(async () => () => undefined),
   openControlCenterWindow: vi.fn(async () => undefined),
   closeControlCenterWindow: vi.fn(async () => undefined),
   openExternalUrl: vi.fn(async () => undefined),
   reconnectVolcengine: vi.fn(async () => null),
+  reportPreviewMetrics: vi.fn(async () => undefined),
   resizeWidgetToContent: vi.fn(async () => undefined),
   restoreLatestBackup: vi.fn(async () => null),
   sendDesktopNotification: (...args: unknown[]) => mocks.sendDesktopNotification(...args),
@@ -317,6 +324,37 @@ describe("App comfort persistence regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "expand" }));
     expect(await screen.findByTestId("pending-comfort")).toHaveTextContent(LOCAL_DATE);
   });
+  it("keeps the open panel anchored when switching back to a mode with a comfort check-in", async () => {
+    mocks.initialRuntime = { ...structuredClone(EMPTY_RUNTIME_STATE), comfortPersonId: "person-a" };
+    mocks.promptTarget = { localDate: LOCAL_DATE, isCatchUp: true };
+    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, claudeEnabled: true });
+
+    render(<App />);
+    expect(await screen.findByTestId("pending-comfort")).toHaveTextContent(LOCAL_DATE);
+    await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0])).toBe(true));
+    vi.mocked(setWidgetExpanded).mockClear();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "switch to Claude" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "switch to AI" })); });
+
+    expect(screen.getByTestId("pending-comfort")).toHaveTextContent(LOCAL_DATE);
+    expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0])).toBe(false);
+  });
+  it("opens the requested menu bar page and switches tabs without resizing again", async () => {
+    render(<App />);
+    await screen.findByRole("button", { name: "expand" });
+    const openFromMenu = vi.mocked(listenDesktopEvents).mock.lastCall?.[0].onControlCenter;
+    expect(openFromMenu).toBeDefined();
+
+    act(() => openFromMenu?.("settings"));
+    expect(await screen.findByTestId("control-page")).toHaveTextContent("settings");
+    expect(openControlCenterWindow).toHaveBeenCalledOnce();
+
+    act(() => openFromMenu?.("usage"));
+    expect(screen.getByTestId("control-page")).toHaveTextContent("usage");
+    expect(openControlCenterWindow).toHaveBeenCalledOnce();
+  });
+
   it("cancels pending collapse when control center opens", async () => {
     await expandApp();
     await waitFor(() => expect(vi.mocked(setWidgetExpanded).mock.calls.some(call => call[0] === true)).toBe(true));
@@ -329,7 +367,7 @@ describe("App comfort persistence regressions", () => {
   });
   it("defaults to the history estimate, supports a persisted manual scenario, and restores the estimate", async () => {
     mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: new Date().toISOString(), weeklyWindow: { remainingPercent: 26, windowSeconds: 604800, resetsAt: new Date(Date.now() + 5 * 86_400_000).toISOString() } }]);
-    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskOverridePercent: 10 });
+    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskManualEnabled: true, resetRiskOverridePercent: 10 });
     vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 67.6, tomorrowRiskPercent: 67.6, historySampleCount: 12, windowHours: 24, fetchedAt: new Date().toISOString(), resetAnnounced: false, sourceUrl: "https://codex-resets.com/" });
     await expandApp();
     expect(screen.getByTestId("reset-sources")).toHaveTextContent('"model":67.6');
@@ -341,13 +379,35 @@ describe("App comfort persistence regressions", () => {
     await waitFor(() => expect(screen.getByTestId("reset-sources")).toHaveTextContent('"planning":67.6'));
     expect(savePersonPlan).toHaveBeenLastCalledWith(planDateKey(new Date()), "resetRiskOverridePercent", null);
   });
+  it("honors today's manual risk at startup and returns to the estimate after Beijing midnight", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-11-12T15:59:45Z"));
+    const checkedAt = new Date().toISOString();
+    mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: checkedAt, weeklyWindow: { remainingPercent: 80, windowSeconds: 604800, resetsAt: new Date(Date.now() + 5 * 86_400_000).toISOString() } }]);
+    mocks.getPreferences.mockResolvedValue({
+      ...DEFAULT_WIDGET_PREFERENCES,
+      resetRiskManualEnabled: true,
+      resetRiskOverridePercent: 60,
+      resetRiskLocalDate: planDateKey(new Date()),
+    });
+    vi.mocked(fetchCodexResetForecast).mockResolvedValue({
+      score: 20, tomorrowRiskPercent: 20, historySampleCount: 12, windowHours: 24,
+      fetchedAt: checkedAt, resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
+    });
+    await expandApp();
+    const risk = () => JSON.parse(screen.getByTestId("reset-sources").textContent!);
+    expect(risk()).toMatchObject({ planning: 60, source: "manual" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(risk()).toMatchObject({ planning: 20, source: "history" });
+    expect(savePersonPlan).not.toHaveBeenCalled();
+  });
   it("replans from the current website risk and restores the saved risk when the watch clears", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(new Date("2026-11-12T07:00:00Z"));
     const now = Date.now();
     const checkedAt = new Date(now).toISOString();
     mocks.fetchSnapshots.mockResolvedValue([{ ...snapshot, updatedAt: checkedAt, weeklyWindow: { remainingPercent: 99, windowSeconds: 604800, resetsAt: new Date(now + 5 * 86_400_000).toISOString() } }]);
-    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskManualEnabled: true, resetRiskOverridePercent: 35 });
+    mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, resetRiskManualEnabled: true, resetRiskOverridePercent: 35, resetRiskLocalDate: planDateKey(new Date()) });
     const watch = { level: "elevated" as const, resetChancePercent: 65, checkedAt, observedAt: new Date(now - 60_000).toISOString(), expiresAt: new Date(now + 86_400_000).toISOString(), episodeId: "test-watch" };
     vi.mocked(fetchCodexResetForecast).mockResolvedValue({ score: 18.6, tomorrowRiskPercent: 18.6, historySampleCount: 12, windowHours: 24, fetchedAt: checkedAt, resetAnnounced: false, sourceUrl: "https://codex-resets.com/",
       watchCheckedAt: checkedAt, activeWatch: { signalKind: "watch", level: watch.level, resetChancePercent: 65, observedAt: watch.observedAt, expiresAt: watch.expiresAt } });
@@ -426,6 +486,68 @@ describe("App comfort persistence regressions", () => {
     expect(screen.getByTestId("comfort-state")).toHaveTextContent('"totalTokens":6000000');
     expect(mocks.updateRuntimeState).not.toHaveBeenCalled();
   });
+});
+
+const availableUpdate: AppUpdateInfo = {
+  version: "0.4.0", body: null, date: null, platform: "windows",
+  channel: "stable", releaseUrl: "", automaticInstall: true,
+};
+
+it("does not check, download or show a background update without opt-in", async () => {
+  vi.useFakeTimers();
+  vi.mocked(checkForAppUpdate).mockResolvedValue(availableUpdate);
+  render(<App />);
+  await act(async () => {});
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_000);
+    window.dispatchEvent(new Event("online"));
+  });
+  expect(checkForAppUpdate).not.toHaveBeenCalled();
+  expect(downloadAppUpdate).not.toHaveBeenCalled();
+  expect(installAppUpdate).not.toHaveBeenCalled();
+});
+
+it("downloads automatically after opt-in and still waits for install confirmation", async () => {
+  mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, automaticUpdates: true });
+  vi.mocked(checkForAppUpdate).mockResolvedValue(availableUpdate);
+  await expandApp();
+  await act(async () => window.dispatchEvent(new Event("online")));
+  expect(checkForAppUpdate).toHaveBeenCalledOnce();
+  expect(downloadAppUpdate).toHaveBeenCalledOnce();
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("update");
+  expect(installAppUpdate).not.toHaveBeenCalled();
+});
+
+it("does not start a download after the user turns off an in-flight background check", async () => {
+  mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, automaticUpdates: true });
+  let finishCheck!: (info: AppUpdateInfo) => void;
+  vi.mocked(checkForAppUpdate).mockReturnValueOnce(new Promise(resolve => { finishCheck = resolve; }));
+  await expandApp();
+  await act(async () => window.dispatchEvent(new Event("online")));
+  expect(checkForAppUpdate).toHaveBeenCalledOnce();
+  await act(async () => {
+    vi.mocked(listenDesktopEvents).mock.lastCall?.[0].onPreferences?.(DEFAULT_WIDGET_PREFERENCES);
+    finishCheck(availableUpdate);
+  });
+  expect(discardAppUpdate).toHaveBeenCalled();
+  expect(downloadAppUpdate).not.toHaveBeenCalled();
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("none");
+});
+
+it("finishes a running background download silently if opt-in is turned off", async () => {
+  mocks.getPreferences.mockResolvedValue({ ...DEFAULT_WIDGET_PREFERENCES, automaticUpdates: true });
+  vi.mocked(checkForAppUpdate).mockResolvedValue(availableUpdate);
+  let finishDownload!: () => void;
+  vi.mocked(downloadAppUpdate).mockReturnValueOnce(new Promise(resolve => { finishDownload = resolve; }));
+  await expandApp();
+  await act(async () => window.dispatchEvent(new Event("online")));
+  expect(downloadAppUpdate).toHaveBeenCalledOnce();
+  await act(async () => {
+    vi.mocked(listenDesktopEvents).mock.lastCall?.[0].onPreferences?.(DEFAULT_WIDGET_PREFERENCES);
+    finishDownload();
+  });
+  expect(screen.getByTestId("panel-state")).toHaveTextContent("none");
+  expect(installAppUpdate).not.toHaveBeenCalled();
 });
 
 it("keeps checking, download progress, ready and installation inside Settings", async () => {

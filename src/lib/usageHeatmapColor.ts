@@ -1,9 +1,17 @@
-/** Established blue-to-red scale for the reset-risk heatmap. */
+/** Established blue-to-red scale for reset risk and combined usage. */
 const STOPS = [[0, 48, 91, 132], [50, 150, 207, 211], [68, 255, 224, 164], [84, 250, 159, 72], [100, 230, 88, 81]] as const;
 const CALENDAR_PALETTES = {
+  ai: {
+    stops: STOPS,
+    zero: null,
+  },
   codex: {
     stops: [[0, 216, 235, 247], [25, 166, 198, 221], [50, 115, 157, 189], [75, 72, 116, 151], [100, 39, 80, 119]],
     zero: "rgb(78, 102, 126)",
+  },
+  gemini: {
+    stops: [[0, 225, 245, 242], [25, 178, 220, 222], [50, 119, 185, 192], [75, 72, 135, 150], [100, 40, 94, 112]],
+    zero: "rgb(214, 229, 229)",
   },
   claude: {
     stops: [[0, 255, 231, 207], [25, 255, 196, 140], [50, 239, 138, 71], [75, 199, 106, 56], [100, 161, 70, 31]],
@@ -27,7 +35,7 @@ export function usageHeatmapColor(value: number, min: number, max: number): stri
 
 export function calendarHeatmapColor(value: number, min: number, max: number, palette: CalendarHeatmapPalette = "codex"): string {
   const { stops, zero } = CALENDAR_PALETTES[palette];
-  return value <= 0 ? zero : interpolateColor(stops, value, min, max);
+  return value <= 0 && zero ? zero : interpolateColor(stops, value, min, max);
 }
 
 export function calendarHeatmapGradient(palette: CalendarHeatmapPalette): string {
@@ -51,5 +59,6 @@ export function usageHeatmapTextColor(value: number, min: number, max: number): 
 
 export function calendarHeatmapTextColor(value: number, min: number, max: number, palette: CalendarHeatmapPalette = "codex"): string {
   const color = calendarHeatmapColor(value, min, max, palette);
+  if (palette === "ai") return contrastTextColor(color, "#000000", .18);
   return palette === "claude" ? contrastTextColor(color, "#1a0a02", .19) : contrastTextColor(color);
 }

@@ -1,4 +1,7 @@
-import type { AppDiagnostics, ClaudeQuota, ClaudeResetForecast, ClaudeUsageReport, CodexDailyUsage, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import { invoke as invokeWidgetCommand } from "@tauri-apps/api/core";
+import type { MenuBarQuotas } from "./menuBarQuota";
+import type { AppDiagnostics, CapsuleCorner, ClaudeQuota, SharedClaudeQuota, ClaudeResetForecast, ClaudeUsageReport, CodexDailyUsage, GeminiQuota, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WebsiteResetProbability, WidgetPreferences, WindowCompactLayout } from "../types";
+import { normalizeCapsuleCorner } from "./geminiCockpit";
 import { CLAUDE_RESETS_URL } from "./externalLinks";
 import { EMPTY_RUNTIME_STATE, normalizeRuntimeState } from "./activity";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
@@ -294,6 +297,12 @@ export async function fetchClaudeQuota(manual = false): Promise<ClaudeQuota> {
   return invoke<ClaudeQuota>("get_claude_quota", { manual });
 }
 
+export async function fetchSharedClaudeQuota(): Promise<SharedClaudeQuota[]> {
+  if (!isTauri()) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<SharedClaudeQuota[]>("get_shared_claude_quota");
+}
+
 export async function loginClaudeCode(): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke("login_claude_code");
@@ -319,6 +328,86 @@ export async function fetchClaudeUsage(days = 35): Promise<ClaudeUsageReport> {
   if (!isTauri()) return mockClaudeUsage();
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ClaudeUsageReport>("get_claude_usage", { days });
+}
+
+/** Local Antigravity workspace usage; the browser preview uses synthetic data. */
+export async function updateMenuBarQuotas(quotas: MenuBarQuotas, english: boolean): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_menu_bar_quotas", { quotas, english });
+}
+
+export async function fetchGeminiUsage(days = 35): Promise<ClaudeUsageReport> {
+  if (!isTauri()) {
+    const report = mockClaudeUsage();
+    return { ...report, priceCheckedAt: "", prices: [], days: report.days.map(day => {
+      const unpriced = (row: typeof day.models[number]) => ({ ...row, costUsd: null });
+      return {
+        ...day, costUsd: 0, unpricedRequests: day.requests,
+        models: day.models.map((row, index) => ({
+          ...unpriced(row), id: index ? "gemini-example-fast" : "gemini-example", name: index ? "Gemini Fast" : "Gemini",
+        })),
+        tasks: day.tasks?.map(unpriced), projects: day.projects?.map(unpriced),
+      };
+    }) };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ClaudeUsageReport>("get_gemini_usage", { days });
+}
+
+/** Google Antigravity quota pools, read-only; the browser preview uses synthetic data. */
+export async function fetchGeminiQuota(manual = false): Promise<GeminiQuota> {
+  if (!isTauri()) {
+    const mode = new URLSearchParams(window.location.search).get("gemini");
+    const now = Date.now();
+    if (mode === "unavailable" || mode === "signed_out") {
+      return {
+        status: mode,
+        gemini: null,
+        claudeGpt: null,
+        plan: null,
+        observedAt: new Date(now).toISOString(),
+        message: mode === "signed_out" ? "Antigravity login not found." : "Antigravity quota is temporarily unavailable.",
+      };
+    }
+    return {
+      status: "ok",
+      gemini: {
+        fiveHour: { remainingPercent: 84, resetsAt: new Date(now + 3.2 * 3_600_000).toISOString() },
+        weekly: { remainingPercent: 72, resetsAt: new Date(now + 4.5 * 86_400_000).toISOString() },
+      },
+      claudeGpt: {
+        fiveHour: { remainingPercent: 91, resetsAt: null },
+        weekly: { remainingPercent: 66, resetsAt: new Date(now + 5.1 * 86_400_000).toISOString() },
+      },
+      plan: "Pro",
+      observedAt: new Date(now).toISOString(),
+      message: null,
+    };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<GeminiQuota>("get_gemini_quota", { manual });
+}
+
+export async function getWidgetCorner(): Promise<CapsuleCorner> {
+  if (!isTauri()) {
+    return normalizeCapsuleCorner(new URLSearchParams(window.location.search).get("corner"));
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return normalizeCapsuleCorner(await invoke<string>("get_widget_corner"));
+}
+
+export async function snapWidgetCornerForTesting(corner: CapsuleCorner): Promise<CapsuleCorner> {
+  if (!isTauri()) return corner;
+  const { invoke } = await import("@tauri-apps/api/core");
+  const workArea = widgetAnchorWorkArea ?? await readCurrentWorkArea();
+  return normalizeCapsuleCorner(await invoke<string>("snap_widget_corner_for_testing", { corner, workArea }));
+}
+
+export async function reportPreviewMetrics(metrics: Record<string, unknown>): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("report_preview_metrics", { metrics }).catch(() => undefined);
 }
 
 export async function openExternalUrl(url: string): Promise<void> {
@@ -441,68 +530,113 @@ export async function setAlwaysOnTop(alwaysOnTop: boolean): Promise<WidgetPrefer
   return invoke<WidgetPreferences>("set_widget_always_on_top", { alwaysOnTop });
 }
 
-export async function startDragging(): Promise<void> {
-  if (!isTauri()) return;
-  ++widgetResizeIntent;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const { invoke } = await import("@tauri-apps/api/core");
-  const currentWindow = getCurrentWindow();
-  const finishDrag = async () => {
-    const workArea = await readCurrentWorkArea();
-    await invoke("finish_widget_drag", { workArea });
-  };
-  await invoke("begin_widget_drag");
-  let previous: { x: number; y: number };
-  try {
-    await currentWindow.startDragging();
-    previous = await currentWindow.outerPosition();
-  } catch (error) {
-    await finishDrag().catch(() => undefined);
-    throw error;
-  }
-  let stableTicks = 0;
-  let attempts = 0;
-  const finishWhenStable = window.setInterval(() => {
-    void currentWindow.outerPosition()
-      .then((next) => {
-        attempts += 1;
-        const stable = Math.abs(next.x - previous.x) <= 1 && Math.abs(next.y - previous.y) <= 1;
-        stableTicks = stable ? stableTicks + 1 : 0;
-        previous = next;
-        if (stableTicks >= 3 || attempts >= 25) {
-          window.clearInterval(finishWhenStable);
-          void finishDrag().catch(() => undefined);
-        }
-      })
-      .catch(() => {
-        window.clearInterval(finishWhenStable);
-        void finishDrag().catch(() => undefined);
-      });
-  }, 80);
+let widgetDrag: Promise<void> | null = null;
+
+export interface CapsulePointerDrag {
+  move: (dx: number, dy: number) => void;
+  finish: () => void;
 }
 
-export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompactLayout = "float", contentHeight?: number, compactWidth?: number): Promise<void> {
+export function startCapsulePointerDrag(onError: () => void): CapsulePointerDrag {
+  if (!isTauri() || widgetDrag) return { move() {}, finish() {} };
+  ++widgetResizeIntent;
+  let pending: { dx: number; dy: number } | null = null;
+  let moving: Promise<void> | null = null;
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  const started = invokeWidgetCommand("begin_widget_drag", { pointerDriven: true });
+  widgetDrag = Promise.all([started, released])
+    .then(async () => {
+      try {
+        await moving;
+      } finally {
+        const workArea = await readCurrentWorkArea();
+        await invokeWidgetCommand("finish_widget_drag", { workArea });
+        if (widgetAnchorWorkArea) widgetAnchorWorkArea = workArea;
+      }
+    })
+    .catch(onError)
+    .finally(() => { widgetDrag = null; });
+  return {
+    move(dx, dy) {
+      pending = { dx, dy };
+      // Keep only the latest displacement while AppKit applies a frame.
+      moving ??= started.then(async () => {
+        while (pending) {
+          const position = pending;
+          pending = null;
+          await invokeWidgetCommand("move_widget_drag", position);
+        }
+      }).catch(() => { pending = null; }).finally(() => { moving = null; });
+    },
+    finish: release,
+  };
+}
+
+export function startDragging(): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  if (widgetDrag) return widgetDrag;
+  ++widgetResizeIntent;
+  const drag = (async () => {
+    await invokeWidgetCommand("begin_widget_drag");
+    try {
+      if (/^Mac/i.test(navigator.platform)) {
+        // AppKit owns the native drag and can consume the WebView's mouseup.
+        while (await invokeWidgetCommand<boolean>("is_widget_drag_button_pressed")) {
+          await new Promise<void>(resolve => window.setTimeout(resolve, 24));
+        }
+      } else {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const currentWindow = getCurrentWindow();
+        let previous = await currentWindow.outerPosition();
+        let stableTicks = 0;
+        for (let attempts = 0; attempts < 25 && stableTicks < 3; attempts += 1) {
+          await new Promise<void>(resolve => window.setTimeout(resolve, 80));
+          const next = await currentWindow.outerPosition();
+          const stable = Math.abs(next.x - previous.x) <= 1 && Math.abs(next.y - previous.y) <= 1;
+          stableTicks = stable ? stableTicks + 1 : 0;
+          previous = next;
+        }
+      }
+    } finally {
+      const workArea = await readCurrentWorkArea();
+      await invokeWidgetCommand("finish_widget_drag", { workArea });
+      if (widgetAnchorWorkArea) widgetAnchorWorkArea = workArea;
+    }
+  })();
+  widgetDrag = drag.finally(() => { widgetDrag = null; });
+  return widgetDrag;
+}
+
+export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompactLayout = "float", contentHeight?: number, compactWidth?: number, compactHeight?: number): Promise<void> {
   if (!isTauri() || controlCenterOwnsWindow) return Promise.resolve();
   const intent = ++widgetIntent;
   ++widgetResizeIntent;
   const next = (async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
+    await Promise.resolve();
+    // Quota updates can resize a compact capsule while it is being moved.
+    // Keep the native frame stable until the drag has settled on its display.
+    if (widgetDrag) await widgetDrag.catch(() => undefined);
     if (intent !== widgetIntent) return;
     if (!expanded) {
+      const sizePatch = {
+        ...(Number.isFinite(compactWidth) && (compactWidth ?? 0) > 0 ? { compactWidth } : {}),
+        ...(Number.isFinite(compactHeight) && (compactHeight ?? 0) > 0 ? { compactHeight } : {}),
+      };
       try {
         if (usesWidgetMorph()) {
-          const geometry = await invoke<WidgetMorphGeometry | null>("collapse_widget", {
+          const geometry = await invokeWidgetCommand<WidgetMorphGeometry | null>("collapse_widget", {
             compactLayout, preview: true,
-            ...(Number.isFinite(compactWidth) && (compactWidth ?? 0) > 0 ? { compactWidth } : {}),
+            ...sizePatch,
           });
           if (intent !== widgetIntent) return;
           await animateWidgetMorph(geometry, false);
           if (intent !== widgetIntent) return;
         }
-        await invoke("collapse_widget", {
+        await invokeWidgetCommand("collapse_widget", {
           compactLayout,
           ...(usesWidgetMorph() ? { compositorMotion: true } : {}),
-          ...(Number.isFinite(compactWidth) && (compactWidth ?? 0) > 0 ? { compactWidth } : {}),
+          ...sizePatch,
         });
       } finally {
         if (intent === widgetIntent) widgetAnchorWorkArea = null;
@@ -513,7 +647,7 @@ export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompac
     if (intent !== widgetIntent) return;
     widgetAnchorWorkArea = workArea;
     const measuredContentHeight = Number.isFinite(contentHeight) && (contentHeight ?? 0) > 0 ? contentHeight : undefined;
-    const geometry = await invoke<WidgetMorphGeometry | null>("expand_widget", {
+    const geometry = await invokeWidgetCommand<WidgetMorphGeometry | null>("expand_widget", {
       workArea: widgetAnchorWorkArea,
       compactLayout,
       ...(usesWidgetMorph() ? { compositorMotion: true } : {}),
@@ -522,7 +656,7 @@ export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompac
     let revealed = false;
     const revealFrame = async () => {
       if (geometry?.frameTicket != null && !revealed) {
-        await invoke("reveal_widget_frame", { frameTicket: geometry.frameTicket });
+        await invokeWidgetCommand("reveal_widget_frame", { frameTicket: geometry.frameTicket });
         revealed = true;
       }
     };
@@ -548,15 +682,16 @@ export function setWidgetExpanded(expanded: boolean, compactLayout: WindowCompac
   return settled;
 }
 
-export function resizeWidgetToContent(contentHeight: number): Promise<void> {
+export function resizeWidgetToContent(contentHeight: number, keepTop = false): Promise<void> {
   if (!isTauri() || controlCenterOwnsWindow || !Number.isFinite(contentHeight) || contentHeight <= 0) return Promise.resolve();
   const intent = widgetResizeIntent;
   return enqueueWidgetTransition(async () => {
     if (intent !== widgetResizeIntent) return;
     const { invoke } = await import("@tauri-apps/api/core");
+    if (widgetDrag) await widgetDrag.catch(() => undefined);
     const workArea = widgetAnchorWorkArea ?? await readCurrentWorkArea();
     if (intent !== widgetResizeIntent) return;
-    await invoke("resize_expanded_widget", { contentHeight, workArea, ...(usesWidgetMorph() ? { compositorMotion: true } : {}) });
+    await invoke("resize_expanded_widget", { contentHeight, workArea, ...(keepTop ? { keepTop } : {}), ...(usesWidgetMorph() ? { compositorMotion: true } : {}) });
   });
 }
 
@@ -607,7 +742,10 @@ export async function listenDesktopEvents(handlers: {
   onPreferences: (value: WidgetPreferences) => void;
   onRefresh: (manual: boolean) => void;
   onUpdate: () => void;
+  onControlCenter?: (page: "usage" | "settings") => void;
   onBackgroundSnapshots: (value: ProviderSnapshot[]) => void;
+  onWidgetCorner?: (corner: CapsuleCorner) => void;
+  onPreviewExpand?: () => void;
 }): Promise<() => void> {
   if (!isTauri()) return () => undefined;
   const { listen } = await import("@tauri-apps/api/event");
@@ -617,6 +755,17 @@ export async function listenDesktopEvents(handlers: {
     unlisteners.push(await listen<ProviderSnapshot[]>("background-snapshots-updated", (event) => handlers.onBackgroundSnapshots(event.payload)));
     unlisteners.push(await listen<boolean | null>("refresh-requested", (event) => handlers.onRefresh(event.payload === true)));
     unlisteners.push(await listen("update-check-requested", handlers.onUpdate));
+    if (handlers.onControlCenter) {
+      unlisteners.push(await listen<string>("control-center-requested", ({ payload }) => {
+        if (payload === "usage" || payload === "settings") handlers.onControlCenter?.(payload);
+      }));
+    }
+    if (handlers.onWidgetCorner) {
+      unlisteners.push(await listen<string>("widget-corner-changed", (event) => handlers.onWidgetCorner?.(normalizeCapsuleCorner(event.payload))));
+    }
+    if (handlers.onPreviewExpand) {
+      unlisteners.push(await listen("preview-expand", () => handlers.onPreviewExpand?.()));
+    }
   } catch (error) {
     for (const unlisten of [...unlisteners].reverse()) unlisten();
     throw error;

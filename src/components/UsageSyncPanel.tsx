@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { getUsageSyncStatus, saveUsageSyncSettings, syncUsageNow, type UsageSyncSettings, type UsageSyncStatus } from "../lib/usageSyncBridge";
 import type { TokeiDevice } from "../lib/tokeiUsage";
 import { getPreferences } from "../lib/bridge";
-import { savePersonPlan, planDateKey } from "../lib/personPlanSync";
+import { activeManualResetRisk, savePersonPlan, planDateKey } from "../lib/personPlanSync";
 
 const timestamp = (value: string | null | undefined, zh: boolean) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(zh ? "zh-CN" : "en-US", { timeZone: USAGE_TIME_ZONE, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : (zh ? "尚无记录" : "No record");
 function errorText(code: string | null, zh: boolean): string {
@@ -57,7 +57,7 @@ export function UsageSyncPanel({ zh, devices, onSynced }: { zh: boolean; devices
             const current = await getPreferences(); const day = planDateKey(new Date());
             if (current.dailyBudgetLocalDate !== day) throw "shared_settings_plan_date_stale";
             await savePersonPlan(day, "dailyBudgetPercent", current.dailyBudgetPercent);
-            await savePersonPlan(day, "resetRiskOverridePercent", current.resetRiskManualEnabled ? current.resetRiskOverridePercent : null);
+            await savePersonPlan(day, "resetRiskOverridePercent", activeManualResetRisk(current, day));
             return syncUsageNow();
           })}>{zh ? "共享本机当前计划" : "Share this device's current plan"}</button>
           <label><input type="checkbox" checked={settings.enabled} disabled={working} onChange={e => void action(() => saveUsageSyncSettings({ ...settings, enabled: e.target.checked }))} />{zh ? "自动同步" : "Automatic sync"}</label>

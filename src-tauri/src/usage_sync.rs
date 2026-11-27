@@ -17,7 +17,6 @@ use std::{
     },
     time::Duration,
 };
-use tauri::Manager;
 
 pub(crate) static RUN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static STATE: Mutex<Option<SyncRuntime>> = Mutex::new(None);
@@ -257,9 +256,7 @@ fn status(data: &Path, home: &Path) -> Result<SyncStatus, String> {
 #[tauri::command]
 pub fn get_usage_sync_status(app: tauri::AppHandle) -> Result<SyncStatus, String> {
     status(
-        &app.path()
-            .app_config_dir()
-            .map_err(|_| "sync_storage_unavailable")?,
+        &crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?,
         &dirs::home_dir().ok_or("home_unavailable")?,
     )
 }
@@ -267,10 +264,7 @@ pub fn get_usage_sync_status(app: tauri::AppHandle) -> Result<SyncStatus, String
 pub async fn get_codex_project_usage(
     app: tauri::AppHandle,
 ) -> Result<codex_project_usage::ProjectUsageSnapshot, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let _guard = RUN_LOCK.try_lock().map_err(|_| "collector_busy")?;
     collect_local_usage(&data).await
 }
@@ -312,10 +306,7 @@ fn synced_comfort_feedback(data: &Path) -> Result<Vec<Value>, String> {
 }
 #[tauri::command]
 pub fn get_synced_comfort_feedback(app: tauri::AppHandle) -> Result<Vec<Value>, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     synced_comfort_feedback(&data)
 }
 fn identify(result: &mut codex_project_usage::ProjectUsageSnapshot, id: &str) {
@@ -340,10 +331,7 @@ pub fn save_usage_sync_settings(
 ) -> Result<SyncStatus, String> {
     let _guard = RUN_LOCK.try_lock().map_err(|_| "sync_busy")?;
     validate(&settings)?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     if let Some(old) = settings_at(&data)? {
         if old.device_id != settings.device_id
             || old.remote != settings.remote
@@ -419,11 +407,12 @@ fn read_baselines(data: &Path, home: &Path, device_id: &str) -> Vec<Value> {
 }
 #[tauri::command]
 pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String> {
+    sync_usage(app, true).await
+}
+
+async fn sync_usage(app: tauri::AppHandle, interactive: bool) -> Result<SyncStatus, String> {
     let _guard = RUN_LOCK.try_lock().map_err(|_| "sync_busy")?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let home = dirs::home_dir().ok_or("home_unavailable")?;
     let settings = settings_at(&data)?.ok_or("sync_not_configured")?;
     let mut state = runtime(&data);
@@ -432,9 +421,22 @@ pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String>
     state.last_error = None;
     record(&data, &state)?;
     let outcome: Result<(String, String, String), String> = async {
-        if crate::cloud_sync::config(&data)?.is_some() {
-            crate::cloud_sync::pull(&data).await?;
-        }
+        let cloud_config = crate::cloud_sync::config(&data)?;
+        let cloud = if let Some(cfg) = cloud_config {
+            let credential_scope = cfg.clone();
+            let token = tauri::async_runtime::spawn_blocking(move || {
+                crate::cloud_sync::read_token(&credential_scope, interactive)
+            })
+            .await
+            .map_err(|_| "cloud_keychain_unavailable")??;
+            // Older sync servers can still exchange normal usage without this endpoint.
+            let _ = crate::cloud_sync::publish_claude_quota(&data, &cfg, &token).await;
+            let _ = crate::cloud_sync::publish_gemini_quota(&data, &cfg, &token).await;
+            let provider_usage = crate::cloud_sync::pull(&data, &cfg, &token).await?;
+            Some((cfg, token, provider_usage))
+        } else {
+            None
+        };
         let mut collected = tokio::time::timeout(
             Duration::from_secs(20),
             codex_project_usage::get_codex_project_usage_from_source(
@@ -449,10 +451,32 @@ pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String>
         let collector_status = collected.status.clone();
         state.last_collected_at = Some(collected_at.clone());
         state.collector_status = Some(collector_status.clone());
-        if crate::cloud_sync::config(&data)?.is_some() {
+        if let Some((cfg, token, provider_usage)) = cloud {
             let baselines = read_baselines(&data, &home, &settings.device_id);
+            let provider_reports = if provider_usage && cfg.enabled {
+                let provider_data = data.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    crate::provider_usage_sync::collect(&provider_data)
+                })
+                .await
+                .map_err(|_| "sync_worker_failed")?
+            } else {
+                serde_json::Map::new()
+            };
             let mut payload =
-                build_local_snapshot(&data, &settings.device_id, &collected, &baselines)?;
+                match build_local_snapshot(&data, &settings.device_id, &collected, &baselines) {
+                    Err(error)
+                        if error == "collector_no_dated_usage" && !provider_reports.is_empty() =>
+                    {
+                        serde_json::json!({
+                            "_device": settings.device_id, "_ts": Utc::now().timestamp(),
+                            "_ledger": {"v":1, "tools":{"codex":{}}}, "codex":{"ranges":{}},
+                            "_cockpit":{"schemaVersion":1, "timeZone":crate::usage_time::TIME_ZONE,
+                                "collectedAt":collected.updated_at, "status":"unavailable"},
+                        })
+                    }
+                    other => other?,
+                };
             payload["_cockpit"]["protocolVersion"] = serde_json::json!(2);
             payload["_cockpit"]["appVersion"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
             payload["_cockpit"]["settingsRevision"] =
@@ -463,11 +487,12 @@ pub async fn sync_usage_now(app: tauri::AppHandle) -> Result<SyncStatus, String>
                 &data.join("runtime-state.json"),
                 &baselines,
             )?;
-            if crate::cloud_sync::config(&data)?.is_some_and(|cfg| cfg.share_task_details) {
+            if cfg.share_task_details {
                 crate::task_sync::attach(&mut payload, &collected);
             }
+            crate::provider_usage_sync::attach(&mut payload, provider_reports);
             write_json(&data.join("usage-sync-local.json"), &payload)?;
-            crate::cloud_sync::exchange(&data, payload).await?;
+            crate::cloud_sync::exchange(&data, &cfg, &token, payload).await?;
             return Ok(("cloudflare".into(), collected_at, collector_status));
         }
         let data = data.clone();
@@ -531,7 +556,7 @@ pub fn start(app: tauri::AppHandle) {
         let mut last_local_attempt: Option<std::time::Instant> = None;
         let mut local_interval = Duration::from_secs(60);
         loop {
-            let Ok(data) = app.path().app_config_dir() else {
+            let Ok(data) = crate::app_config_dir(&app) else {
                 tokio::time::sleep(Duration::from_secs(15)).await;
                 continue;
             };
@@ -574,12 +599,12 @@ pub fn start(app: tauri::AppHandle) {
                         >= settings.interval_seconds as i64
                 });
             if due {
-                let _ = sync_usage_now(app.clone()).await;
+                let _ = sync_usage(app.clone(), false).await;
                 last_peer_attempt = Some(std::time::Instant::now());
             } else if last_peer_attempt.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
                 // Peer downloads do not require a fresh local collection/upload.
                 if let Ok(_guard) = RUN_LOCK.try_lock() {
-                    let _ = crate::cloud_sync::pull(&data).await;
+                    let _ = crate::cloud_sync::pull_in_background(&data).await;
                     last_peer_attempt = Some(std::time::Instant::now());
                 }
             }

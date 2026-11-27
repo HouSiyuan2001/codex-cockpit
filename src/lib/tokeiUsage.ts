@@ -162,6 +162,7 @@ export interface TaskUsageDetail extends UsageMetrics {
 
 export interface AggregatedTaskUsage extends UsageMetrics {
   sourceDevice?: string;
+  sourceProvider?: "Claude" | "Gemini";
   knownCostUsd?: number | null;
   id: string;
   name: string;
@@ -227,8 +228,14 @@ function aggregateTaskDetail(task: TaskUsage, period: UsagePeriod, now: Date): T
   return result;
 }
 
-function shortTaskId(id: string): string {
-  return id.length <= 8 ? id : id.slice(-8);
+export function taskUsageMetadata(task: AggregatedTaskUsage, zh: boolean): string {
+  const subagents = task.children.length;
+  return [
+    `🤖 ${task.sourceProvider ?? "Codex"}`,
+    task.projectName,
+    task.sourceDevice ? `💻 ${task.sourceDevice}` : null,
+    subagents ? (zh ? `含 ${subagents} 个子 Agent` : `${subagents} subagent${subagents === 1 ? "" : "s"}`) : null,
+  ].filter(Boolean).join(" · ");
 }
 
 /**
@@ -289,8 +296,8 @@ export function aggregateTaskUsage(data: ProjectUsageSnapshot, settings: TokeiGr
   for (const row of rawRows) duplicateNames.set(row.rawName, (duplicateNames.get(row.rawName) ?? 0) + 1);
   const rows: AggregatedTaskUsage[] = rawRows.map(({ hasData: _hasData, ...row }) => ({
     ...row,
-    name: (duplicateNames.get(row.rawName) ?? 0) > 1
-      ? `${row.rawName} · ${row.projectName ? `${row.projectName} · ` : ""}${shortTaskId(row.id)}`
+    name: row.projectName && (duplicateNames.get(row.rawName) ?? 0) > 1
+      ? `${row.rawName} · ${row.projectName}`
       : row.rawName,
   })).sort((a, b) => b.totalTokens - a.totalTokens || a.name.localeCompare(b.name));
   const attributed = empty();

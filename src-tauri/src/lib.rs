@@ -1,18 +1,26 @@
 mod antigravity;
 mod app_icon;
 mod app_updater;
+#[cfg(target_os = "macos")]
+mod capsule_glass;
 mod claude_quota;
+mod claude_quota_sync;
 mod claude_resets;
 mod claude_usage;
 mod cloud_sync;
 mod codex;
 mod codex_project_usage;
 mod comfort_sync;
+mod gemini_quota;
+mod gemini_quota_sync;
+mod gemini_usage;
 #[cfg(target_os = "linux")]
 mod linux_window;
 mod local_usage;
 mod models;
+mod provider_usage_sync;
 mod qoder;
+mod quota_tray;
 mod reset_forecast;
 mod shared_settings;
 mod task_sync;
@@ -25,6 +33,14 @@ mod usage_time;
 mod volcengine;
 mod website_reset_probability;
 mod workbuddy;
+
+#[cfg(target_os = "macos")]
+use capsule_glass::set_capsule_glass;
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn set_capsule_glass() -> bool {
+    false
+}
 
 use std::{
     fs,
@@ -57,7 +73,7 @@ use models::UsageWindow;
 use models::{ProviderSnapshot, WidgetPreferences};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem},
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WindowEvent,
 };
@@ -70,6 +86,7 @@ const CAPSULE_LOGICAL_WIDTH: f64 = 88.0;
 // The AI capsule contains two readings. Match aiCapsuleLogicalWidth in QuotaCard.tsx.
 const CAPSULE_MAX_LOGICAL_WIDTH: f64 = 320.0;
 const CAPSULE_LOGICAL_HEIGHT: f64 = 40.0;
+const CAPSULE_MAX_LOGICAL_HEIGHT: f64 = 88.0;
 const ISLAND_LOGICAL_WIDTH: f64 = 400.0;
 const ISLAND_LOGICAL_HEIGHT: f64 = 38.0;
 const EXPANDED_LOGICAL_WIDTH: f64 = 520.0;
@@ -396,6 +413,22 @@ fn collapsed_physical_size_with_width(
     safe_inset: u32,
     capsule_width: Option<f64>,
 ) -> PhysicalSize<u32> {
+    collapsed_physical_size_with_dimensions(
+        compact_mode,
+        scale_factor,
+        safe_inset,
+        capsule_width,
+        None,
+    )
+}
+
+fn collapsed_physical_size_with_dimensions(
+    compact_mode: CompactMode,
+    scale_factor: f64,
+    safe_inset: u32,
+    capsule_width: Option<f64>,
+    capsule_height: Option<f64>,
+) -> PhysicalSize<u32> {
     let (width, height) = match compact_mode {
         CompactMode::Float => (COLLAPSED_LOGICAL_WIDTH, COLLAPSED_LOGICAL_HEIGHT),
         CompactMode::Capsule => (
@@ -403,7 +436,10 @@ fn collapsed_physical_size_with_width(
                 .filter(|value| value.is_finite())
                 .map(|value| value.clamp(CAPSULE_LOGICAL_WIDTH, CAPSULE_MAX_LOGICAL_WIDTH))
                 .unwrap_or(CAPSULE_LOGICAL_WIDTH),
-            CAPSULE_LOGICAL_HEIGHT,
+            capsule_height
+                .filter(|value| value.is_finite())
+                .map(|value| value.clamp(CAPSULE_LOGICAL_HEIGHT, CAPSULE_MAX_LOGICAL_HEIGHT))
+                .unwrap_or(CAPSULE_LOGICAL_HEIGHT),
         ),
         CompactMode::Island => (ISLAND_LOGICAL_WIDTH, ISLAND_LOGICAL_HEIGHT),
     };
@@ -411,6 +447,22 @@ fn collapsed_physical_size_with_width(
         widget_window_size(width, scale_factor, safe_inset),
         widget_window_size(height, scale_factor, safe_inset),
     )
+}
+
+pub(crate) fn credentials_disabled_for_preview() -> bool {
+    std::env::var_os("CODEX_COCKPIT_TEST_NO_KEYCHAIN").is_some_and(|value| value == "1")
+        && std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+            .is_some_and(|path| std::path::Path::new(&path).is_absolute())
+}
+
+pub(crate) fn app_config_dir(app: &AppHandle) -> tauri::Result<PathBuf> {
+    if let Some(custom) = std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(custom);
+    }
+    app.path().app_config_dir()
 }
 
 struct AppState {
@@ -429,6 +481,8 @@ struct AppState {
     control_center_owner: Mutex<bool>,
     geometry: Mutex<Option<WidgetGeometryState>>,
     drag_mode: Mutex<Option<WidgetMode>>,
+    #[cfg(target_os = "macos")]
+    drag_origin: Mutex<Option<NSRect>>,
 }
 
 // Reserve dialog ownership and a generation atomically. A rejected widget
@@ -485,6 +539,57 @@ fn apply_short_window_test_override(
 }
 
 async fn collect_snapshots_once(client: &reqwest::Client) -> Vec<ProviderSnapshot> {
+    if let Some(fixture_path) = std::env::var_os("CODEX_COCKPIT_CODEX_FIXTURE")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        if let Ok(raw) = fs::read_to_string(&fixture_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let remaining = value
+                    .get("remainingPercent")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(74.0)
+                    .clamp(0.0, 100.0);
+                let resets_at = value
+                    .get("resetsAt")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
+                return vec![ProviderSnapshot {
+                    provider: "codex".into(),
+                    display_name: "CODEX".into(),
+                    plan: value
+                        .get("plan")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    short_window: value
+                        .get("fiveHourRemainingPercent")
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|remaining_percent| UsageWindow {
+                            remaining_percent,
+                            resets_at: value
+                                .get("fiveHourResetsAt")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string),
+                            window_seconds: 18_000,
+                        }),
+                    weekly_window: Some(UsageWindow {
+                        remaining_percent: remaining,
+                        resets_at,
+                        window_seconds: 604_800,
+                    }),
+                    monthly_window: None,
+                    reset_credits: Some(1),
+                    reset_credit_expires_at: Vec::new(),
+                    balance_remaining: None,
+                    balance_unit: None,
+                    rate_limit_snapshot: None,
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                    status: "ok".into(),
+                    message: None,
+                }];
+            }
+        }
+    }
     let qoder_snapshot = qoder::fetch_snapshot();
     let (
         codex_snapshot,
@@ -545,7 +650,6 @@ async fn refresh_snapshots_in_background(app: &AppHandle) {
         *cache = Some((Instant::now(), values.clone()));
     }
     let values = apply_short_window_test_override(&state, values);
-    update_quota_tray(app, &values);
     let _ = app.emit_to("widget", "background-snapshots-updated", values);
 }
 
@@ -570,7 +674,7 @@ fn load_preferences(path: &Path) -> WidgetPreferences {
     let parse = |candidate: &Path| {
         fs::read_to_string(candidate)
             .ok()
-            .and_then(|raw| serde_json::from_str::<WidgetPreferences>(&raw).ok())
+            .and_then(|raw| WidgetPreferences::from_disk_json(&raw).ok())
     };
     if let Some(value) = parse(path) {
         return value.normalized();
@@ -750,10 +854,7 @@ fn get_app_diagnostics(state: State<'_, AppState>) -> AppDiagnostics {
 }
 
 #[tauri::command]
-async fn get_snapshots(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<Vec<ProviderSnapshot>, String> {
+async fn get_snapshots(state: State<'_, AppState>) -> Result<Vec<ProviderSnapshot>, String> {
     const CACHE_TTL: Duration = Duration::from_secs(30);
     if let Ok(cache) = state.snapshot_cache.lock() {
         if let Some((time, values)) = &*cache {
@@ -784,7 +885,6 @@ async fn get_snapshots(
         }
     }
     let values = collect_snapshots(&state.client).await;
-    update_quota_tray(&app, &values);
     if let Ok(mut cache) = state.snapshot_cache.lock() {
         *cache = Some((Instant::now(), values.clone()));
     }
@@ -792,12 +892,8 @@ async fn get_snapshots(
 }
 
 #[tauri::command]
-async fn refresh_snapshots(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<Vec<ProviderSnapshot>, String> {
+async fn refresh_snapshots(state: State<'_, AppState>) -> Result<Vec<ProviderSnapshot>, String> {
     let values = fetch_snapshots_uncached(&state).await;
-    update_quota_tray(&app, &values);
     Ok(values)
 }
 
@@ -822,10 +918,15 @@ async fn get_codex_website_reset_probability(
 
 #[tauri::command]
 async fn get_claude_quota(
+    app: AppHandle,
     state: State<'_, AppState>,
     manual: Option<bool>,
 ) -> Result<claude_quota::ClaudeQuota, String> {
-    Ok(claude_quota::fetch(&state.client, manual.unwrap_or(false)).await)
+    let quota = claude_quota::fetch(&state.client, manual.unwrap_or(false)).await;
+    if let Ok(data) = app_config_dir(&app) {
+        let _ = claude_quota_sync::remember(&data, &quota);
+    }
+    Ok(quota)
 }
 
 #[tauri::command]
@@ -844,6 +945,60 @@ async fn get_claude_reset_forecast(
 #[tauri::command(async)]
 fn get_claude_usage(days: Option<u32>) -> claude_usage::ClaudeUsageReport {
     claude_usage::read_usage(days.unwrap_or(35))
+}
+
+#[tauri::command]
+async fn get_gemini_usage(days: Option<u32>) -> Result<claude_usage::ClaudeUsageReport, String> {
+    tauri::async_runtime::spawn_blocking(move || gemini_usage::read_usage(days.unwrap_or(35)))
+        .await
+        .map_err(|_| "gemini_usage_unavailable".into())
+}
+
+pub fn capture_antigravity_statusline_quota() {
+    gemini_quota::capture_statusline_quota();
+}
+
+#[tauri::command]
+async fn get_gemini_quota(
+    app: AppHandle,
+    manual: Option<bool>,
+) -> Result<gemini_quota::GeminiQuota, String> {
+    let quota = gemini_quota::fetch(manual.unwrap_or(false)).await;
+    if let Ok(data) = app_config_dir(&app) {
+        let _ = gemini_quota_sync::remember(&data, &quota);
+    }
+    Ok(quota)
+}
+
+#[tauri::command]
+fn report_preview_metrics(metrics: serde_json::Value, app: AppHandle) -> Result<(), String> {
+    let isolated = std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute());
+    let Some(target) = isolated
+        .then(|| std::env::var_os("CODEX_COCKPIT_PREVIEW_METRICS_PATH"))
+        .flatten()
+        .map(PathBuf::from)
+    else {
+        return Ok(());
+    };
+    let mut payload = metrics;
+    if let Some(window) = app.get_webview_window("widget") {
+        if let (Ok(pos), Ok(size), Ok((_, scale))) = (
+            window.outer_position(),
+            window.outer_size(),
+            monitor_and_scale(&window),
+        ) {
+            payload["nativeWindow"] = serde_json::json!({
+                "x": pos.x,
+                "y": pos.y,
+                "width": size.width,
+                "height": size.height,
+                "scaleFactor": scale,
+            });
+        }
+    }
+    persist_json_value(&target, &payload)
 }
 
 #[tauri::command]
@@ -943,6 +1098,29 @@ fn clamp_position_to_bounds(
         position.x.clamp(min_x, max_x),
         position.y.clamp(min_y, max_y),
     )
+}
+
+fn resize_from_top_in_bounds(
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    bounds_position: PhysicalPosition<i32>,
+    bounds_size: PhysicalSize<u32>,
+    safe_inset: u32,
+    minimum_height: u32,
+) -> WidgetRect {
+    // Monitor selection can change as an expanded window straddles displays.
+    // A vertical resize must leave the horizontal position of the switch alone.
+    let top = bounds_position.y - safe_inset as i32;
+    let bottom = bounds_position.y + bounds_size.height as i32 + safe_inset as i32;
+    let latest_top = (bottom - size.height.min(minimum_height) as i32).max(top);
+    let position = PhysicalPosition::new(position.x, position.y.clamp(top, latest_top));
+    WidgetRect {
+        position,
+        size: PhysicalSize::new(
+            size.width,
+            size.height.min((bottom - position.y).max(0) as u32),
+        ),
+    }
 }
 
 fn centered_dialog_position_in_bounds(
@@ -1611,11 +1789,12 @@ fn infer_mode(
     scale_factor: f64,
     safe_inset: u32,
 ) -> WidgetMode {
-    let collapsed_size = collapsed_physical_size_with_width(
+    let collapsed_size = collapsed_physical_size_with_dimensions(
         compact_mode,
         scale_factor,
         safe_inset,
         Some(CAPSULE_MAX_LOGICAL_WIDTH),
+        Some(CAPSULE_MAX_LOGICAL_HEIGHT),
     );
     if rect.size.width <= collapsed_size.width + POSITION_EPSILON
         && rect.size.height <= collapsed_size.height + POSITION_EPSILON
@@ -1632,11 +1811,162 @@ fn infer_compact_mode(rect: WidgetRect, scale_factor: f64, safe_inset: u32) -> C
         && rect.size.width > rect.size.height.saturating_mul(3)
     {
         CompactMode::Island
-    } else if rect.size.width.saturating_add(POSITION_EPSILON) >= rect.size.height.saturating_mul(2)
-    {
+    } else if rect.size.width > rect.size.height.saturating_add(POSITION_EPSILON) {
         CompactMode::Capsule
     } else {
         CompactMode::Float
+    }
+}
+
+fn compute_capsule_corner(
+    rect: WidgetRect,
+    dock: DockState,
+    bounds_position: PhysicalPosition<i32>,
+    bounds_size: PhysicalSize<u32>,
+) -> &'static str {
+    let right = match dock.horizontal {
+        Some(HorizontalDock::Left) => false,
+        Some(HorizontalDock::Right) => true,
+        None => {
+            let center_x = rect.position.x + rect.size.width as i32 / 2;
+            let mid_x = bounds_position.x + bounds_size.width as i32 / 2;
+            center_x >= mid_x
+        }
+    };
+    let bottom = match dock.vertical {
+        Some(VerticalDock::Top) => false,
+        Some(VerticalDock::Bottom) => true,
+        None => {
+            let center_y = rect.position.y + rect.size.height as i32 / 2;
+            let mid_y = bounds_position.y + bounds_size.height as i32 / 2;
+            center_y >= mid_y
+        }
+    };
+    match (right, bottom) {
+        (true, true) => "right-bottom",
+        (false, true) => "left-bottom",
+        (true, false) => "right-top",
+        (false, false) => "left-top",
+    }
+}
+
+#[tauri::command]
+fn get_widget_corner(app: AppHandle, state: State<'_, AppState>) -> Result<&'static str, String> {
+    let window = app
+        .get_webview_window("widget")
+        .ok_or_else(|| "widget window missing".to_string())?;
+    let current = current_widget_rect(&window)?;
+    let (monitor, scale_factor) = monitor_and_scale(&window)?;
+    let Some(monitor) = monitor else {
+        return Ok("right-top");
+    };
+    let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor) as i32;
+    let threshold = logical_to_physical(SNAP_THRESHOLD_LOGICAL, scale_factor) as i32;
+    let saved = state.geometry.lock().ok().and_then(|value| *value);
+    let anchor = saved.map_or(current, |value| value.collapsed_rect);
+    let dock = saved
+        .filter(|value| value.dock.is_docked())
+        .map(|value| value.dock)
+        .unwrap_or_else(|| {
+            detect_dock_in_bounds(
+                anchor.position,
+                anchor.size,
+                *monitor.position(),
+                *monitor.size(),
+                threshold,
+                safe_inset,
+            )
+        });
+    Ok(compute_capsule_corner(
+        anchor,
+        dock,
+        *monitor.position(),
+        *monitor.size(),
+    ))
+}
+
+#[tauri::command(async)]
+fn snap_widget_corner_for_testing(
+    corner: String,
+    work_area: Option<WorkAreaPayload>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (corner, work_area, app, state);
+        Err("debug_only".into())
+    }
+    #[cfg(debug_assertions)]
+    {
+        let _window_geometry_guard = state
+            .window_geometry_lock
+            .lock()
+            .map_err(|_| "window geometry unavailable".to_string())?;
+        let window = app
+            .get_webview_window("widget")
+            .ok_or_else(|| "widget window missing".to_string())?;
+        let current = current_widget_rect(&window)?;
+        let (monitor, scale_factor) = monitor_and_scale(&window)?;
+        let Some(monitor) = monitor else {
+            return Err("monitor unavailable".into());
+        };
+        let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor) as i32;
+        let (bounds_position, bounds_size) = work_area
+            .map(|area| {
+                (
+                    PhysicalPosition::new(area.position.x, area.position.y),
+                    PhysicalSize::new(area.size.width, area.size.height),
+                )
+            })
+            .unwrap_or_else(|| (*monitor.position(), *monitor.size()));
+        let dock = match corner.as_str() {
+            "right-bottom" => DockState {
+                horizontal: Some(HorizontalDock::Right),
+                vertical: Some(VerticalDock::Bottom),
+            },
+            "left-bottom" => DockState {
+                horizontal: Some(HorizontalDock::Left),
+                vertical: Some(VerticalDock::Bottom),
+            },
+            "right-top" => DockState {
+                horizontal: Some(HorizontalDock::Right),
+                vertical: Some(VerticalDock::Top),
+            },
+            "left-top" => DockState {
+                horizontal: Some(HorizontalDock::Left),
+                vertical: Some(VerticalDock::Top),
+            },
+            _ => return Err("invalid_corner".into()),
+        };
+        let position = snap_position_in_bounds(
+            current.position,
+            current.size,
+            dock,
+            bounds_position,
+            bounds_size,
+            safe_inset,
+        );
+        window
+            .set_position(position)
+            .map_err(|_| "failed to position widget".to_string())?;
+        let collapsed_rect = WidgetRect {
+            position,
+            size: current.size,
+        };
+        if let Ok(mut geometry) = state.geometry.lock() {
+            *geometry = Some(WidgetGeometryState {
+                mode: WidgetMode::Collapsed,
+                compact_mode: CompactMode::Capsule,
+                dock,
+                collapsed_rect,
+                expanded_rect: None,
+                user_moved_expanded: false,
+            });
+        }
+        let resolved = compute_capsule_corner(collapsed_rect, dock, bounds_position, bounds_size);
+        let _ = app.emit_to("widget", "widget-corner-changed", resolved);
+        Ok(resolved.to_string())
     }
 }
 
@@ -1770,6 +2100,7 @@ fn expand_widget(
 #[tauri::command(async)]
 fn resize_expanded_widget(
     content_height: f64,
+    keep_top: Option<bool>,
     work_area: Option<WorkAreaPayload>,
     compositor_motion: Option<bool>,
     app: AppHandle,
@@ -1796,7 +2127,21 @@ fn resize_expanded_widget(
     let current = current_widget_rect(&window)?;
     let (monitor, scale_factor) = monitor_and_scale(&window)?;
     let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
-    let expanded_width = widget_window_size(EXPANDED_LOGICAL_WIDTH, scale_factor, safe_inset);
+    let preview_width = std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute())
+        .then(|| {
+            std::env::var("CODEX_COCKPIT_PREVIEW_WIDTH")
+                .ok()
+                .and_then(|value| value.parse::<f64>().ok())
+                .map(|value| value.clamp(300.0, 700.0))
+        })
+        .flatten();
+    let expanded_width = widget_window_size(
+        preview_width.unwrap_or(EXPANDED_LOGICAL_WIDTH),
+        scale_factor,
+        safe_inset,
+    );
     let bounds = work_area.map(|area| {
         (
             PhysicalPosition::new(area.position.x, area.position.y),
@@ -1816,43 +2161,57 @@ fn resize_expanded_widget(
     let expanded_size = PhysicalSize::new(expanded_width, expanded_height);
     let previous = state.geometry.lock().ok().and_then(|value| *value);
 
-    let next_position = match (previous, active_bounds) {
-        (Some(geometry), Some((bounds_position, bounds_size))) if geometry.user_moved_expanded => {
-            clamp_position_to_bounds(
+    let target = if let Some((bounds_position, bounds_size)) =
+        active_bounds.filter(|_| keep_top.unwrap_or(false))
+    {
+        resize_from_top_in_bounds(
+            current.position,
+            expanded_size,
+            bounds_position,
+            bounds_size,
+            safe_inset,
+            widget_window_size(MIN_EXPANDED_LOGICAL_HEIGHT, scale_factor, safe_inset),
+        )
+    } else {
+        let next_position = match (previous, active_bounds) {
+            (Some(geometry), Some((bounds_position, bounds_size)))
+                if geometry.user_moved_expanded =>
+            {
+                clamp_position_to_bounds(
+                    current.position,
+                    expanded_size,
+                    bounds_position,
+                    bounds_size,
+                    safe_inset as i32,
+                )
+            }
+            (Some(geometry), Some(_)) => {
+                let monitor = monitor
+                    .as_ref()
+                    .ok_or_else(|| "widget monitor missing".to_string())?;
+                expanded_position(
+                    geometry.collapsed_rect,
+                    expanded_size,
+                    geometry.dock,
+                    geometry.compact_mode,
+                    monitor,
+                    work_area,
+                    safe_inset as i32,
+                )
+            }
+            (_, Some((bounds_position, bounds_size))) => clamp_position_to_bounds(
                 current.position,
                 expanded_size,
                 bounds_position,
                 bounds_size,
                 safe_inset as i32,
-            )
+            ),
+            (_, None) => current.position,
+        };
+        WidgetRect {
+            position: next_position,
+            size: expanded_size,
         }
-        (Some(geometry), Some(_)) => {
-            let monitor = monitor
-                .as_ref()
-                .ok_or_else(|| "widget monitor missing".to_string())?;
-            expanded_position(
-                geometry.collapsed_rect,
-                expanded_size,
-                geometry.dock,
-                geometry.compact_mode,
-                monitor,
-                work_area,
-                safe_inset as i32,
-            )
-        }
-        (_, Some((bounds_position, bounds_size))) => clamp_position_to_bounds(
-            current.position,
-            expanded_size,
-            bounds_position,
-            bounds_size,
-            safe_inset as i32,
-        ),
-        (_, None) => current.position,
-    };
-
-    let target = WidgetRect {
-        position: next_position,
-        size: expanded_size,
     };
     if compositor_motion.unwrap_or(false) {
         apply_compositor_bounds(&window, target)?;
@@ -1871,10 +2230,7 @@ fn resize_expanded_widget(
     }
     if let (Ok(mut value), Some(mut geometry)) = (state.geometry.lock(), previous) {
         geometry.mode = WidgetMode::Expanded;
-        geometry.expanded_rect = Some(WidgetRect {
-            position: next_position,
-            size: expanded_size,
-        });
+        geometry.expanded_rect = Some(target);
         *value = Some(geometry);
     }
     Ok(())
@@ -2112,60 +2468,6 @@ mod geometry_tests {
         );
     }
     use super::*;
-
-    #[test]
-    fn plus_tray_uses_five_hour_primary_and_retains_unknown_instead_of_weekly_fallback() {
-        let mut snapshot = ProviderSnapshot::failure("ok", "");
-        snapshot.plan = Some("PLUS".into());
-        snapshot.weekly_window = Some(UsageWindow {
-            remaining_percent: 97.0,
-            resets_at: None,
-            window_seconds: 604800,
-        });
-        snapshot.short_window = Some(UsageWindow {
-            remaining_percent: 42.0,
-            resets_at: None,
-            window_seconds: 18000,
-        });
-        assert_eq!(
-            quota_tray_values(&snapshot),
-            (Some(97.0), Some(Some(42.0)), Some(42.0))
-        );
-        snapshot.short_window.as_mut().unwrap().remaining_percent = 0.0;
-        assert_eq!(quota_tray_values(&snapshot).2, Some(0.0));
-        snapshot.short_window.as_mut().unwrap().remaining_percent = f64::NAN;
-        assert_eq!(quota_tray_values(&snapshot), (Some(97.0), Some(None), None));
-        snapshot.short_window = None;
-        assert_eq!(quota_tray_values(&snapshot), (Some(97.0), Some(None), None));
-        for plan in ["PRO", "PROLITE", "business", ""] {
-            snapshot.plan = Some(plan.into());
-            assert_eq!(quota_tray_values(&snapshot), (Some(97.0), None, Some(97.0)));
-        }
-    }
-
-    #[test]
-    fn plus_tray_adds_a_real_inner_ring() {
-        let single = quota_tray_ring(Some(97.0), None);
-        let dual = quota_tray_ring(Some(97.0), Some(Some(42.0)));
-        assert_eq!(single.width(), dual.width());
-        assert!(
-            dual.rgba().chunks(4).filter(|p| p[3] > 0).count()
-                > single.rgba().chunks(4).filter(|p| p[3] > 0).count()
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_tray_has_visible_color_and_transparent_corners() {
-        let icon = quota_tray_ring(Some(100.0), Some(Some(42.0)));
-        assert_eq!(icon.rgba()[3], 0);
-        assert!(icon
-            .rgba()
-            .chunks(4)
-            .any(|p| p[3] == 255 && p[..3] == [57, 122, 224]));
-        let unknown = quota_tray_ring(None, Some(None));
-        assert!(unknown.rgba().chunks(4).all(|p| p[3] <= 65));
-    }
 
     fn rect(x: i32, y: i32, size: u32) -> WidgetRect {
         WidgetRect {
@@ -2417,6 +2719,25 @@ mod geometry_tests {
         assert_eq!(bounded_expanded_height(213.4, 1.0, 4, Some(1040)), 221);
         assert_eq!(bounded_expanded_height(40.0, 1.0, 4, Some(1040)), 168);
         assert_eq!(bounded_expanded_height(2_000.0, 1.0, 4, Some(700)), 708);
+    }
+
+    #[test]
+    fn open_cockpit_keeps_its_header_fixed_when_tall_content_hits_the_bottom() {
+        let position = PhysicalPosition::new(1440, 740);
+        let bounds_position = PhysicalPosition::new(0, 20);
+        let bounds_size = PhysicalSize::new(1920, 1020);
+        for (requested, visible) in [(650, 304), (195, 195), (480, 304)] {
+            let target = resize_from_top_in_bounds(
+                position,
+                PhysicalSize::new(528, requested),
+                bounds_position,
+                bounds_size,
+                4,
+                168,
+            );
+            assert_eq!(target.position, position);
+            assert_eq!(target.size.height, visible);
+        }
     }
 
     #[test]
@@ -2710,12 +3031,89 @@ mod geometry_tests {
         );
         assert_eq!(position, PhysicalPosition::new(1596, 716));
     }
+
+    #[test]
+    fn double_row_capsules_and_all_four_corners_resolve_cleanly() {
+        let inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, 2.0);
+        let size = collapsed_physical_size_with_dimensions(
+            CompactMode::Capsule,
+            2.0,
+            inset,
+            Some(148.0),
+            Some(79.0),
+        );
+        assert_eq!(size, PhysicalSize::new(312, 174));
+        let sample = WidgetRect {
+            position: PhysicalPosition::new(0, 0),
+            size,
+        };
+        assert_eq!(infer_compact_mode(sample, 2.0, inset), CompactMode::Capsule);
+        assert_eq!(
+            infer_mode(sample, CompactMode::Capsule, 2.0, inset),
+            WidgetMode::Collapsed
+        );
+
+        let origin = PhysicalPosition::new(0, 25);
+        let bounds = PhysicalSize::new(1512, 815);
+        for (x, y, dock, expected) in [
+            (
+                1400,
+                750,
+                DockState {
+                    horizontal: Some(HorizontalDock::Right),
+                    vertical: Some(VerticalDock::Bottom),
+                },
+                "right-bottom",
+            ),
+            (
+                0,
+                750,
+                DockState {
+                    horizontal: Some(HorizontalDock::Left),
+                    vertical: Some(VerticalDock::Bottom),
+                },
+                "left-bottom",
+            ),
+            (
+                1400,
+                25,
+                DockState {
+                    horizontal: Some(HorizontalDock::Right),
+                    vertical: Some(VerticalDock::Top),
+                },
+                "right-top",
+            ),
+            (
+                0,
+                25,
+                DockState {
+                    horizontal: Some(HorizontalDock::Left),
+                    vertical: Some(VerticalDock::Top),
+                },
+                "left-top",
+            ),
+        ] {
+            let corner_rect = WidgetRect {
+                position: PhysicalPosition::new(x, y),
+                size: PhysicalSize::new(200, 160),
+            };
+            assert_eq!(
+                compute_capsule_corner(corner_rect, dock, origin, bounds),
+                expected
+            );
+            assert_eq!(
+                compute_capsule_corner(corner_rect, DockState::default(), origin, bounds),
+                expected
+            );
+        }
+    }
 }
 
 #[tauri::command(async)]
 fn collapse_widget(
     compact_layout: Option<String>,
     compact_width: Option<f64>,
+    compact_height: Option<f64>,
     compositor_motion: Option<bool>,
     preview: Option<bool>,
     app: AppHandle,
@@ -2743,8 +3141,13 @@ fn collapse_widget(
     let (monitor, scale_factor) = monitor_and_scale(&window)?;
     let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
     let compact_mode = compact_mode(compact_layout.as_deref());
-    let collapsed_size =
-        collapsed_physical_size_with_width(compact_mode, scale_factor, safe_inset, compact_width);
+    let collapsed_size = collapsed_physical_size_with_dimensions(
+        compact_mode,
+        scale_factor,
+        safe_inset,
+        compact_width,
+        compact_height,
+    );
     let Some(monitor) = monitor else {
         return finish_widget_motion(
             &window,
@@ -2829,6 +3232,8 @@ fn collapse_widget(
             user_moved_expanded: false,
         });
     }
+    let corner = compute_capsule_corner(collapsed_rect, dock, *monitor.position(), *monitor.size());
+    let _ = app.emit_to("widget", "widget-corner-changed", corner);
     finish_widget_motion(
         &window,
         current,
@@ -2844,33 +3249,100 @@ fn collapse_widget(
 }
 
 #[tauri::command(async)]
-fn begin_widget_drag(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+fn begin_widget_drag(
+    pointer_driven: Option<bool>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     // Finish the active shape transition before handing the frame to a drag.
     // Cancelling here would leave a mid-sized window with a settled React surface.
-    let _window_geometry_guard = state
+    let window_geometry_guard = state
         .window_geometry_lock
         .lock()
         .map_err(|_| "window geometry unavailable".to_string())?;
     let window = app
         .get_webview_window("widget")
         .ok_or_else(|| "widget window missing".to_string())?;
-    let current = current_widget_rect(&window)?;
-    let (_, scale_factor) = monitor_and_scale(&window)?;
-    let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
-    let mode = state
+    let cached_mode = state
         .geometry
         .lock()
         .ok()
         .and_then(|value| *value)
-        .map(|value| value.mode)
-        .unwrap_or_else(|| {
-            let compact_mode = infer_compact_mode(current, scale_factor, safe_inset);
-            infer_mode(current, compact_mode, scale_factor, safe_inset)
-        });
+        .map(|value| value.mode);
+    let mode = if let Some(mode) = cached_mode {
+        mode
+    } else {
+        let current = current_widget_rect(&window)?;
+        let (_, scale_factor) = monitor_and_scale(&window)?;
+        let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
+        let compact_mode = infer_compact_mode(current, scale_factor, safe_inset);
+        infer_mode(current, compact_mode, scale_factor, safe_inset)
+    };
+    #[cfg(target_os = "macos")]
+    if pointer_driven.unwrap_or(false) {
+        let frame = read_macos_window_frame(&window)?;
+        *state
+            .drag_origin
+            .lock()
+            .map_err(|_| "widget drag unavailable")? = Some(frame);
+    }
     if let Ok(mut drag_mode) = state.drag_mode.lock() {
         *drag_mode = Some(mode);
     }
+    drop(window_geometry_guard);
+    if pointer_driven.unwrap_or(false) {
+        return Ok(());
+    }
+    if let Err(error) = window.start_dragging() {
+        if let Ok(mut drag_mode) = state.drag_mode.lock() {
+            *drag_mode = None;
+        }
+        return Err(error.to_string());
+    }
     Ok(())
+}
+
+#[tauri::command(async)]
+fn move_widget_drag(
+    dx: f64,
+    dy: f64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let origin = *state
+            .drag_origin
+            .lock()
+            .map_err(|_| "widget drag unavailable")?;
+        let Some(mut frame) = origin else {
+            return Ok(());
+        };
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err("invalid widget drag position".into());
+        }
+        frame.origin.x += dx;
+        frame.origin.y -= dy;
+        let window = app
+            .get_webview_window("widget")
+            .ok_or("widget window missing")?;
+        set_macos_window_frame(&window, frame)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (dx, dy, app, state);
+    Ok(())
+}
+
+#[tauri::command]
+fn is_widget_drag_button_pressed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        objc2_app_kit::NSEvent::pressedMouseButtons() & 1 != 0
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
 }
 
 #[tauri::command(async)]
@@ -2886,6 +3358,10 @@ fn finish_widget_drag(
     let window = app
         .get_webview_window("widget")
         .ok_or_else(|| "widget window missing".to_string())?;
+    #[cfg(target_os = "macos")]
+    if let Ok(mut origin) = state.drag_origin.lock() {
+        *origin = None;
+    }
     let current = current_widget_rect(&window)?;
     let started_mode = state
         .drag_mode
@@ -2963,9 +3439,11 @@ fn finish_widget_drag(
                     dock,
                 )
             };
-            window
-                .set_position(collapsed_rect.position)
-                .map_err(|_| "failed to position widget".to_string())?;
+            if collapsed_rect.position != current.position {
+                window
+                    .set_position(collapsed_rect.position)
+                    .map_err(|_| "failed to position widget".to_string())?;
+            }
             if let Ok(mut geometry) = state.geometry.lock() {
                 *geometry = Some(WidgetGeometryState {
                     mode: WidgetMode::Collapsed,
@@ -2976,6 +3454,8 @@ fn finish_widget_drag(
                     user_moved_expanded: false,
                 });
             }
+            let corner = compute_capsule_corner(collapsed_rect, dock, bounds_position, bounds_size);
+            let _ = app.emit_to("widget", "widget-corner-changed", corner);
         }
         WidgetMode::Expanded => {
             let current_position = clamp_position_to_bounds(
@@ -3114,31 +3594,23 @@ fn set_widget_always_on_top(
 
 // macOS uses a template foreground; Windows and Linux need a visible color on taskbar/panel themes.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
-fn quota_tray_ring(
-    remaining: Option<f64>,
-    short: Option<Option<f64>>,
-) -> tauri::image::Image<'static> {
+fn quota_tray_ring(remaining: Option<f64>) -> tauri::image::Image<'static> {
     let size = 36usize;
     let mut rgba = vec![0u8; size * size * 4];
+    let fraction = remaining.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0;
     for y in 0..size {
         for x in 0..size {
             let dx = x as f64 + 0.5 - 18.0;
             let dy = y as f64 + 0.5 - 18.0;
             let radius = dx.hypot(dy);
+            let coverage = (1.0 - ((radius - 13.5).abs() - 1.0).max(0.0)).clamp(0.0, 1.0);
             let angle = (dx.atan2(-dy) + std::f64::consts::TAU) % std::f64::consts::TAU;
-            let rings = [(13.5, remaining), (8.5, short.flatten())];
-            let mut alpha: f64 = 0.0;
-            for (ring_radius, value) in rings.iter().take(if short.is_some() { 2 } else { 1 }) {
-                let coverage =
-                    (1.0 - ((radius - ring_radius).abs() - 1.0).max(0.0)).clamp(0.0, 1.0);
-                let fraction = value.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0;
-                let opacity = if angle < fraction * std::f64::consts::TAU {
+            let alpha = coverage
+                * if angle < fraction * std::f64::consts::TAU {
                     255.0
                 } else {
                     65.0
                 };
-                alpha = alpha.max(coverage * opacity);
-            }
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             rgba[(y * size + x) * 4..(y * size + x) * 4 + 3].copy_from_slice(&[57, 122, 224]);
             rgba[(y * size + x) * 4 + 3] = alpha as u8;
@@ -3147,88 +3619,15 @@ fn quota_tray_ring(
     tauri::image::Image::new_owned(rgba, size as u32, size as u32)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
-fn quota_tray_values(
-    snapshot: &ProviderSnapshot,
-) -> (Option<f64>, Option<Option<f64>>, Option<f64>) {
-    let plan = snapshot
-        .plan
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    let plus = snapshot.provider == "codex"
-        && matches!(
-            plan.as_str(),
-            "plus" | "chatgpt plus" | "chatgpt_plus" | "chatgpt-plus"
-        );
-    let remaining = |window: &UsageWindow| {
-        window
-            .remaining_percent
-            .is_finite()
-            .then(|| window.remaining_percent.clamp(0.0, 100.0))
-    };
-    let weekly = snapshot.weekly_window.as_ref().and_then(remaining);
-    let short = snapshot
-        .short_window
-        .as_ref()
-        .filter(|window| window.window_seconds == 18_000)
-        .and_then(remaining);
-    (
-        weekly,
-        plus.then_some(short),
-        if plus { short } else { weekly },
-    )
-}
-
-fn update_quota_tray(app: &AppHandle, values: &[ProviderSnapshot]) {
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    if let Some(tray) = app.tray_by_id("main") {
-        let (remaining, short, primary) = values
-            .iter()
-            .find(|value| value.provider == "codex")
-            .map(quota_tray_values)
-            .unwrap_or((None, None, None));
-        let title = primary
-            .map(|value| format!("{value:.0}%"))
-            .unwrap_or_else(|| "—".into());
-        let _ = tray.set_icon(Some(quota_tray_ring(remaining, short)));
-        #[cfg(target_os = "macos")]
-        {
-            let _ = tray.set_icon_as_template(true);
-            let _ = tray.set_title(Some(&title));
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let _ = tray.set_title(Some(&title));
-        }
-        let tooltip = if short.is_some() {
-            let weekly = remaining
-                .map(|value| format!("{value:.0}%"))
-                .unwrap_or_else(|| "—".into());
-            format!("Codex · 5h 剩余 {title} · 本周剩余 {weekly} · 内环 5h / 外环周")
-        } else {
-            format!("Codex · 本周剩余 {title}")
-        };
-        let _ = tray.set_tooltip(Some(&tooltip));
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    let _ = (app, values);
-}
-
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show / Hide", true, None::<&str>)?;
+    let usage = MenuItem::with_id(app, "usage", "Usage", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show / Hide Widget", true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
     let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
     let unlock = MenuItem::with_id(app, "unlock", "Unlock widget", true, None::<&str>)?;
-    let pin = MenuItem::with_id(app, "pin", "Pin / Unpin Codex", true, None::<&str>)?;
-    let language = MenuItem::with_id(
-        app,
-        "language",
-        "Switch Language / 切换语言",
-        true,
-        None::<&str>,
-    )?;
+    let pin = MenuItem::with_id(app, "pin", "Toggle Codex Pin", true, None::<&str>)?;
+    let language = MenuItem::with_id(app, "language", "切换到中文", true, None::<&str>)?;
     let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
     let autostart = CheckMenuItem::with_id(
         app,
@@ -3247,7 +3646,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Codex Cockpit", true, None::<&str>)?;
+    let widget = Submenu::with_items(app, "Floating Widget", true, &[&show, &unlock, &pin])?;
+    let more = Submenu::with_items(app, "More", true, &[&update, &autostart, &language])?;
     let initial_language = app
         .try_state::<AppState>()
         .and_then(|state| {
@@ -3259,44 +3660,41 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         })
         .unwrap_or_else(|| "zh-CN".into());
     if initial_language != "en" {
-        let _ = show.set_text("显示 / 隐藏");
+        let _ = usage.set_text("用量统计");
+        let _ = settings.set_text("设置");
+        let _ = widget.set_text("悬浮窗");
+        let _ = more.set_text("更多");
+        let _ = show.set_text("显示 / 隐藏悬浮窗");
         let _ = refresh.set_text("立即刷新");
         let _ = update.set_text("检查更新");
         let _ = unlock.set_text("解锁悬浮窗");
-        let _ = pin.set_text("固定 / 取消固定 Codex");
+        let _ = pin.set_text("切换 Codex 固定状态");
         let _ = language.set_text("Switch to English");
         let _ = autostart.set_text("开机启动");
-        let _ = quit.set_text("退出");
+        let _ = quit.set_text("退出驾驶舱");
     }
-    #[cfg(debug_assertions)]
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show,
-            &refresh,
-            &update,
-            &unlock,
-            &pin,
-            &language,
-            &autostart,
-            &test_short_window,
-            &quit,
-        ],
-    )?;
-    #[cfg(not(debug_assertions))]
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show, &refresh, &update, &unlock, &pin, &language, &autostart, &quit,
-        ],
-    )?;
+    let top_separator = PredefinedMenuItem::separator(app)?;
+    let quit_separator = PredefinedMenuItem::separator(app)?;
+    let items: &[&dyn IsMenuItem<_>] = &[
+        &usage,
+        &settings,
+        &refresh,
+        &top_separator,
+        &widget,
+        &more,
+        #[cfg(debug_assertions)]
+        &test_short_window,
+        &quit_separator,
+        &quit,
+    ];
+    let menu = Menu::with_items(app, items)?;
     let mut builder = TrayIconBuilder::with_id("main")
         .menu(&menu)
         .tooltip("Codex 驾驶舱");
     #[cfg(target_os = "macos")]
     {
         builder = builder
-            .icon(quota_tray_ring(None, None))
+            .icon(quota_tray_ring(None))
             .icon_as_template(true)
             .title("—");
     }
@@ -3320,6 +3718,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let test_short_window_menu = test_short_window.clone();
     builder
         .on_menu_event(move |app, event| match event.id.as_ref() {
+            page @ ("usage" | "settings") => {
+                if let Some(window) = app.get_webview_window("widget") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = app.emit_to("widget", "control-center-requested", page);
+                }
+            }
             "show" => {
                 if let Some(window) = app.get_webview_window("widget") {
                     if window.is_visible().unwrap_or(false) {
@@ -3382,10 +3787,18 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                         *prefs = normalized.clone();
                         let _ = persist_preferences(&state.preferences_path, &normalized);
                         let english = normalized.language == "en";
-                        let _ = show_menu.set_text(if english {
-                            "Show / Hide"
+                        let _ = usage.set_text(if english { "Usage" } else { "用量统计" });
+                        let _ = settings.set_text(if english { "Settings" } else { "设置" });
+                        let _ = widget.set_text(if english {
+                            "Floating Widget"
                         } else {
-                            "显示 / 隐藏"
+                            "悬浮窗"
+                        });
+                        let _ = more.set_text(if english { "More" } else { "更多" });
+                        let _ = show_menu.set_text(if english {
+                            "Show / Hide Widget"
+                        } else {
+                            "显示 / 隐藏悬浮窗"
                         });
                         let _ = refresh_menu.set_text(if english {
                             "Refresh now"
@@ -3403,9 +3816,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                             "解锁悬浮窗"
                         });
                         let _ = pin_menu.set_text(if english {
-                            "Pin / Unpin Codex"
+                            "Toggle Codex Pin"
                         } else {
-                            "固定 / 取消固定 Codex"
+                            "切换 Codex 固定状态"
                         });
                         let _ = language_menu.set_text(if english {
                             "切换到中文"
@@ -3417,7 +3830,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                         } else {
                             "开机启动"
                         });
-                        let _ = quit_menu.set_text(if english { "Quit" } else { "退出" });
+                        let _ = quit_menu.set_text(if english {
+                            "Quit Codex Cockpit"
+                        } else {
+                            "退出驾驶舱"
+                        });
                         let _ = app.emit_to("widget", "preferences-changed", normalized);
                     }
                 }
@@ -3445,25 +3862,32 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let isolated_profile = std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute());
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("widget") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
-        ))
-        .plugin(WindowStateBuilder::default().build())
-        .setup(|app| {
-            let data_dir = app.path().app_config_dir()?;
+        ));
+    if !isolated_profile {
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+                if let Some(window) = app.get_webview_window("widget") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }))
+            .plugin(WindowStateBuilder::default().build());
+    }
+    let app = builder
+        .setup(move |app| {
+            let data_dir = app_config_dir(app.handle())?;
             // Local statistics never require joining a cloud space first.
             let _ = local_usage::initialize(&data_dir);
             let preferences_path = data_dir.join("preferences.json");
@@ -3491,6 +3915,8 @@ pub fn run() {
                 control_center_owner: Mutex::new(false),
                 geometry: Mutex::new(None),
                 drag_mode: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                drag_origin: Mutex::new(None),
             });
             usage_sync::start(app.handle().clone());
             if setup_tray(app).is_err() {
@@ -3534,12 +3960,59 @@ pub fn run() {
             }
             let presence_handle = app.handle().clone();
             let initial_always_on_top = preferences.always_on_top;
+            let preview_corner = isolated_profile
+                .then(|| std::env::var("CODEX_COCKPIT_PREVIEW_CORNER").ok())
+                .flatten();
+            let preview_expanded = isolated_profile
+                && std::env::var("CODEX_COCKPIT_PREVIEW_EXPANDED")
+                    .ok()
+                    .is_some_and(|v| v == "1");
+            let preview_width = isolated_profile
+                .then(|| {
+                    std::env::var("CODEX_COCKPIT_PREVIEW_WIDTH")
+                        .ok()
+                        .and_then(|v| v.parse::<f64>().ok())
+                })
+                .flatten();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(250)).await;
                 if let Some(window) = presence_handle.get_webview_window("widget") {
                     if let Err(error) = apply_widget_window_presence(&window, initial_always_on_top)
                     {
                         eprintln!("deferred widget presence policy failed: {error}");
+                    }
+                    if preview_expanded {
+                        tokio::time::sleep(Duration::from_millis(350)).await;
+                        let (_, scale_factor) = monitor_and_scale(&window).unwrap_or((None, 2.0));
+                        let safe_inset = logical_to_physical(EDGE_SAFE_INSET_LOGICAL, scale_factor);
+                        let width = preview_width
+                            .unwrap_or(EXPANDED_LOGICAL_WIDTH)
+                            .clamp(300.0, 700.0);
+                        let size = PhysicalSize::new(
+                            widget_window_size(width, scale_factor, safe_inset),
+                            widget_window_size(640.0, scale_factor, safe_inset),
+                        );
+                        let _ = window.set_size(size);
+                        if let Ok((Some(monitor), _)) = monitor_and_scale(&window) {
+                            let pos = centered_dialog_position_in_bounds(
+                                size,
+                                *monitor.position(),
+                                *monitor.size(),
+                                safe_inset as i32,
+                            );
+                            let _ = window.set_position(pos);
+                        }
+                        let _ = presence_handle.emit_to("widget", "preview-expand", ());
+                    } else if let Some(corner) = preview_corner {
+                        tokio::time::sleep(Duration::from_millis(350)).await;
+                        if let Some(state) = presence_handle.try_state::<AppState>() {
+                            let _ = snap_widget_corner_for_testing(
+                                corner,
+                                None,
+                                presence_handle.clone(),
+                                state,
+                            );
+                        }
                     }
                 }
             });
@@ -3551,12 +4024,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_icon::set_app_icon_theme,
+            set_capsule_glass,
             local_usage::get_local_usage_source,
             local_usage::save_local_usage_source,
             app_updater::check_cockpit_update,
             tokei_usage::get_tokei_usage,
             usage_sync::get_usage_sync_status,
             cloud_sync::get_cloud_sync_status,
+            cloud_sync::get_shared_claude_quota,
+            cloud_sync::get_shared_gemini_quota,
+            provider_usage_sync::get_shared_provider_usage,
             cloud_sync::connect_cloud_sync,
             cloud_sync::create_cloud_invite,
             cloud_sync::revoke_cloud_device,
@@ -3581,6 +4058,10 @@ pub fn run() {
             get_claude_quota,
             login_claude_code,
             get_claude_reset_forecast,
+            get_gemini_quota,
+            quota_tray::set_menu_bar_quotas,
+            get_gemini_usage,
+            report_preview_metrics,
             get_volcengine_diagnostics,
             reconnect_volcengine,
             expand_widget,
@@ -3590,7 +4071,11 @@ pub fn run() {
             set_control_center_calendar_open,
             close_control_center,
             collapse_widget,
+            get_widget_corner,
+            snap_widget_corner_for_testing,
             begin_widget_drag,
+            move_widget_drag,
+            is_widget_drag_button_pressed,
             finish_widget_drag,
             get_preferences,
             set_preferences,

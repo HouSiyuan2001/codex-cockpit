@@ -24,7 +24,7 @@ function addDay(target: ModelUsage, day: ClaudeDailyUsage): void {
   if (unpriced) target.costIncomplete = true;
 }
 
-export function claudeUsageDevice(report: ClaudeUsageReport, stale = false): TokeiDevice {
+export function claudeUsageDevice(report: ClaudeUsageReport, stale = false, provider: "claude" | "gemini" = "claude"): TokeiDevice {
   const daily: Record<string, DailyModelUsage> = {};
   for (const day of report.days) {
     const total = emptyUsage("claude", "Claude");
@@ -36,14 +36,10 @@ export function claudeUsageDevice(report: ClaudeUsageReport, stale = false): Tok
     });
     daily[day.localDate] = { ...total, models };
   }
-  return { id: "claude-local", updatedAt: report.observedAt, stale, daily, ranges: {} };
+  return { id: `${provider}-local`, updatedAt: report.observedAt, stale, daily, ranges: {} };
 }
 
-export function claudeTaskName(row: Pick<ClaudeModelUsage, "id" | "name">): string {
-  return row.name.trim() || `Claude ${row.id.slice(0, 8)}`;
-}
-
-export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeriod, view: ClaudeUsageView, now = new Date(), range: { start: string; end: string } | null = null): { summary: ModelUsage; rows: ModelUsage[]; details: Record<string, string>; projects: Record<string, string> } {
+export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeriod, view: ClaudeUsageView, now = new Date(), range: { start: string; end: string } | null = null, untitledTaskName = "Untitled task"): { summary: ModelUsage; rows: ModelUsage[]; details: Record<string, string>; projects: Record<string, string> } {
   const today = localDateKey(now);
   const start = range?.start ?? periodStart(period, now);
   const end = range && range.end < today ? range.end : today;
@@ -56,12 +52,14 @@ export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeri
     addDay(summary, day);
     const source = view === "tasks" ? day.tasks ?? [] : view === "projects" ? day.projects ?? [] : day.models;
     for (const item of source) {
-      const row = rows.get(item.id) ?? emptyUsage(item.id, view === "tasks" ? claudeTaskName(item) : item.name);
+      const row = rows.get(item.id) ?? emptyUsage(item.id, view === "tasks" ? (item.name.trim() || untitledTaskName) : item.name);
       add(row, item);
       rows.set(item.id, row);
       if (view === "tasks") {
-        details[item.id] = [item.detail, item.id.slice(0, 8)].filter(Boolean).join(" · ");
-        if (item.detail) projects[item.id] = item.detail;
+        if (item.detail) {
+          details[item.id] = item.detail;
+          projects[item.id] = item.detail;
+        }
       }
     }
   }
@@ -69,13 +67,13 @@ export function aggregateClaudeRows(report: ClaudeUsageReport, period: UsagePeri
 }
 
 /** A Claude session shaped like a Codex task row, so both rank in one list. */
-export function claudeTaskAsCodexTask(row: ModelUsage, projectName: string | undefined): AggregatedTaskUsage {
-  const id = `claude:${row.id}`;
+export function claudeTaskAsCodexTask(row: ModelUsage, projectName: string | undefined, provider: "claude" | "gemini" = "claude"): AggregatedTaskUsage {
+  const id = `${provider}:${row.id}`;
   const detail = { ...row, id, knownCostUsd: row.estimatedCostUsd, relation: "root" as const, models: [] };
-  return { ...row, id, rawName: row.name, knownCostUsd: row.estimatedCostUsd, projectName: ["Claude", projectName].filter(Boolean).join(" · "), relation: "root", self: detail, children: [] };
+  return { ...row, id, rawName: row.name, knownCostUsd: row.estimatedCostUsd, projectName, sourceProvider: provider === "gemini" ? "Gemini" : "Claude", relation: "root", self: detail, children: [] };
 }
 
-/** Adds Claude's metrics to a Codex total; an unknown cost on either side stays unknown. */
+/** Adds local provider metrics to a Codex total; unknown costs stay unknown. */
 export function addClaudeMetrics<T extends UsageMetrics>(base: T, claude: UsageMetrics | null): T {
   if (!claude || (claude.totalTokens === 0 && claude.estimatedCostUsd === null)) return base;
   return {
@@ -85,5 +83,42 @@ export function addClaudeMetrics<T extends UsageMetrics>(base: T, claude: UsageM
     outputTokens: base.outputTokens + claude.outputTokens,
     totalTokens: base.totalTokens + claude.totalTokens,
     estimatedCostUsd: base.estimatedCostUsd === null || claude.estimatedCostUsd === null ? null : base.estimatedCostUsd + claude.estimatedCostUsd,
+  };
+}
+
+type ProviderUsageProjection = Pick<ClaudeUsageReport, "observedAt" | "latestActivityAt" | "days">;
+export interface SharedProviderUsage {
+  deviceId: string;
+  deviceName: string;
+  usage: Partial<Record<"claude" | "gemini", ProviderUsageProjection>>;
+}
+
+export function combineProviderUsage(local: ClaudeUsageReport | null, peers: ProviderUsageProjection[]): ClaudeUsageReport | null {
+  if (!peers.length) return local;
+  const reports = local?.status === "ok" ? [local, ...peers] : peers;
+  const days = new Map<string, ClaudeDailyUsage>();
+  for (const report of reports) {
+    for (const day of report.days) {
+      const first = days.get(day.localDate);
+      days.set(day.localDate, first ? {
+        ...first,
+        requests: first.requests + day.requests,
+        inputTokens: first.inputTokens + day.inputTokens,
+        cacheWriteTokens: first.cacheWriteTokens + day.cacheWriteTokens,
+        cacheReadTokens: first.cacheReadTokens + day.cacheReadTokens,
+        outputTokens: first.outputTokens + day.outputTokens,
+        costUsd: first.costUsd + day.costUsd,
+        unpricedRequests: first.unpricedRequests + day.unpricedRequests,
+        models: [...first.models, ...day.models],
+      } : day);
+    }
+  }
+  return {
+    status: "ok",
+    observedAt: reports.map(report => report.observedAt).sort().at(-1) ?? "",
+    latestActivityAt: reports.flatMap(report => report.latestActivityAt ?? []).sort().at(-1) ?? null,
+    priceCheckedAt: local?.priceCheckedAt ?? "",
+    prices: local?.prices ?? [],
+    days: [...days.values()].sort((a, b) => a.localDate.localeCompare(b.localDate)),
   };
 }

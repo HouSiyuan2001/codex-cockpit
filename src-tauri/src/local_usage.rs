@@ -8,7 +8,6 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::Mutex,
 };
-use tauri::Manager;
 
 const CONFIG: &str = "local-usage.json";
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
@@ -232,9 +231,7 @@ pub(crate) fn initialize(data: &Path) -> Result<(), String> {
 #[tauri::command]
 pub fn get_local_usage_source(app: tauri::AppHandle) -> Result<LocalSourceStatus, String> {
     status(
-        &app.path()
-            .app_config_dir()
-            .map_err(|_| "local_settings_unavailable")?,
+        &crate::app_config_dir(&app).map_err(|_| "local_settings_unavailable")?,
         &dirs::home_dir().ok_or("home_unavailable")?,
     )
 }
@@ -249,9 +246,7 @@ pub fn save_local_usage_source(
         .try_lock()
         .map_err(|_| "collector_busy")?;
     let next = save_source(
-        &app.path()
-            .app_config_dir()
-            .map_err(|_| "local_settings_unavailable")?,
+        &crate::app_config_dir(&app).map_err(|_| "local_settings_unavailable")?,
         &dirs::home_dir().ok_or("home_unavailable")?,
         directory,
         confirmed,

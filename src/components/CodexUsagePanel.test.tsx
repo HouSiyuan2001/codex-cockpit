@@ -6,6 +6,8 @@ import { aggregateGroupUsage, createUsagePreview } from "../lib/tokeiUsage";
 import { getProjectUsage, getTokeiUsage, saveTokeiGroups } from "../lib/tokeiBridge";
 import { localDateKey } from "../lib/usageDay";
 import { CodexUsagePanel } from "./CodexUsagePanel";
+import { ClaudeUsagePanel } from "./ClaudeUsagePanel";
+import type { SharedProviderUsage } from "../lib/claudeUsageRows";
 
 vi.mock("../lib/tokeiBridge", () => ({ getProjectUsage: vi.fn(), getTokeiUsage: vi.fn(), saveTokeiGroups: vi.fn() }));
 
@@ -68,7 +70,7 @@ describe("quiet Codex usage view", () => {
     const showHistory = await screen.findByRole("button", { name: "查看历史任务" });
     expect(screen.queryByText("Historical peer task")).not.toBeInTheDocument();
     fireEvent.click(showHistory);
-    expect(await screen.findByText("来自 Peer Mac")).toBeInTheDocument();
+    expect(await screen.findByText(/💻 Peer Mac/)).toBeInTheDocument();
     expect(screen.getByText("Historical peer task")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "统计时间" })).toHaveValue("all");
     expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("group:demo");
@@ -388,7 +390,7 @@ describe("quiet Codex usage view", () => {
       tasks: [{ ...source.tasks![0], name: "Remote task", projectName: undefined }],
     }] });
     render(<CodexUsagePanel zh />);
-    expect(await screen.findByText("来自 Fruit-Windows")).toBeInTheDocument();
+    expect(await screen.findByText(/💻 Fruit-Windows/)).toBeInTheDocument();
     expect(screen.queryByText("Local task")).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "任务用量占比" }).parentElement).toHaveTextContent("120万");
     fireEvent.click(screen.getByRole("button", { name: "切换为成本" }));
@@ -569,7 +571,7 @@ describe("quiet Codex usage view", () => {
     expect(getProjectUsage).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("combobox", { name: "查看方式" })).toHaveValue("tasks");
     expect(screen.getByText("Normal fork")).toBeInTheDocument();
-    expect(screen.getByText("P020 · 11111111 · 含 1 个子 Agent")).toBeInTheDocument();
+    expect(screen.getByText("🤖 Codex · P020 · 含 1 个子 Agent")).toBeInTheDocument();
     expect(screen.getByText("本机未归属 0 · 其他设备 0")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Local task"));
     expect(screen.getByText("子 Agent 合计")).toBeInTheDocument();
@@ -616,3 +618,58 @@ describe("quiet Codex usage view", () => {
     expect(screen.queryByText("选择一名组员，或到设置中分配设备。")).not.toBeInTheDocument();
   });
 });
+
+it("shows Gemini model usage from a peer in the same usage group", async () => {
+  const data = createUsagePreview();
+  data.groups[0].deviceIds.push("peer-pc");
+  data.groups.push({ id: "other", name: "Other", deviceIds: ["other-pc"] });
+  vi.mocked(getTokeiUsage).mockResolvedValue(data);
+  const sharedUsage = [
+    sharedGeminiUsage("peer-pc", "Peer PC", "Synced Carbon"),
+    sharedGeminiUsage("other-pc", "Other PC", "Other Gemini"),
+  ];
+  render(<CodexUsagePanel zh combined geminiEnabled sharedUsage={sharedUsage} />);
+  fireEvent.change(await screen.findByRole("combobox", { name: "查看方式" }), { target: { value: "models" } });
+  expect(await screen.findByText("Synced Carbon")).toBeVisible();
+  expect(screen.queryByText("Other Gemini")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "用量分组" }), { target: { value: "group:other" } });
+  expect(await screen.findByText("Other Gemini")).toBeVisible();
+  expect(screen.queryByText("Synced Carbon")).not.toBeInTheDocument();
+});
+
+it("opens a peer's Gemini model report including its estimated cost", async () => {
+  render(<ClaudeUsagePanel zh provider="gemini" sharedUsage={[sharedGeminiUsage("peer-pc", "Peer PC", "Synced Carbon")]} />);
+  const source = await screen.findByRole("combobox", { name: "用量分组" });
+  fireEvent.change(source, { target: { value: "device:peer-pc" } });
+  expect(await screen.findByText("Synced Carbon")).toBeVisible();
+  expect(screen.getByText("估算成本 $3.25")).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "查看方式" })).toHaveValue("models");
+});
+
+it.each(["claude", "gemini"] as const)("uses shared member groups and their colors in the %s usage ring", async (provider) => {
+  const data = createUsagePreview();
+  data.groups = [
+    { id: "first", name: "First member", deviceIds: ["peer-pc"] },
+    { id: "second", name: "Second member", deviceIds: ["other-pc"] },
+  ];
+  data.localGroupId = null;
+  const sharedUsage = [
+    sharedGeminiUsage("peer-pc", "Peer PC", "Synced Carbon"),
+    sharedGeminiUsage("other-pc", "Other PC", "Other Gemini"),
+  ].map(peer => ({ ...peer, usage: { [provider]: peer.usage.gemini } }));
+  render(<ClaudeUsagePanel zh provider={provider} memberUsage={data} sharedUsage={sharedUsage} personColors={{ first: "#3366aa", second: "#ee8844" }} />);
+  fireEvent.change(await screen.findByRole("combobox", { name: "查看方式" }), { target: { value: "users" } });
+  const ring = screen.getByRole("img", { name: "用户成本与用量占比" });
+  expect(ring.querySelector('circle[stroke="#3366aa"] title')?.textContent).toMatch(/^First member/);
+  expect(ring.querySelector('circle[stroke="#ee8844"] title')?.textContent).toMatch(/^Second member/);
+  expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("all");
+});
+
+function sharedGeminiUsage(deviceId: string, deviceName: string, name: string): SharedProviderUsage {
+  const now = new Date();
+  const metrics = { requests: 1, inputTokens: 1_000, cacheWriteTokens: 0, cacheReadTokens: 500, outputTokens: 100, costUsd: 3.25 };
+  return { deviceId, deviceName, usage: { gemini: {
+    observedAt: now.toISOString(), latestActivityAt: null,
+    days: [{ ...metrics, localDate: localDateKey(now), unpricedRequests: 0, models: [{ ...metrics, id: "gemini-4-carbon", name }] }],
+  } } };
+}

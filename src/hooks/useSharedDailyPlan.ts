@@ -3,7 +3,7 @@ import { isTauri } from "../lib/bridge";
 import type { SharedDailyPlan, SharedPlanBasis } from "../lib/sharedDailyPlan";
 type Change = { kind: "person" | "risk"; personId?: string; value: number | null; expectedRevision: number };
 interface Cache { plan: SharedDailyPlan | null; pending: Change[]; blocked?: boolean }
-export function useSharedDailyPlan(basis: SharedPlanBasis | null, initialRisk: number | null = null) {
+export function useSharedDailyPlan(basis: SharedPlanBasis | null, localManualRisk: number | null = null) {
   const [scope, setScope] = useState<{spaceId:string;deviceId:string} | null>(null);
   const [scopeReady, setScopeReady] = useState(() => !isTauri());
   const [cache, setCache] = useState<Cache>({plan:null,pending:[]});
@@ -28,7 +28,7 @@ export function useSharedDailyPlan(basis: SharedPlanBasis | null, initialRisk: n
     try {
       const {invoke}=await import("@tauri-apps/api/core");
       // Always fetch first. Failed/conflicting edits stay local until explicitly changed.
-      const response=await invoke<{plan:SharedDailyPlan}>("exchange_daily_plan",{body:{basis:b,spaceId:scope?.spaceId,initialRisk}});
+      const response=await invoke<{plan:SharedDailyPlan}>("exchange_daily_plan",{body:{basis:b,spaceId:scope?.spaceId}});
       if(activeKey.current!==target)return;
       let next={...latest.current.cache,plan:response.plan}; persist(next,target);
       if(!next.blocked && next.pending.length) {
@@ -41,7 +41,7 @@ export function useSharedDailyPlan(basis: SharedPlanBasis | null, initialRisk: n
     } catch(e) {
       if(activeKey.current===target){setError(true);if(String(e).includes("conflict"))persist({...latest.current.cache,blocked:true},target);}
     } finally {busy.current=false;}
-  },[key,persist,scope?.spaceId,initialRisk]);
+  },[key,persist,scope?.spaceId]);
   useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),15000);return()=>window.clearInterval(timer);},[refresh]);
   const change = useCallback((kind:Change["kind"], value:number|null, personId?:string)=>{
     if(!key || !latest.current.cache.plan){setError(true);return;}
@@ -55,7 +55,10 @@ export function useSharedDailyPlan(basis: SharedPlanBasis | null, initialRisk: n
   },[key,persist,refresh]);
   let plan=cache.plan;
   if(plan && plan.basis.localDate===basis?.localDate && plan.basis.resetsAt===basis.resetsAt){
-    plan={...plan,people:{...plan.people}};
+    // Older clients seeded revision zero with undated values. Only actual
+    // shared edits and today's local override can replace the automatic risk.
+    const risk = plan.risk.revision === 0 ? { value: localManualRisk, revision: 0 } : plan.risk;
+    plan={...plan,risk,people:{...plan.people}};
     for(const c of cache.pending)if(c.kind==="risk")plan.risk={value:c.value,revision:c.expectedRevision};else plan.people[c.personId!]={value:c.value,revision:c.expectedRevision};
   }else plan=null;
   return {plan,deviceId:scope?.deviceId??null,connected:!!scope,scopeReady,error,conflict:!!cache.blocked,pending:cache.pending.length>0,change};

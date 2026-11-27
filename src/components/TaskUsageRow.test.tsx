@@ -10,10 +10,12 @@ const detail: TaskUsageDetail = { id: "self", name: "Task", relation: "root", mo
 const task: AggregatedTaskUsage = { ...detail, rawName: "Task", self: detail, children: [{ ...detail, id: "child", relation: "subagent" }], costIncomplete: true };
 
 it("labels only remote tasks with their source machine", () => {
-  const { rerender } = render(<TaskUsageRow task={{ ...task, sourceDevice: "Fruit-Windows" }} max={100} color="blue" zh metric="tokens" total={100} />);
-  expect(screen.getByText("来自 Fruit-Windows")).toBeInTheDocument();
+  const { rerender } = render(<TaskUsageRow task={{ ...task, sourceDevice: "Fruit-Windows", sourceProvider: "Gemini", projectName: "Project" }} max={100} color="blue" zh metric="tokens" total={100} />);
+  expect(screen.getByText("🤖 Gemini · Project · 💻 Fruit-Windows · 含 1 个子 Agent")).toBeInTheDocument();
+  expect(screen.queryByText(/\bself\b/)).not.toBeInTheDocument();
   rerender(<TaskUsageRow task={task} max={100} color="blue" zh metric="tokens" total={100} />);
-  expect(screen.queryByText("来自 Fruit-Windows")).not.toBeInTheDocument();
+  expect(screen.queryByText(/💻 Fruit-Windows/)).not.toBeInTheDocument();
+  expect(screen.getByText(/🤖 Codex/)).toBeInTheDocument();
 });
 
 it("shows recorded tokens for unpriced task, self and subagent subtotal without inventing money", () => {
@@ -35,6 +37,6 @@ it("shows a readable device summary while task details load without exposing the
   const { container } = render(<TaskUsageRow task={placeholder} max={100} color="blue" zh metric="tokens" total={100} />);
   const summary = container.querySelector("summary")!;
   expect(summary).toHaveTextContent("设备用量汇总");
-  expect(summary).toHaveTextContent("来自 Work PC");
+  expect(summary).toHaveTextContent("💻 Work PC");
   expect(summary.textContent).not.toContain("tributed");
 });

@@ -1,24 +1,24 @@
+import { menuBarQuotas } from "./lib/menuBarQuota";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setAppIconTheme } from "./lib/appIcon";
 import { useSharedDailyPlan } from "./hooks/useSharedDailyPlan";
-import { readLegacyClaudeBaseline, useClaudeQuota, useClaudeUsage } from "./hooks/useClaudeUsage";
-import { useClaudeResets } from "./hooks/useClaudeResets";
+import { useClaudeQuota, useLocalProviderUsage, useSharedClaudeQuota } from "./hooks/useClaudeUsage";
+import { useGeminiQuota } from "./hooks/useGeminiQuota";
 import { buildClaudeCockpitView } from "./lib/claudeCockpit";
-import { buildClaudeComfortPrompt, buildClaudePlan, claudeQuotaDays, claudeResetWatch, EMPTY_CLAUDE_PLAN, observeClaudeQuota } from "./lib/claudePlan";
-import { claudeUsageDevice } from "./lib/claudeUsageRows";
+import { buildGeminiCockpitView, effectiveCockpitMode, enabledProviderFlags, geminiFiveHourUsedPercent, resolveCapsuleLayout } from "./lib/geminiCockpit";
 import { allocateSharedPlan, sharedRecommendation } from "./lib/sharedDailyPlan";
 import { closeControlCenterWindow, loginClaudeCode } from "./lib/bridge";
 import { buildDailyPersonCosts } from "./lib/dailyPersonCosts";
 import { mergeSyncedComfortFeedback } from "./lib/comfortSync";
 import { getSyncedComfortFeedback } from "./lib/usageSyncBridge";
-import { getPersonPlan, savePersonPlan, planPreferences, planDateKey, type PersonPlan } from "./lib/personPlanSync";
-import { aiCapsuleLogicalWidth, capsuleLogicalWidth, QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
+import { activeManualResetRisk, getPersonPlan, savePersonPlan, planPreferences, planDateKey, type PersonPlan } from "./lib/personPlanSync";
+import { QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
 import { isCodexPlus, fiveHourRemaining } from "./lib/plusQuota";
-import { ControlCenter } from "./components/ControlCenter";
+import { ControlCenter, type ControlCenterPage } from "./components/ControlCenter";
 import { InlineUpdate } from "./components/InlineUpdate";
 import { EMPTY_UPDATE_STATE } from "./components/UpdatePanel";
 import type { UpdateViewState } from "./components/UpdatePanel";
-import { createAutomaticBackup, exportAppData, fetchCodexResetForecast, fetchSnapshots, getAppDiagnostics, getAutostartEnabled, getPreferences, getRuntimeState, getVolcengineDiagnostics, importAppData, listenDesktopEvents, openControlCenterWindow, openExternalUrl, reconnectVolcengine, resizeWidgetToContent, restoreLatestBackup, sendDesktopNotification, setAlwaysOnTop, setAutostartEnabled, setWidgetExpanded, startDragging, updatePreferences, updateRuntimeState } from "./lib/bridge";
+import { createAutomaticBackup, exportAppData, fetchCodexResetForecast, fetchSnapshots, getAppDiagnostics, getAutostartEnabled, getPreferences, getRuntimeState, getVolcengineDiagnostics, getWidgetCorner, importAppData, isTauri, listenDesktopEvents, openControlCenterWindow, openExternalUrl, reconnectVolcengine, reportPreviewMetrics, resizeWidgetToContent, restoreLatestBackup, sendDesktopNotification, updateMenuBarQuotas, setAlwaysOnTop, setAutostartEnabled, setWidgetExpanded, startCapsulePointerDrag, startDragging, updatePreferences, updateRuntimeState } from "./lib/bridge";
 import { checkForAppUpdate, discardAppUpdate, downloadAppUpdate, installAppUpdate, openReleasePage } from "./lib/appUpdate";
 import type { AppUpdateInfo } from "./lib/appUpdate";
 import { copy, nextLanguage, normalizeLanguage } from "./lib/i18n";
@@ -44,11 +44,11 @@ import { useComfortUsage } from "./lib/useComfortUsage";
 import { loadStartupState } from "./lib/startup";
 import { measureSurfaceHeight } from "./lib/windowMetrics";
 import { localDateKey } from "./lib/usageDay";
-import { CLAUDE_RESETS_URL, CODEX_RESETS_URL } from "./lib/externalLinks";
+import { CODEX_RESETS_URL } from "./lib/externalLinks";
 import { useWebsiteResetProbability } from "./lib/useWebsiteResetProbability";
 import { activeResetWatch } from "./lib/resetWatch";
 import { buildMidnightQuotaPlan } from "./lib/midnightQuotaPlan";
-import type { AppDiagnostics, ClaudePlanState, ComfortCode, ComfortPrompt, ProviderId, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WidgetPreferences } from "./types";
+import type { AppDiagnostics, CapsuleCorner, ComfortCode, ComfortPrompt, ProviderId, ProviderSnapshot, ResetForecast, RuntimeState, VolcengineDiagnostics, WidgetPreferences } from "./types";
 
 const DEFAULT_PREFS = DEFAULT_WIDGET_PREFERENCES;
 
@@ -84,7 +84,9 @@ export default function App() {
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
-  const [compact, setCompact] = useState(true);
+  const [compact, setCompact] = useState(() => new URLSearchParams(window.location.search).get("expanded") !== "1");
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
   const [consumingProviders, setConsumingProviders] = useState<Set<string>>(() => new Set());
   const [claudeLogin, setClaudeLogin] = useState({ pending: false, error: null as string | null });
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -96,10 +98,10 @@ export default function App() {
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [controlOpen, setControlOpen] = useState(false);
+  const [controlPage, setControlPage] = useState<ControlCenterPage>("usage");
   const [runtimeState, setRuntimeState] = useState<RuntimeState>(EMPTY_RUNTIME_STATE);
   const [startupReady, setStartupReady] = useState(false);
   const [comfortPrompt, setComfortPrompt] = useState<ComfortPrompt | null>(null);
-  const [claudePrompt, setClaudePrompt] = useState<ComfortPrompt | null>(null);
   const [comfortSaving, setComfortSaving] = useState(false);
   const [comfortSaveError, setComfortSaveError] = useState<string | null>(null);
   const [comfortSyncError, setComfortSyncError] = useState(false);
@@ -109,6 +111,7 @@ export default function App() {
   const comfortPerson = comfortUsage?.groups.find(group => group.id === comfortPersonId);
   const [appDiagnostics, setAppDiagnostics] = useState<AppDiagnostics | null>(null);
   const [autostartEnabled, setAutostartState] = useState(false);
+  const [capsuleCorner, setCapsuleCorner] = useState<CapsuleCorner>("right-bottom");
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
   const [usageDay, setUsageDay] = useState(() => localDateKey(new Date()));
   const [planningNow, setPlanningNow] = useState(() => new Date());
@@ -135,9 +138,16 @@ export default function App() {
   const planSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const language = normalizeLanguage(preferences.language);
   const t = copy[language];
-  const claudeActive = startupReady && preferences.claudeEnabled;
-  const { report: claudeReport, refresh: refreshClaudeUsage } = useClaudeUsage(claudeActive && (preferences.cockpitMode !== "codex" || controlOpen));
+  const providerFlags = enabledProviderFlags(preferences);
+  const activeCockpitMode = effectiveCockpitMode(preferences);
+  const claudeActive = startupReady && providerFlags.claude;
+  const geminiActive = startupReady && providerFlags.gemini;
+  const { refresh: refreshClaudeUsage } = useLocalProviderUsage(claudeActive && (activeCockpitMode === "claude" || activeCockpitMode === "ai" || controlOpen));
   const { quota: claudeQuota, refresh: refreshClaudeQuota } = useClaudeQuota(claudeActive);
+  const claudeShared = useSharedClaudeQuota(claudeActive &&
+    (claudeQuota?.status === "signed_out" || claudeQuota?.status === "unavailable"));
+  const refreshSharedClaudeQuota = claudeShared.refresh;
+  const { quota: geminiQuota, refresh: refreshGeminiQuota } = useGeminiQuota(geminiActive);
   const handleClaudeLogin = useCallback(async () => {
     setClaudeLogin({ pending: true, error: null });
     try {
@@ -148,22 +158,12 @@ export default function App() {
       setClaudeLogin({ pending: false, error: String(error) });
     }
   }, [refreshClaudeQuota]);
-  const { forecast: claudeResetForecast, refresh: refreshClaudeResets } = useClaudeResets(claudeActive, claudeQuota?.plan ?? null);
-  const claudeState = runtimeState.claudePlan ?? EMPTY_CLAUDE_PLAN;
-  const claudeHistory = useMemo(() => claudeQuotaDays(claudeState), [claudeState.quotaDays]);
-  const claudeCurve = useMemo(() => personalizeComfortCurve(claudeState.comfortFeedback, new Date(), null), [claudeState.comfortFeedback, usageDay]);
-  const claudePlan = useMemo(() => buildClaudePlan(claudeState, claudeQuota, claudeCurve.xStarPercent, planningNow),
-    [claudeState, claudeQuota, claudeCurve.xStarPercent, planningNow]);
-  const claudeWatch = claudeResetWatch(claudeResetForecast, planningNow);
-  const claudeComfortUsage = useMemo(() => {
-    if (claudeReport?.status !== "ok") return null;
-    const device = claudeUsageDevice(claudeReport);
-    return { fetchedAt: claudeReport.observedAt, status: "ready" as const,
-      groups: [{ id: device.id, name: "Claude", deviceIds: [device.id] }], devices: [device],
-      defaultGroupId: device.id, localGroupId: device.id, warnings: [], projectBreakdownAvailable: true };
-  }, [claudeReport]);
-  const claudeFiveHourResetAt = claudeQuota?.fiveHour?.resetsAt;
-  const claudeWeeklyResetAt = claudeQuota?.sevenDay?.resetsAt;
+  const claudeFiveHourResetAt = claudeShared.snapshot?.quota.fiveHour?.resetsAt ?? claudeQuota?.fiveHour?.resetsAt;
+  const claudeWeeklyResetAt = claudeShared.snapshot?.quota.sevenDay?.resetsAt ?? claudeQuota?.sevenDay?.resetsAt;
+  const geminiFiveHourResetAt = geminiQuota?.gemini?.fiveHour?.resetsAt;
+  const geminiWeeklyResetAt = geminiQuota?.gemini?.weekly?.resetsAt;
+  const geminiSharedFiveHourResetAt = geminiQuota?.claudeGpt?.fiveHour?.resetsAt;
+  const geminiSharedWeeklyResetAt = geminiQuota?.claudeGpt?.weekly?.resetsAt;
   const resolvedAppearance = resolveAppearanceMode(preferences.appearanceMode, systemDark);
   const codexDailyUsageHistory = useMemo(() => {
     const now = new Date();
@@ -216,58 +216,28 @@ export default function App() {
     const timers = delays.map(delay => window.setTimeout(() => {
       setPlanningNow(new Date());
       refreshClaudeQuota();
+      refreshSharedClaudeQuota();
     }, delay + 500));
     return () => timers.forEach(timer => window.clearTimeout(timer));
-  }, [claudeActive, claudeFiveHourResetAt, claudeWeeklyResetAt, refreshClaudeQuota]);
+  }, [claudeActive, claudeFiveHourResetAt, claudeWeeklyResetAt, refreshClaudeQuota, refreshSharedClaudeQuota]);
+
+  useEffect(() => {
+    if (!geminiActive) return;
+    const now = Date.now();
+    const delays = [...new Set([geminiFiveHourResetAt, geminiWeeklyResetAt, geminiSharedFiveHourResetAt, geminiSharedWeeklyResetAt])]
+      .map(value => Date.parse(value ?? "") - now).filter(value => value > 0 && value <= 7 * 86_400_000);
+    const timers = delays.map(delay => window.setTimeout(() => {
+      setPlanningNow(new Date());
+      refreshGeminiQuota();
+    }, delay + 500));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [geminiActive, geminiFiveHourResetAt, geminiWeeklyResetAt, geminiSharedFiveHourResetAt, geminiSharedWeeklyResetAt, refreshGeminiQuota]);
 
   const commitRuntimeState = useCallback((next: RuntimeState) => {
     runtimeStateRef.current = next;
     setRuntimeState(next);
     void updateRuntimeState(next).catch(() => setOperationError("Activity history could not be saved."));
   }, []);
-
-  const updateClaudePlan = useCallback((change: (previous: ClaudePlanState) => ClaudePlanState) => {
-    const current = runtimeStateRef.current;
-    const previous = current.claudePlan ?? EMPTY_CLAUDE_PLAN;
-    const next = change(previous);
-    if (next !== previous) commitRuntimeState({ ...current, claudePlan: next });
-  }, [commitRuntimeState]);
-
-  useEffect(() => {
-    if (!claudeActive || !claudeQuota) return;
-    const now = new Date();
-    updateClaudePlan(previous => observeClaudeQuota(previous, claudeQuota, now, previous.quotaDays.length ? null : readLegacyClaudeBaseline()));
-    setPlanningNow(now);
-  }, [claudeActive, claudeQuota, updateClaudePlan]);
-
-  useEffect(() => {
-    if (!claudeActive || preferences.cockpitMode === "codex" || claudePrompt) return;
-    const target = getPersonComfortPromptTarget(null, planningNow, claudeState.comfortFeedback, claudeState.comfortPromptedDates);
-    if (!target) return;
-    const usage = claudeHistory.find(day => day.localDate === target.localDate);
-    const hadActivity = (usage?.observedUsedPercent ?? 0) > 0
-      || claudeReport?.days.some(day => day.localDate === target.localDate && day.requests > 0);
-    if (!hadActivity) return;
-    setClaudePrompt(buildClaudeComfortPrompt(target, usage));
-    updateClaudePlan(state => ({ ...state, comfortPromptedDates: appendComfortPromptedDate(state.comfortPromptedDates, target.localDate) }));
-  }, [claudeActive, claudeHistory, claudePrompt, claudeReport, claudeState.comfortFeedback, claudeState.comfortPromptedDates, planningNow, preferences.cockpitMode, updateClaudePlan]);
-
-  const saveClaudeComfort = useCallback((date: string, comfort: ComfortCode, refreshSnapshot = false) => {
-    const now = new Date();
-    if (date > localDateKey(now)) return;
-    const prompt = buildClaudeComfortPrompt({ localDate: date, isCatchUp: true }, claudeHistory.find(day => day.localDate === date));
-    const tokenSnapshot = claudeComfortUsage ? buildTokenComfortSnapshot(claudeComfortUsage, "claude-local", date, now) : null;
-    const record = createComfortFeedbackRecord({ ...prompt, tokenSnapshot }, comfort, now);
-    updateClaudePlan(state => {
-      const existing = state.comfortFeedback.find(item => item.localDate === date);
-      const useNewUsage = refreshSnapshot && record.usageCoverage !== "unavailable";
-      const saved = existing ? { ...(useNewUsage ? record : existing), comfort, observedAt: existing.observedAt,
-        tokenSnapshot: refreshSnapshot && tokenSnapshot?.coverage !== "unavailable" ? tokenSnapshot ?? existing.tokenSnapshot : existing.tokenSnapshot,
-        updatedAt: now.toISOString() } : record;
-      return { ...state, comfortFeedback: appendComfortFeedback(state.comfortFeedback, saved) };
-    });
-    setClaudePrompt(previous => previous?.localDate === date ? null : previous);
-  }, [claudeComfortUsage, claudeHistory, updateClaudePlan]);
 
   useEffect(() => {
     if (!startupReady || !quotaHistory?.length) return;
@@ -305,11 +275,12 @@ export default function App() {
 
   const syncComfortPrompt = useCallback((now = new Date()) => {
     if (!startupReady || comfortSaveBusy.current) return;
-    if (!comfortPerson || !comfortUsage) {
+    if (!providerFlags.codex || !comfortPerson || !comfortUsage) {
       comfortPromptRef.current = null;
       setComfortPrompt(null);
       return;
     }
+    if (activeCockpitMode !== "codex" && activeCockpitMode !== "ai") return;
     const currentPrompt = comfortPromptRef.current?.personId === comfortPerson.id ? comfortPromptRef.current : null;
     const target = currentPrompt
       ? { localDate: currentPrompt.localDate, isCatchUp: currentPrompt.isCatchUp }
@@ -336,7 +307,7 @@ export default function App() {
       comfortPromptedDates: appendComfortPromptedDate(runtimeStateRef.current.comfortPromptedDates, target.localDate, comfortPerson.id),
     };
     commitRuntimeState(nextRuntimeState);
-  }, [codexDailyUsageHistory, commitRuntimeState, startupReady, comfortPerson, comfortUsage]);
+  }, [activeCockpitMode, codexDailyUsageHistory, commitRuntimeState, startupReady, comfortPerson, comfortUsage, providerFlags.codex]);
 
   useEffect(() => {
     if (!startupReady || !comfortUsage || comfortSaveBusy.current) return;
@@ -434,17 +405,18 @@ export default function App() {
       });
       if (updateSequence.current === sequence) {
         setUpdateState({ phase: "ready", info, progress: { downloadedBytes: 0, totalBytes: 0, percent: 100 }, error: null });
-        if (!inlineUpdate.current) setUpdateOpen(true);
+        if ((reveal || preferencesRef.current.automaticUpdates) && !inlineUpdate.current) setUpdateOpen(true);
       }
     } catch (error) {
       if (updateSequence.current !== sequence) return;
       setUpdateState({ phase: "error", info, progress: null, error: errorMessage(error, t.updateFailed) });
-      setOperationError(t.updateFailed);
+      if (reveal || preferencesRef.current.automaticUpdates) setOperationError(t.updateFailed);
       if (reveal && !inlineUpdate.current) setUpdateOpen(true);
     }
   }, [t.updateFailed]);
 
   const checkUpdate = useCallback((manual = false, inSettings = false) => {
+    if (!manual && !preferencesRef.current.automaticUpdates) return;
     if (manual) inlineUpdate.current = inSettings;
     if (["downloading", "installing"].includes(updateState.phase) ||
         (["available", "ready"].includes(updateState.phase) && updateState.info?.channel === preferences.updateChannel)) {
@@ -463,6 +435,10 @@ export default function App() {
     setOperationError(null);
     void checkForAppUpdate(preferences.updateChannel).then(async (info) => {
       if (updateSequence.current !== sequence) return;
+      if (!manual && !preferencesRef.current.automaticUpdates) {
+        if (info) await discardAppUpdate();
+        return;
+      }
       if (!info) {
         setUpdateState({ phase: manual ? "current" : "idle", info: null, progress: null, error: null });
         return;
@@ -472,19 +448,19 @@ export default function App() {
         if (updateSequence.current === sequence) setUpdateState(EMPTY_UPDATE_STATE);
         return;
       }
-      if (!info.automaticInstall || manual || !preferences.automaticUpdates) {
+      if (!info.automaticInstall || manual) {
         setUpdateState({ phase: "available", info, progress: null, error: null });
         if (!manual && !inlineUpdate.current) setUpdateOpen(true);
         return;
       }
-      await startUpdateDownload(info, manual);
+      await startUpdateDownload(info);
     }).catch((error) => {
-      if (updateSequence.current !== sequence) return;
+      if (updateSequence.current !== sequence || (!manual && !preferencesRef.current.automaticUpdates)) return;
       setUpdateState({ phase: "error", info: null, progress: null, error: errorMessage(error, t.updateFailed) });
       setOperationError(t.updateFailed);
       if (manual && !inlineUpdate.current) setUpdateOpen(true);
     });
-  }, [preferences.automaticUpdates, preferences.skippedUpdateVersion, preferences.updateChannel, startUpdateDownload, t.updateFailed, updateState.phase]);
+  }, [preferences.skippedUpdateVersion, preferences.updateChannel, startUpdateDownload, t.updateFailed, updateState.info?.channel, updateState.phase]);
 
   const refresh = useCallback(async (force = false, suppliedValues?: ProviderSnapshot[]) => {
     const sequence = ++refreshSequence.current;
@@ -565,11 +541,13 @@ export default function App() {
     }
   }, [commitRuntimeState]);
 
-  const refreshQuotas = useCallback((manualClaude = false) => {
+  const refreshQuotas = useCallback((manualProvider = false) => {
     setPlanningNow(new Date());
     void refresh(true);
-    refreshClaudeQuota(manualClaude);
-  }, [refresh, refreshClaudeQuota]);
+    refreshClaudeQuota(manualProvider);
+    if (manualProvider) refreshSharedClaudeQuota();
+    refreshGeminiQuota(manualProvider);
+  }, [refresh, refreshClaudeQuota, refreshGeminiQuota, refreshSharedClaudeQuota]);
 
   const loadVolcengineDiagnostics = useCallback(async () => {
     setDiagnosticsLoading(true);
@@ -637,6 +615,7 @@ export default function App() {
       if (startup.autostartEnabled !== null) setAutostartState(startup.autostartEnabled);
       if (startup.failures.length > 0) setOperationError(`Some startup checks failed: ${startup.failures.join(", ")}. Available saved state was preserved.`);
       setStartupReady(true);
+      void getWidgetCorner().then(setCapsuleCorner).catch(() => undefined);
       void refresh(true);
     });
     return () => {
@@ -646,18 +625,45 @@ export default function App() {
     };
   }, [refresh]);
 
+  const handleControlOpen = useCallback((page: ControlCenterPage): void => {
+    setControlPage(page);
+    if (controlOpenRef.current) return;
+    controlOpenRef.current = true;
+    // Cancel an already queued collapse before it can shrink the control center.
+    ++hoverSequence.current;
+    if (collapseTimer.current !== null) {
+      window.clearTimeout(collapseTimer.current);
+      collapseTimer.current = null;
+    }
+    hoverTargetExpanded.current = true;
+    widgetTransitioning.current = false;
+    delete document.documentElement.dataset.widgetCollapsing;
+    setWidgetSurfaceSizing(false);
+    setCompact(false);
+    setDiagnosticsOpen(false);
+    setUpdateOpen(false);
+    setControlOpen(true);
+    void openControlCenterWindow().catch(() => {
+      controlOpenRef.current = false;
+      setControlOpen(false);
+      setOperationError(language === "en" ? "Control center could not be opened." : "无法打开控制中心。");
+    });
+    void getAppDiagnostics().then(setAppDiagnostics).catch(() => undefined);
+  }, [language]);
+
   useEffect(() => {
     let cancelled = false;
     let cleanup: () => void = () => {};
-    void listenDesktopEvents({ onPreferences: (value) => { const normalized = normalizeWidgetPreferences(value); ++preferenceSaveSequence.current; preferencesRef.current = normalized; confirmedPreferencesRef.current = normalized; setPreferences(normalized); }, onRefresh: refreshQuotas, onBackgroundSnapshots: (value) => void refresh(false, value), onUpdate: () => checkUpdate(true) }).then((value) => {
+    void listenDesktopEvents({ onPreferences: (value) => { const normalized = normalizeWidgetPreferences(value); ++preferenceSaveSequence.current; preferencesRef.current = normalized; confirmedPreferencesRef.current = normalized; setPreferences(normalized); }, onRefresh: refreshQuotas, onBackgroundSnapshots: (value) => void refresh(false, value), onUpdate: () => checkUpdate(true), onControlCenter: handleControlOpen, onWidgetCorner: setCapsuleCorner, onPreviewExpand: () => { hoverTargetExpanded.current = true; setCompact(false); } }).then((value) => {
       if (cancelled) value(); else cleanup = value;
     }).catch(() => setOperationError("Desktop event listener failed to start."));
     return () => { cancelled = true; cleanup(); };
-  }, [checkUpdate, refresh, refreshQuotas]);
+  }, [checkUpdate, handleControlOpen, refresh, refreshQuotas]);
 
   const checkUpdateRef = useRef(checkUpdate);
   checkUpdateRef.current = checkUpdate;
   useEffect(() => {
+    if (!startupReady || !preferences.automaticUpdates) return;
     let lastCheck = Number.NEGATIVE_INFINITY;
     const check = () => {
       if (!navigator.onLine || Date.now() - lastCheck < 60_000) return;
@@ -668,7 +674,7 @@ export default function App() {
     const periodic = window.setInterval(check, 6 * 60 * 60_000);
     window.addEventListener("online", check);
     return () => { window.clearTimeout(startup); window.clearInterval(periodic); window.removeEventListener("online", check); };
-  }, []);
+  }, [startupReady, preferences.automaticUpdates]);
 
   useEffect(() => {
     const refreshWhenActive = () => { if (document.visibilityState === "visible") refreshQuotas(); };
@@ -710,7 +716,8 @@ export default function App() {
   const forecastAge = planningNow.getTime() - Date.parse(historyResetForecast?.fetchedAt ?? "");
   const historyRisk = forecastAge >= -60_000 && forecastAge < 86_400_000
     ? historyResetForecast?.tomorrowRiskPercent ?? null : null;
-  const manualRisk = preferences.resetRiskManualEnabled ? preferences.resetRiskOverridePercent : null;
+  const planDay = planDateKey(planningNow);
+  const manualRisk = activeManualResetRisk(preferences, planDay);
   const planningRisk = websiteRisk ?? manualRisk ?? historyRisk ?? 10;
   const effectiveResetForecast = codexResetForecast;
   const carryUsageHistory = useMemo(
@@ -806,16 +813,32 @@ export default function App() {
     });
     return dailyUsageRatio(todayAdvice.todayUsedPercent, totalPlanBudget);
   }, [codexDailyUsage, current, dailyRecommendation, totalPlanBudget]);
-  const claudeView = useMemo(() => buildClaudeCockpitView(claudeQuota, planningNow), [claudeQuota, planningNow]);
-  const claudeCapsuleRatio = claudeView.fiveHourAwaitingRefresh ? null : claudeView.fiveHourUsed ?? claudePlan.ratio;
-  const compactCapsuleWidth = compactLayout === "capsule"
-    ? !preferences.claudeEnabled ? capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
-    : preferences.cockpitMode === "claude"
-      ? capsuleLogicalWidth(claudeCapsuleRatio, preferences.fontScale)
-      : preferences.cockpitMode === "ai"
-        ? aiCapsuleLogicalWidth(compactCapsuleRatio, claudeCapsuleRatio, preferences.fontScale)
-        : capsuleLogicalWidth(compactCapsuleRatio, preferences.fontScale)
-    : undefined;
+  const claudeView = useMemo(() => buildClaudeCockpitView(claudeQuota, planningNow, claudeShared.snapshot), [claudeQuota, planningNow, claudeShared.snapshot]);
+  const geminiView = useMemo(() => buildGeminiCockpitView(geminiQuota, planningNow), [geminiQuota, planningNow]);
+  const { codex: showCodex, claude: showClaude, gemini: showGemini } = providerFlags;
+  useEffect(() => {
+    if (!startupReady || !isTauri()) return;
+    const readings = menuBarQuotas(
+      { codex: showCodex, claude: showClaude, gemini: showGemini },
+      snapshots.find(snapshot => snapshot.provider === "codex"), claudeView, geminiView, planningNow,
+    );
+    void updateMenuBarQuotas(readings, language === "en").catch(() => undefined);
+  }, [startupReady, language, showCodex, showClaude, showGemini, snapshots, claudeView, geminiView, planningNow]);
+  const claudeCapsuleRatio = claudeView.fiveHourAwaitingRefresh ? null : claudeView.fiveHourUsed ?? claudeView.weeklyRemaining;
+  const capsuleDimensions = useMemo(() => compactLayout === "capsule" ? resolveCapsuleLayout({
+    mode: activeCockpitMode,
+    codexEnabled: providerFlags.codex,
+    claudeEnabled: providerFlags.claude,
+    geminiEnabled: providerFlags.gemini,
+    corner: capsuleCorner,
+    codexRatio: compactCapsuleRatio,
+    claudeRatio: claudeCapsuleRatio,
+    geminiRatio: geminiFiveHourUsedPercent(geminiView.geminiFiveHour.remaining),
+    sharedRatio: geminiFiveHourUsedPercent(geminiView.sharedFiveHour.remaining),
+    fontScale: preferences.fontScale,
+  }) : null, [activeCockpitMode, capsuleCorner, claudeCapsuleRatio, compactCapsuleRatio, compactLayout, geminiView.geminiFiveHour.remaining, geminiView.sharedFiveHour.remaining, preferences.fontScale, providerFlags.claude, providerFlags.codex, providerFlags.gemini]);
+  const compactCapsuleWidth = capsuleDimensions?.width;
+  const compactCapsuleHeight = capsuleDimensions?.height;
   const dailyPersonCosts = useMemo(() => {
     const costs = buildDailyPersonCosts(comfortUsage, planningNow, preferences.personRingColors);
     return comfortUsageError ? { ...costs, partial: true } : costs;
@@ -841,8 +864,6 @@ export default function App() {
   const handleCockpitModeChange = useCallback((cockpitMode: WidgetPreferences["cockpitMode"]) => {
     savePreferences({ ...preferencesRef.current, cockpitMode });
   }, [savePreferences]);
-
-  const planDay = planDateKey(planningNow);
 
   const saveManualPlan = (field: keyof PersonPlan, value: number | null) => {
     ++planEditSequence.current;
@@ -899,7 +920,7 @@ export default function App() {
 
   const handleUpdateInstall = useCallback(() => {
     const info = updateState.info;
-    if (!info) return;
+    if (!info || updateState.phase !== "ready") return;
     ++updateSequence.current;
     if (!inlineUpdate.current) setUpdateOpen(true);
     setUpdateState({ phase: "installing", info, progress: updateState.progress, error: null });
@@ -909,7 +930,7 @@ export default function App() {
       setUpdateState({ phase: "error", info, progress: null, error: errorMessage(error, t.updateFailed) });
       setOperationError(t.updateFailed);
     });
-  }, [preferences, t.updateFailed, updateState.info, updateState.progress]);
+  }, [preferences, t.updateFailed, updateState.info, updateState.phase, updateState.progress]);
 
   const handleUpdateSkip = useCallback(() => {
     const version = updateState.info?.version;
@@ -1047,7 +1068,7 @@ export default function App() {
       widgetTransitioning.current = true;
       setWidgetSurfaceSizing(true);
       document.documentElement.dataset.widgetCollapsing = "true";
-      void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth)
+      void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth, compactCapsuleHeight)
         .then(() => {
           if (hoverSequence.current !== sequence) return;
           const crossfade = prepareSurfaceCrossfade();
@@ -1071,11 +1092,10 @@ export default function App() {
           setOperationError("Widget collapse failed.");
         });
     }, usesWidgetMorph() ? 280 : 60);
-  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refreshClaudeUsage, refreshQuotas, stayExpanded, updateOpen]);
+  }, [compact, compactCapsuleHeight, compactCapsuleWidth, compactLayout, controlOpen, diagnosticsOpen, refreshClaudeUsage, refreshQuotas, stayExpanded, updateOpen]);
 
-  const comfortPromptKey = preferences.cockpitMode !== "codex" && claudePrompt
-    ? `claude:${claudePrompt.localDate}`
-    : preferences.cockpitMode !== "claude" && comfortPrompt ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
+  const comfortPromptKey = providerFlags.codex && (activeCockpitMode === "codex" || activeCockpitMode === "ai") && comfortPrompt
+    ? `${comfortPrompt.personId ?? ""}:${comfortPrompt.localDate}` : null;
   useEffect(() => {
     if (!comfortPromptKey) {
       autoExpandedComfortPrompt.current = null;
@@ -1083,6 +1103,8 @@ export default function App() {
     }
     if (controlOpen || autoExpandedComfortPrompt.current === comfortPromptKey) return;
     autoExpandedComfortPrompt.current = comfortPromptKey;
+    // An open panel already has room for the check-in via its normal content resize.
+    if (!compactRef.current) return;
     if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current);
     hoverTargetExpanded.current = true;
     delete document.documentElement.dataset.widgetCollapsing;
@@ -1185,13 +1207,14 @@ export default function App() {
 
   useEffect(() => {
     if (!compact || stayExpanded || controlOpen || controlOpenRef.current || widgetTransitioning.current) return;
-    void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth).catch(() => setOperationError("Widget layout resize failed."));
-  }, [compact, compactCapsuleWidth, compactLayout, controlOpen, stayExpanded]);
+    void setWidgetExpanded(false, compactLayout, undefined, compactCapsuleWidth, compactCapsuleHeight).catch(() => setOperationError("Widget layout resize failed."));
+  }, [compact, compactCapsuleHeight, compactCapsuleWidth, compactLayout, controlOpen, stayExpanded]);
 
   useEffect(() => {
     if (compact || controlOpen) return;
     const card = document.querySelector<HTMLElement>(".quota-card");
     if (!card) return;
+    const body = card.querySelector(".codex-focus-body");
     let animationFrame: number | null = null;
     let lastHeight = 0;
     const syncHeight = () => {
@@ -1202,7 +1225,7 @@ export default function App() {
       const contentHeight = measureSurfaceHeight(card);
       if (contentHeight === undefined || Math.abs(contentHeight - lastHeight) < 1) return;
       lastHeight = contentHeight;
-      void resizeWidgetToContent(contentHeight).catch(() => setOperationError("Widget resize failed."));
+      void resizeWidgetToContent(contentHeight, body !== null).catch(() => setOperationError("Widget resize failed."));
     };
     const scheduleSync = () => {
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
@@ -1211,13 +1234,77 @@ export default function App() {
     scheduleSync();
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleSync);
     resizeObserver?.observe(card);
+    if (body) resizeObserver?.observe(body);
     window.addEventListener("resize", scheduleSync);
     return () => {
       resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleSync);
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
     };
-  }, [compact, controlOpen]);
+  }, [activeCockpitMode, compact, controlOpen]);
+
+  useEffect(() => {
+    if (!startupReady || !current) return;
+    const timer = window.setTimeout(() => {
+      const rootSurface = document.querySelector<HTMLElement>("#root > .quota-card, #root > .quota-orb, #root > .quota-island");
+      if (!rootSurface) return;
+      const rootRect = rootSurface.getBoundingClientRect();
+      const cards = Array.from(document.querySelectorAll<HTMLElement>(".codex-ring-card")).map((el) => {
+        const r = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return {
+          label: el.getAttribute("aria-label"),
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+          clippedX: el.scrollWidth > el.clientWidth + 1,
+          color: style.color,
+        };
+      });
+      const tiles = Array.from(document.querySelectorAll<HTMLElement>(".capsule-tile, .quota-orb:not(.quota-orb--multi-row) .capsule-quota-readout")).map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          className: el.className,
+          label: el.getAttribute("aria-label") ?? el.textContent?.trim() ?? "",
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        };
+      });
+      const cornerEl = document.querySelector<HTMLElement>(".quota-orb--corner-l");
+      let emptyQuadrantCheck: Record<string, unknown> | null = null;
+      if (cornerEl) {
+        const empty = cornerEl.dataset.emptyQuadrant ?? "";
+        const ex = empty.startsWith("left-") ? rootRect.left + rootRect.width * 0.25 : rootRect.left + rootRect.width * 0.75;
+        const ey = empty.endsWith("-top") ? rootRect.top + 20 : rootRect.bottom - 20;
+        const hit = document.elementFromPoint(ex, ey);
+        const bg = getComputedStyle(cornerEl).backgroundColor;
+        emptyQuadrantCheck = {
+          emptyQuadrant: empty,
+          probePoint: [Math.round(ex), Math.round(ey)],
+          hitTag: hit?.tagName ?? null,
+          hitInsideTile: Boolean(hit?.closest(".capsule-tile")),
+          outerBackground: bg,
+          outerPointerEvents: getComputedStyle(cornerEl).pointerEvents,
+        };
+      }
+      void reportPreviewMetrics({
+        compact,
+        activeCockpitMode,
+        capsuleCorner,
+        appearance: resolvedAppearance,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        surfaceRect: { left: Math.round(rootRect.left), top: Math.round(rootRect.top), width: Math.round(rootRect.width), height: Math.round(rootRect.height) },
+        surfaceClippedX: rootSurface.scrollWidth > rootSurface.clientWidth + 2,
+        cards,
+        tiles,
+        emptyQuadrantCheck,
+      });
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [activeCockpitMode, capsuleCorner, compact, current, geminiQuota, claudeQuota, claudeShared.snapshot, resolvedAppearance, startupReady]);
 
   if (!current) return <div className="loading-card" aria-label={t.loadingQuota}><span /><span /><span /></div>;
 
@@ -1241,8 +1328,8 @@ export default function App() {
     ) : (
       <QuotaOrb
         snapshot={current}
+        capsuleLiquidGlass={preferences.capsuleLiquidGlass}
         resetWatch={resetWatch}
-        claudeWatch={claudeWatch}
         language={language}
         compactLayout={compactLayout}
         colorTheme={preferences.colorTheme}
@@ -1252,11 +1339,20 @@ export default function App() {
         dailyRecommendation={dailyRecommendation}
         dailyBudgetPercent={totalPlanBudget}
         fontScale={preferences.fontScale}
-        cockpitMode={preferences.claudeEnabled ? preferences.cockpitMode : "codex"}
+        cockpitMode={activeCockpitMode}
+        codexEnabled={providerFlags.codex}
+        claudeEnabled={providerFlags.claude}
+        geminiEnabled={providerFlags.gemini}
+        capsuleCorner={capsuleCorner}
         claudeWeeklyRemaining={claudeView.weeklyRemaining}
         claudeFiveHourUsed={claudeView.fiveHourUsed}
         claudeFiveHourAwaitingRefresh={claudeView.fiveHourAwaitingRefresh}
-        claudeTodayRatio={claudePlan.ratio}
+        geminiFiveHourRemaining={geminiView.geminiFiveHour.remaining}
+        geminiWeeklyRemaining={geminiView.geminiWeekly.remaining}
+        sharedFiveHourRemaining={geminiView.sharedFiveHour.remaining}
+        sharedWeeklyRemaining={geminiView.sharedWeekly.remaining}
+        geminiStatus={geminiView.quotaStatus}
+        onPointerDrag={() => startCapsulePointerDrag(() => setOperationError("Widget drag failed."))}
         onDrag={() => { void startDragging().catch(() => setOperationError("Widget drag failed.")); }}
         onActivate={() => handleHover(true)}
       />
@@ -1277,16 +1373,13 @@ export default function App() {
       comfortSaving={comfortSaving}
       comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
       onComfortSelect={handleComfortSelect}
-      claudeView={preferences.claudeEnabled ? claudeView : null}
+      claudeView={providerFlags.claude ? claudeView : null}
+      claudeShared={claudeShared}
+      geminiView={providerFlags.gemini ? geminiView : null}
+      capsuleCorner={capsuleCorner}
       onClaudeLogin={handleClaudeLogin}
       claudeLogin={claudeLogin}
       now={planningNow}
-      claudePlan={claudePlan}
-      claudeWatch={claudeWatch}
-      claudePrompt={claudePrompt}
-      onClaudeComfortSelect={(value) => { if (claudePrompt) saveClaudeComfort(claudePrompt.localDate, value); }}
-      onClaudeCapChange={(percent) => updateClaudePlan(state => ({ ...state, cap: percent === null ? null : { localDate: localDateKey(new Date()), percent } }))}
-      onClaudeRiskChange={(manualRiskPercent) => updateClaudePlan(state => ({ ...state, manualRiskPercent }))}
       onCockpitModeChange={handleCockpitModeChange}
       onDailyBudgetChange={(value) => { if (planPerson && sharedPlan.connected) sharedPlan.change("person", value, planPerson.id); else if (sharedPlan.scopeReady) saveManualPlan("dailyBudgetPercent", value); }}
       onResetRiskChange={(value) => {
@@ -1357,31 +1450,11 @@ export default function App() {
       onUpdateSkip={handleUpdateSkip}
       onUpdateRelease={handleUpdateRelease}
       controlOpen={controlOpen}
-      onControlOpen={() => {
-        controlOpenRef.current = true;
-        // Cancel an already queued collapse before it can shrink the control center.
-        ++hoverSequence.current;
-        if (collapseTimer.current !== null) {
-          window.clearTimeout(collapseTimer.current);
-          collapseTimer.current = null;
-        }
-        hoverTargetExpanded.current = true;
-        widgetTransitioning.current = false;
-        delete document.documentElement.dataset.widgetCollapsing;
-        setWidgetSurfaceSizing(false);
-        setCompact(false);
-        setDiagnosticsOpen(false);
-        setUpdateOpen(false);
-        setControlOpen(true);
-        void openControlCenterWindow().catch(() => {
-          controlOpenRef.current = false;
-          setControlOpen(false);
-          setOperationError(language === "en" ? "Control center could not be opened." : "无法打开控制中心。");
-        });
-        void getAppDiagnostics().then(setAppDiagnostics).catch(() => undefined);
-      }}
+      onControlOpen={() => handleControlOpen("usage")}
       controlCenter={(
         <ControlCenter
+          page={controlPage}
+          onPageChange={setControlPage}
           preferences={preferences}
           language={language}
           comfortFeedback={runtimeState.comfortFeedback}
@@ -1398,21 +1471,10 @@ export default function App() {
           comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
           onComfortPersonChange={handleComfortPersonChange}
           onComfortSnapshotRefresh={handleComfortSnapshotRefresh}
-          claudeQuota={{
-            recommendation: claudePlan.recommendation,
-            remaining: claudeView.weeklyRemaining,
-            curve: claudeCurve,
-            feedback: claudeState.comfortFeedback,
-            history: claudeHistory,
-            usage: claudeComfortUsage,
-            onFeedback: saveClaudeComfort,
-            onRefreshSnapshot: date => {
-              const record = claudeState.comfortFeedback.find(item => item.localDate === date);
-              if (record) saveClaudeComfort(date, record.comfort, true);
-            },
-            onRefresh: () => { refreshClaudeQuota(true); refreshClaudeResets(); refreshClaudeUsage(); },
-            onOpenResets: () => void openExternalUrl(CLAUDE_RESETS_URL).catch(() => setOperationError(language === "en" ? "Claude Resets could not be opened." : "无法打开 Claude Resets。")),
-          }}
+          geminiView={geminiView}
+          quotaNow={planningNow}
+          claudeView={claudeView}
+          onRefreshClaude={() => { refreshClaudeQuota(true); refreshSharedClaudeQuota(); }}
           onUsageGroupsChange={refreshComfortUsage}
           onCheckUpdate={() => checkUpdate(true, true)}
           updateBusy={["checking", "downloading", "installing"].includes(updateState.phase)}

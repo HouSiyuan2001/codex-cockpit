@@ -120,7 +120,7 @@ describe("local task usage", () => {
     expect(excluded).toMatchObject({ rows: [], localIncluded: false, attributed: { totalTokens: 0 } });
   });
 
-  it("disambiguates repeated titles with project and short id while identity follows the stable id", () => {
+  it("disambiguates repeated titles with project while identity follows the stable id", () => {
     const firstId = "01a08b5b-27a7-7182-b733-111111111111";
     const secondId = "01a08b5b-27a7-7182-b733-222222222222";
     const data = snapshot([
@@ -128,7 +128,7 @@ describe("local task usage", () => {
       task(secondId, "fork", 20, { name: "Same title", projectName: "P021" }),
     ]);
     const result = aggregateTaskUsage(data, settings, "mine", "today", now);
-    expect(result.rows.map((row) => row.name).sort()).toEqual(["Same title · P020 · 11111111", "Same title · P021 · 22222222"]);
+    expect(result.rows.map((row) => row.name).sort()).toEqual(["Same title · P020", "Same title · P021"]);
     data.tasks![0].name = "Renamed title";
     expect(aggregateTaskUsage(data, settings, "mine", "today", now).rows.find((row) => row.id === firstId)?.name).toBe("Renamed title");
   });

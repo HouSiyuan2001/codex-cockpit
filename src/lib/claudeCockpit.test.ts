@@ -24,10 +24,12 @@ describe("cockpit mode", () => {
     expect(nextCockpitMode("claude")).toBe("ai");
     expect(nextCockpitMode("ai")).toBe("codex");
     expect(normalizeCockpitMode("gemini")).toBe("codex");
+    expect(normalizeCockpitMode("gemini", true)).toBe("gemini");
     expect(normalizeWidgetPreferences({ language: "en" }).cockpitMode).toBe("codex");
     expect(normalizeWidgetPreferences({ cockpitMode: "ai" }).cockpitMode).toBe("ai");
     expect(normalizeWidgetPreferences({ cockpitMode: "ai" }).claudeEnabled).toBe(true);
     expect(normalizeWidgetPreferences({ language: "en" }).claudeEnabled).toBe(false);
+    expect(normalizeWidgetPreferences({ language: "en" }).geminiEnabled).toBe(false);
   });
 });
 
@@ -54,5 +56,18 @@ describe("Claude quota view", () => {
     expect(elapsed.fiveHourUsed).toBeNull();
     expect(elapsed.fiveHourAwaitingRefresh).toBe(true);
     expect(elapsed.weeklyRemaining).toBe(42.8);
+  });
+
+  it("uses synced quota only as a fallback and drops synced figures after their reset", () => {
+    const shared = { deviceId: "mac", deviceName: "Mac", quota: {
+      observedAt: now.toISOString(),
+      fiveHour: { usedPercent: 28, resetsAt: now.toISOString() },
+      sevenDay: { usedPercent: 42, resetsAt: now.toISOString() },
+    } };
+    expect(buildClaudeCockpitView(quota(), now, shared).weeklyRemaining).toBe(42.8);
+    const fallback = buildClaudeCockpitView(quota({ status: "signed_out" }), now, shared);
+    expect(fallback).toMatchObject({
+      weeklyRemaining: null, weeklyResetsAt: null, fiveHourUsed: null, fiveHourAwaitingRefresh: true,
+    });
   });
 });

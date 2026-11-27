@@ -1721,19 +1721,6 @@ button.usage-stat-card:hover { border-color: color-mix(in srgb, var(--accent-col
 .codex-focus-footer { min-height: 35px; margin-top: 12px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; color: rgba(34, 43, 47, .55); background: rgba(235, 241, 241, .58); font-size: calc(10px * var(--ui-font-scale, 1)); }
 .codex-focus-footer strong { color: rgba(34, 43, 47, .65); font-weight: 650; }
 .codex-focus-unavailable { min-height: 270px; display: grid; place-items: center; color: rgba(34, 43, 47, .55); font-size: calc(12px * var(--ui-font-scale, 1)); }
-.claude-login-panel { display: grid; justify-items: center; gap: 8px; text-align: center; }
-.claude-login-button {
-  min-height: 28px;
-  padding: 3px 12px;
-  border: 1px solid color-mix(in srgb, var(--p-orange) 42%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--p-orange) 14%, transparent);
-  color: var(--glass-ink, inherit);
-  font: inherit;
-  cursor: pointer;
-}
-.claude-login-button:hover:enabled { background: color-mix(in srgb, var(--p-orange) 24%, transparent); }
-.claude-login-button:disabled { opacity: .65; cursor: wait; }
 .usage-color-key { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
 .usage-model-today { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; align-items: center; margin: 18px 0 8px; }
 .usage-model-today .usage-ranking { min-width: 0; }
@@ -2154,7 +2141,7 @@ textarea {
   width: calc(100% - (var(--edge-safe-inset) * 2));
   height: calc(100% - (var(--edge-safe-inset) * 2));
   max-width: var(--capsule-logical-width, 88px);
-  max-height: 40px;
+  max-height: var(--capsule-logical-height, 40px);
   margin: var(--edge-safe-inset);
   display: flex;
   align-items: center;
@@ -2266,7 +2253,7 @@ textarea {
 .capsule-ring--five-hour {
   inset: 5px;
   --capsule-ring-thickness: 2.5px;
-  background: conic-gradient(#8b79dc 0 var(--short-ring-angle), rgba(139, 121, 220, .18) var(--short-ring-angle) 360deg);
+  background: conic-gradient(var(--short-ring-color, #8b79dc) 0 var(--short-ring-angle), var(--short-ring-track, rgba(139, 121, 220, .18)) var(--short-ring-angle) 360deg);
 }
 
 .codex-ring-progress.codex-ring-progress--five-hour {
@@ -2645,6 +2632,12 @@ textarea {
   letter-spacing: var(--cockpit-number-tracking);
   line-height: 1;
 }
+.codex-ring-value strong:has(> small) {
+  line-height: .85;
+}
+.codex-ring-value strong small {
+  font-size: .65em;
+}
 .codex-ring-value span {
   margin-left: calc(3px * var(--ring-readout-fit, 1));
   color: var(--glass-muted);
@@ -2714,6 +2707,13 @@ textarea {
 .codex-ring-footer .reset-countdown-footer strong {
   font-size: inherit;
   font-variant-numeric: tabular-nums;
+}
+.codex-ring-footer:has(> .codex-reset-footer) {
+  margin-top: 0;
+  padding-top: 4px;
+}
+.codex-ring-footer .codex-reset-footer > span {
+  align-items: baseline;
 }
 .codex-ring-card--daily .codex-ring-footer {
   min-height: 48px;
@@ -3290,6 +3290,7 @@ textarea {
 .usage-settings-button:hover { background: rgba(123, 159, 255, .1); }
 .usage-settings-button svg { width: 17px; height: 17px; }
 .usage-total { display: grid; gap: 4px; padding: 28px 3px 22px; }
+.codex-usage-panel > .custom-task-statistics:has(.custom-statistics-trigger[aria-expanded="false"]) + .usage-total { padding-top: 2px; }
 .usage-total > span { color: var(--glass-muted, #9babbc); font-size: calc(9px * var(--ui-font-scale, 1)); }
 .usage-total > strong { font-size: calc(32px * var(--ui-font-scale, 1)); font-weight: 650; letter-spacing: -.045em; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .usage-total > small { color: var(--glass-muted, #9babbc); font-size: calc(9px * var(--ui-font-scale, 1)); }
@@ -4104,6 +4105,26 @@ textarea {
    cockpit scrolled sideways. Engines without `clip` keep `hidden`. */
 .quota-card.codex-focus-card { overflow: clip; }
 
+/* Keep the mode switch visible when the open window runs out of room below it. */
+.codex-focus-body { display: flow-root; }
+#root > .codex-focus-card:not(.quota-card--overlay-open) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - (var(--edge-safe-inset) * 2));
+}
+#root > .codex-focus-card:not(.quota-card--overlay-open) .codex-focus-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#root > .codex-focus-card:not(.quota-card--overlay-open) .codex-focus-header { flex: none; }
+#root > .codex-focus-card:not(.quota-card--overlay-open) .codex-focus-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* Usage page: Codex / Claude source switch (only with Claude enabled). */
 .usage-source-switch {
   display: inline-flex;
@@ -4160,6 +4181,10 @@ textarea {
   --p-scale: linear-gradient(90deg, #376795, #72bcd5 30%, #ffe6b7 52%, #f7aa58 76%, #ef8a47);
   --claude-orange: var(--p-orange);
   --claude-orange-soft: var(--p-amber);
+  --codex-quota-outer: color-mix(in srgb, var(--p-steel) 75%, var(--p-sky));
+  --codex-quota-inner: var(--p-sky);
+  --claude-quota-outer: color-mix(in srgb, var(--p-orange) 68%, var(--p-amber));
+  --claude-quota-inner: color-mix(in srgb, var(--p-amber) 68%, var(--p-cream));
 }
 
 /* ---- Tones per cockpit ---- */
@@ -4293,9 +4318,16 @@ textarea {
   background: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .62));
   box-shadow: 0 10px 26px color-mix(in srgb, var(--tone) 10%, transparent), inset 0 1px 0 #fff;
 }
-/* In the AI cockpit each ring keeps its own provider tone. */
-.codex-focus-card.cockpit-mode--ai .codex-ring-card--claude { --tone: var(--p-amber); --tone-2: var(--p-yellow); --tone-line: rgba(255, 230, 183, .2); }
-.codex-focus-card.cockpit-mode--ai.quota-card--theme-light .codex-ring-card--claude { --tone: var(--p-orange); --tone-2: var(--p-amber); --tone-line: rgba(239, 138, 71, .2); }
+/* Keep provider rings distinct from the lighter Gemini model groups. */
+.codex-focus-card .codex-ring-card {
+  --tone: var(--codex-quota-outer);
+  --tone-2: var(--codex-quota-inner);
+}
+.codex-focus-card .codex-ring-card.codex-ring-card--claude {
+  --tone: var(--claude-quota-outer);
+  --tone-2: var(--claude-quota-inner);
+  --tone-line: color-mix(in srgb, var(--p-amber) 25%, transparent);
+}
 
 .codex-focus-card .codex-ring-track,
 .codex-focus-card.cockpit-mode--claude .codex-ring-track { stroke: color-mix(in srgb, var(--tone) 15%, transparent); }
@@ -4352,14 +4384,18 @@ textarea {
 .quota-card--compact-capsule.quota-orb.cockpit-mode--claude::before { background: none; }
 .quota-card--compact-capsule.quota-orb.cockpit-mode--ai { --ai-codex-surface: #1d4670; --ai-claude-surface: #4a2f1a; --ai-divider: rgba(255, 255, 255, .28); }
 .quota-card--compact-capsule.quota-orb.cockpit-mode--ai.quota-card--theme-light { --ai-codex-surface: #e3f1f5; --ai-claude-surface: #ffeccb; --ai-divider: #fff; border-color: rgba(30, 70, 110, .16); }
+.quota-card--compact-capsule.quota-orb {
+  --short-ring-color: var(--codex-quota-inner);
+  --short-ring-track: color-mix(in srgb, var(--codex-quota-inner) 20%, transparent);
+}
 .quota-card--compact-capsule.quota-orb .capsule-daily-disc,
 .quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-daily-disc {
-  background: radial-gradient(circle at 34% 28%, var(--p-mist), var(--p-sky) 62%, var(--p-steel));
+  background: radial-gradient(circle at 34% 28%, var(--p-mist), var(--codex-quota-inner) 62%, var(--codex-quota-outer));
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, .6), 0 0 7px rgba(82, 143, 173, .25);
 }
 .quota-card--compact-capsule.quota-orb .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc,
 .quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude.capsule-quota-readout--normal .capsule-daily-disc {
-  background: radial-gradient(circle at 34% 28%, var(--p-cream), var(--p-amber) 62%, var(--p-orange));
+  background: radial-gradient(circle at 34% 28%, var(--p-cream), var(--claude-quota-inner) 62%, var(--claude-quota-outer));
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, .6), 0 0 7px rgba(239, 138, 71, .28);
 }
 .quota-card--compact-capsule.quota-orb .capsule-quota-readout--warning .capsule-daily-disc,
@@ -4367,13 +4403,11 @@ textarea {
 .quota-card--compact-capsule.quota-orb .capsule-quota-readout--over .capsule-daily-disc,
 .quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--over .capsule-daily-disc { background: radial-gradient(circle at 34% 28%, #f6b0a6, var(--p-red) 70%); }
 .quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-high,
-.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-blue); --remaining-ring-track: rgba(55, 103, 149, .16); }
-.quota-card--compact-capsule.quota-orb:not(.quota-card--theme-light) .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-sky); --remaining-ring-track: rgba(114, 188, 213, .2); }
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--codex-quota-outer); --remaining-ring-track: color-mix(in srgb, var(--codex-quota-outer) 22%, transparent); }
 .quota-card--compact-capsule.quota-orb .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high,
-.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--p-orange); --remaining-ring-track: rgba(239, 138, 71, .18); }
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--claude .capsule-ring--remaining.capsule-ring--quota-high { --remaining-ring-color: var(--claude-quota-outer); --remaining-ring-track: color-mix(in srgb, var(--claude-quota-outer) 22%, transparent); }
 .quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-mid { --remaining-ring-color: var(--p-amber); }
 .quota-card--compact-capsule.quota-orb .capsule-ring--remaining.capsule-ring--quota-low { --remaining-ring-color: var(--p-red); }
-.quota-card--compact-capsule.quota-orb .capsule-daily-value b { color: var(--glass-ink); }
 
 /* ---- Control center ---- */
 .codex-focus-card .usage-page-tabs { background: color-mix(in srgb, var(--tone) 8%, transparent); }
@@ -4446,3 +4480,552 @@ textarea {
 .codex-focus-card .control-center--minimal :is(select, .usage-calendar-trigger, .usage-settings-button) { border-color: var(--tone-line); }
 .codex-focus-card .control-center--minimal .segmented-control button.is-active,
 .codex-focus-card .control-center--minimal [role="radiogroup"]:not(.usage-source-switch) > button.is-active { color: #fff; background: var(--tone); }
+
+/* Gemini uses the cream–mist center of the cockpit color scale. */
+:root {
+  --gemini-aqua: var(--p-mist);
+  --gemini-aqua-soft: color-mix(in srgb, var(--p-mist) 55%, white);
+  --gemini-aqua-ring: color-mix(in srgb, var(--p-mist) 76%, var(--p-sky));
+  --gemini-honey: var(--p-cream);
+  --gemini-honey-soft: color-mix(in srgb, var(--p-cream) 62%, white);
+  --gemini-honey-ring: color-mix(in srgb, var(--p-cream) 72%, var(--p-yellow));
+  --gemini-butter: var(--p-yellow);
+  --gemini-blush: color-mix(in srgb, var(--p-red) 55%, var(--p-cream));
+  --gemini-scale: linear-gradient(115deg, var(--gemini-aqua), #ebf0d9 52%, var(--gemini-honey));
+}
+
+.cockpit-mode-switch { flex-shrink: 0; }
+.cockpit-mode-option--gemini.is-active {
+  color: #1f2e45;
+  background: var(--gemini-scale);
+  box-shadow: 0 2px 6px rgba(42, 65, 98, .22);
+}
+
+.cockpit-ai-mark--triple { width: 46px; }
+.codex-focus-brand .cockpit-ai-mark--triple .provider-mark:nth-child(1) { left: 0; top: 0; z-index: 1; }
+.codex-focus-brand .cockpit-ai-mark--triple .provider-mark:nth-child(2) { left: 10px; top: 3px; z-index: 2; color: #fff; border-color: transparent; background: var(--p-orange); }
+.codex-focus-brand .cockpit-ai-mark--triple .provider-mark:nth-child(3) {
+  left: 20px;
+  top: 5px;
+  z-index: 3;
+  color: #1f2e45;
+  border-color: transparent;
+  background: var(--gemini-scale);
+}
+.codex-focus-card .codex-focus-brand .provider-mark[data-provider="gemini"],
+.codex-focus-card.quota-card--theme-light .codex-focus-brand .provider-mark[data-provider="gemini"],
+.codex-focus-card.cockpit-mode--gemini .codex-focus-brand > .provider-mark {
+  color: #1f2e45;
+  border-color: transparent;
+  background: var(--gemini-scale);
+  box-shadow: 0 3px 10px rgba(84, 122, 168, .22);
+}
+
+/* Gemini cockpit tones (dark & light) */
+.codex-focus-card.cockpit-mode--gemini,
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini,
+.codex-focus-card .control-center[data-cockpit-mode="gemini"] {
+  --tone: var(--gemini-aqua);
+  --tone-2: var(--gemini-honey);
+  --tone-wash: rgba(170, 220, 224, .12);
+  --tone-line: rgba(170, 220, 224, .22);
+  --glass-ink: #eff5fb;
+  --glass-muted: rgba(224, 236, 248, .74);
+  --glass-faint: rgba(224, 236, 248, .48);
+  border-color: var(--tone-line);
+  color: var(--glass-ink);
+}
+.codex-focus-card.cockpit-mode--gemini.quota-card--theme-light,
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini.quota-card--theme-light,
+.codex-focus-card.quota-card--theme-light .control-center[data-cockpit-mode="gemini"] {
+  --tone: var(--gemini-aqua-ring);
+  --tone-2: var(--gemini-honey-ring);
+  --tone-wash: rgba(170, 220, 224, .3);
+  --tone-line: color-mix(in srgb, var(--gemini-aqua-ring) 55%, transparent);
+  --glass-ink: #24334a;
+  --glass-muted: rgba(36, 51, 74, .72);
+  --glass-faint: rgba(36, 51, 74, .46);
+}
+
+.codex-focus-card.cockpit-mode--gemini {
+  background:
+    radial-gradient(circle at 88% 8%, rgba(170, 220, 224, .16), transparent 40%),
+    radial-gradient(circle at 10% 92%, rgba(255, 230, 183, .14), transparent 44%),
+    linear-gradient(155deg, #263b40, #233239 66%, #202e35);
+}
+.codex-focus-card.cockpit-mode--gemini.quota-card--theme-light {
+  background:
+    radial-gradient(circle at 90% 4%, rgba(170, 220, 224, .52), transparent 44%),
+    radial-gradient(circle at 4% 96%, rgba(255, 230, 183, .46), transparent 46%),
+    linear-gradient(160deg, #fdfefd, #faf9f2);
+}
+.codex-focus-card.cockpit-mode--gemini .aurora,
+.codex-focus-card.cockpit-mode--gemini::before { background: none; }
+.codex-focus-card.quota-card--overlay-open.cockpit-mode--gemini,
+.codex-focus-card.quota-card--overlay-open.quota-card--theme-light.cockpit-mode--gemini { background: transparent; }
+.codex-focus-card.cockpit-mode--gemini :is(.update-panel, .diagnostics-panel),
+.codex-focus-card .control-center[data-cockpit-mode="gemini"] {
+  border-color: var(--tone-line);
+  background: linear-gradient(155deg, #263b40, #233239 66%, #202e35);
+}
+.codex-focus-card.cockpit-mode--gemini.quota-card--theme-light :is(.update-panel, .diagnostics-panel),
+.codex-focus-card.quota-card--theme-light .control-center[data-cockpit-mode="gemini"] {
+  background:
+    radial-gradient(circle at 90% 4%, rgba(170, 220, 224, .42), transparent 42%),
+    linear-gradient(160deg, #fdfefd, #faf9f2);
+}
+
+/* Gemini quota groups and mixed-provider grid. */
+.cockpit-gemini-grid { --gemini-grid-gap: 10px; gap: var(--gemini-grid-gap); }
+.cockpit-ai-grid.cockpit-gemini-grid { grid-auto-rows: 1fr; }
+.cockpit-gemini-grid[data-gemini-row="top"] > .gemini-quota-card,
+.cockpit-gemini-grid[data-gemini-row="bottom"] > .codex-ring-card:not(.gemini-quota-card) { grid-row: 1; }
+.cockpit-gemini-grid[data-gemini-row="bottom"] > .gemini-quota-card,
+.cockpit-gemini-grid[data-gemini-row="top"] > .codex-ring-card:not(.gemini-quota-card) { grid-row: 2; }
+.cockpit-gemini-grid[data-companion-column="left"] > .codex-ring-card:not(.gemini-quota-card) { grid-column: 1; }
+.cockpit-gemini-grid[data-companion-column="right"] > .codex-ring-card:not(.gemini-quota-card) { grid-column: 2; }
+
+.codex-focus-card .codex-ring-card--gemini-short {
+  --tone: var(--gemini-aqua-ring);
+  --tone-2: var(--gemini-aqua-soft);
+}
+.codex-focus-card .codex-ring-card--gemini-weekly {
+  --tone: var(--gemini-honey-ring);
+  --tone-2: var(--gemini-honey-soft);
+}
+.codex-focus-card :is(.codex-ring-card--gemini-short, .codex-ring-card--gemini-weekly).codex-ring-card--quota-mid {
+  --weekly-quota-color: var(--gemini-butter);
+}
+.codex-focus-card :is(.codex-ring-card--gemini-short, .codex-ring-card--gemini-weekly).codex-ring-card--quota-low {
+  --weekly-quota-color: var(--gemini-blush);
+}
+
+/* Joined capsule for the two Gemini model groups. */
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini,
+.quota-orb--multi-row .capsule-tile--gemini-row {
+  --gemini-capsule-scale:
+    linear-gradient(90deg, var(--gemini-divider), var(--gemini-divider)) var(--ai-split, 50%) 0 / 1px 100% no-repeat,
+    linear-gradient(90deg, var(--gemini-left-surface), var(--gemini-mid-surface) var(--ai-split, 50%), var(--gemini-right-surface));
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini {
+  --gemini-left-surface: #2b454d;
+  --gemini-mid-surface: #39413b;
+  --gemini-right-surface: #484033;
+  --gemini-divider: rgba(226, 238, 248, .24);
+  padding-inline: 0;
+  border-color: rgba(196, 218, 248, .28);
+  background: var(--gemini-capsule-scale);
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini.quota-card--theme-light {
+  --gemini-left-surface: #dceff0;
+  --gemini-mid-surface: #f5f4e7;
+  --gemini-right-surface: #fff0d5;
+  --gemini-divider: rgba(255, 255, 255, .92);
+  border-color: color-mix(in srgb, var(--gemini-aqua-ring) 65%, transparent);
+}
+.quota-card--compact-capsule.quota-orb.cockpit-mode--gemini::before { background: none; }
+
+/* Gemini macaron capsule rings & discs */
+.capsule-quota-readout--gemini-short .capsule-ring--five-hour {
+  --short-ring-color: var(--gemini-aqua-ring);
+  --short-ring-track: color-mix(in srgb, var(--gemini-aqua-ring) 22%, transparent);
+}
+.capsule-quota-readout--gemini-weekly .capsule-ring--five-hour {
+  --short-ring-color: var(--gemini-honey-ring);
+  --short-ring-track: color-mix(in srgb, var(--gemini-honey-ring) 22%, transparent);
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--gemini-short.capsule-quota-readout--normal .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--gemini-short.capsule-quota-readout--normal .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, #f6fffe, var(--gemini-aqua-soft) 58%, var(--gemini-aqua));
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .68), 0 0 6px rgba(170, 220, 224, .24);
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--gemini-weekly.capsule-quota-readout--normal .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--gemini-weekly.capsule-quota-readout--normal .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, #fff9ec, var(--gemini-honey-soft) 58%, var(--gemini-honey));
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .68), 0 0 6px rgba(255, 230, 183, .24);
+}
+.quota-card--compact-capsule.quota-orb :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly).capsule-quota-readout--warning .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly).capsule-quota-readout--warning .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, #fff9e4, #f9eab3 58%, var(--gemini-butter));
+}
+.quota-card--compact-capsule.quota-orb :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly).capsule-quota-readout--over .capsule-daily-disc,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly).capsule-quota-readout--over .capsule-daily-disc {
+  background: radial-gradient(circle at 34% 28%, #ffeef3, #f7c5d2 58%, var(--gemini-blush));
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--gemini-short .capsule-ring--remaining.capsule-ring--quota-high,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--gemini-short .capsule-ring--remaining.capsule-ring--quota-high {
+  --remaining-ring-color: var(--gemini-aqua-ring);
+  --remaining-ring-track: rgba(170, 220, 224, .22);
+}
+.quota-card--compact-capsule.quota-orb .capsule-quota-readout--gemini-weekly .capsule-ring--remaining.capsule-ring--quota-high,
+.quota-card--compact-capsule.quota-orb.quota-card--theme-light .capsule-quota-readout--gemini-weekly .capsule-ring--remaining.capsule-ring--quota-high {
+  --remaining-ring-color: var(--gemini-honey-ring);
+  --remaining-ring-track: rgba(255, 230, 183, .22);
+}
+.quota-card--compact-capsule.quota-orb :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly) .capsule-ring--remaining.capsule-ring--quota-mid {
+  --remaining-ring-color: var(--gemini-butter);
+}
+.quota-card--compact-capsule.quota-orb :is(.capsule-quota-readout--gemini-short, .capsule-quota-readout--gemini-weekly) .capsule-ring--remaining.capsule-ring--quota-low {
+  --remaining-ring-color: var(--gemini-blush);
+}
+
+/* Multi-row capsules (3-cell corner L-capsules & 4-cell 2x2 all-enabled capsule):
+ * Outer shell stays 100% transparent so the empty 4th quadrant has zero pixels
+ * and zero pointer interception. */
+.quota-card--compact-capsule.quota-orb.quota-orb--multi-row,
+.quota-card--compact-capsule.quota-orb.quota-orb--multi-row.quota-card--theme-light {
+  display: grid;
+  grid-template-columns: minmax(0, var(--ai-split, 50%)) minmax(0, 1fr);
+  grid-template-rows: 40px 39px;
+  justify-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.quota-card--compact-capsule.quota-orb.quota-orb--multi-row::before,
+.quota-card--compact-capsule.quota-orb.quota-orb--multi-row::after,
+.quota-card--compact-capsule.quota-orb.quota-orb--multi-row .aurora {
+  display: none;
+}
+.quota-card--compact-capsule.quota-orb.quota-orb--corner-l {
+  /* The tiles define the silhouette of the L-shaped capsule. */
+  clip-path: none;
+  pointer-events: none;
+}
+.quota-orb--multi-row .capsule-tile {
+  min-width: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(214, 232, 248, .24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  cursor: pointer;
+}
+.quota-orb--corner-l .capsule-tile {
+  pointer-events: auto;
+}
+.quota-orb--multi-row .capsule-tile--row-bottom,
+.quota-orb--multi-row .capsule-tile--quad-bottom {
+  margin-top: -1px;
+}
+
+/* Gemini row inside multi-row capsules */
+.quota-orb--multi-row .capsule-tile--gemini-row {
+  --gemini-left-surface: #2b454d;
+  --gemini-mid-surface: #39413b;
+  --gemini-right-surface: #484033;
+  --gemini-divider: rgba(226, 238, 248, .24);
+  --glass-ink: #eff5fb;
+  --glass-muted: rgba(224, 236, 248, .74);
+  padding-inline: 0;
+  color: var(--glass-ink);
+  background: var(--gemini-capsule-scale);
+}
+.quota-card--theme-light.quota-orb--multi-row .capsule-tile--gemini-row {
+  --gemini-left-surface: #dceff0;
+  --gemini-mid-surface: #f5f4e7;
+  --gemini-right-surface: #fff0d5;
+  --gemini-divider: rgba(255, 255, 255, .92);
+  --glass-ink: #24334a;
+  --glass-muted: rgba(36, 51, 74, .72);
+  border-color: color-mix(in srgb, var(--gemini-aqua-ring) 65%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .86);
+}
+
+/* Companion Codex / Claude tiles inside L-capsules */
+.quota-orb--multi-row .capsule-tile--companion {
+  padding-inline: 6px;
+}
+.quota-orb--multi-row .capsule-tile--companion .capsule-quota-readout {
+  justify-content: center;
+  gap: 4px;
+}
+.quota-orb--multi-row .capsule-tile--companion .capsule-daily-value {
+  flex: 0 0 auto;
+}
+.quota-orb--multi-row .capsule-tile--companion-codex {
+  --glass-ink: #eef6f8;
+  --glass-muted: rgba(214, 235, 240, .7);
+  color: var(--glass-ink);
+  border-color: rgba(170, 220, 224, .24);
+  background: linear-gradient(110deg, #23507c, #153555);
+}
+.quota-card--theme-light.quota-orb--multi-row .capsule-tile--companion-codex {
+  --glass-ink: var(--p-navy);
+  --glass-muted: rgba(30, 70, 110, .68);
+  border-color: rgba(55, 103, 149, .22);
+  background: linear-gradient(110deg, #f6fbfe, #e3f1f5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88);
+}
+.quota-orb--multi-row .capsule-tile--companion-claude {
+  --glass-ink: #fff6e8;
+  --glass-muted: rgba(255, 233, 204, .72);
+  color: var(--glass-ink);
+  border-color: rgba(255, 230, 183, .22);
+  background: linear-gradient(110deg, #4a2f1a, #2f1e12);
+}
+.quota-card--theme-light.quota-orb--multi-row .capsule-tile--companion-claude {
+  --glass-ink: #5b3213;
+  --glass-muted: rgba(91, 50, 19, .7);
+  border-color: rgba(239, 138, 71, .26);
+  background: linear-gradient(110deg, #fffcf6, #ffeccb);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88);
+}
+
+/* Bottom Codex + Claude pair inside 2x2 all-enabled capsule */
+.quota-orb--multi-row .capsule-tile--bottom-pair {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  padding-inline: 0;
+  --ai-codex-surface: #1d4670;
+  --ai-claude-surface: #4a2f1a;
+  --ai-divider: rgba(255, 255, 255, .28);
+  background: linear-gradient(90deg,
+    var(--ai-codex-surface) 0 calc(var(--ai-split, 50%) - .5px),
+    var(--ai-divider) calc(var(--ai-split, 50%) - .5px) calc(var(--ai-split, 50%) + .5px),
+    var(--ai-claude-surface) calc(var(--ai-split, 50%) + .5px) 100%);
+}
+.quota-card--theme-light.quota-orb--multi-row .capsule-tile--bottom-pair {
+  --ai-codex-surface: #e3f1f5;
+  --ai-claude-surface: #ffeccb;
+  --ai-divider: #fff;
+  border-color: rgba(30, 70, 110, .18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88);
+}
+
+.quota-card--compact-capsule.quota-orb.quota-orb--quad-all,
+.quota-card--compact-capsule.quota-orb.quota-orb--quad-all.quota-card--theme-light {
+  --surface-radius: 25px;
+  --quad-outline: rgba(214, 232, 248, .24);
+  --quad-divider: rgba(255, 255, 255, .24);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  border-radius: var(--surface-radius);
+  overflow: hidden;
+}
+.quota-card--compact-capsule.quota-orb.quota-orb--quad-all.quota-card--theme-light {
+  --quad-outline: rgba(54, 99, 124, .16);
+  --quad-divider: rgba(255, 255, 255, .76);
+}
+.quota-card--compact-capsule.quota-orb.quota-orb--quad-all::after {
+  content: "";
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--quad-outline);
+  background:
+    linear-gradient(var(--quad-divider), var(--quad-divider)) center / 1px 100% no-repeat,
+    linear-gradient(var(--quad-divider), var(--quad-divider)) center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+.quota-orb--multi-row.quota-orb--quad-all > :is(.capsule-tile--quad-top, .capsule-tile--quad-bottom) {
+  height: 100%;
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+}
+.quota-orb--quad-all .capsule-tile--quad-top {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  background: linear-gradient(90deg, var(--gemini-left-surface), var(--gemini-mid-surface) 50%, var(--gemini-right-surface));
+}
+.quota-orb--quad-all .capsule-tile--quad-bottom {
+  background: linear-gradient(90deg, var(--ai-codex-surface) 50%, var(--ai-claude-surface) 50%);
+}
+.quota-orb--quad-all .capsule-ai-pair > .capsule-quota-readout {
+  justify-self: center;
+  width: max-content;
+  max-width: 100%;
+  gap: 3px;
+}
+.quota-orb--quad-all .capsule-ring-stack {
+  width: 26px;
+  height: 26px;
+}
+.quota-card--compact-capsule.quota-orb { touch-action: none; }
+
+/* Tiles define the visible corners of the L-shaped capsule. */
+.quota-orb--corner-l .capsule-tile--companion.capsule-tile--row-top { border-radius: 20px 20px 0 0; }
+.quota-orb--corner-l .capsule-tile--companion.capsule-tile--row-bottom { border-radius: 0 0 20px 20px; }
+.quota-orb--corner-l .capsule-tile--gemini-row.capsule-tile--row-bottom.capsule-tile--join-right { border-radius: 20px 0 20px 20px; }
+.quota-orb--corner-l .capsule-tile--gemini-row.capsule-tile--row-bottom.capsule-tile--join-left { border-radius: 0 20px 20px 20px; }
+.quota-orb--corner-l .capsule-tile--gemini-row.capsule-tile--row-top.capsule-tile--join-right { border-radius: 20px 20px 0 20px; }
+.quota-orb--corner-l .capsule-tile--gemini-row.capsule-tile--row-top.capsule-tile--join-left { border-radius: 20px 20px 20px 0; }
+
+.claude-connection {
+  position: relative;
+  display: inline-flex;
+}
+
+.claude-connection-button {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid var(--tone-line);
+  border-radius: 50%;
+  background: var(--tone-wash);
+  color: var(--glass-muted);
+  cursor: pointer;
+}
+
+.claude-connection-button svg { width: 12px; height: 12px; }
+
+.claude-connection-tooltip {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  gap: 3px;
+  visibility: hidden;
+  width: max-content;
+  max-width: 165px;
+  padding: 7px 9px;
+  border: 1px solid var(--tone-line);
+  border-radius: 9px;
+  background: #2f241c;
+  color: #fff5e8;
+  box-shadow: 0 3px 12px #0003;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 500;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+
+.quota-card--theme-light .claude-connection-tooltip {
+  background: #fff9ef;
+  color: #57351f;
+}
+
+.claude-connection:hover .claude-connection-tooltip,
+.claude-connection-button:focus-visible + .claude-connection-tooltip { visibility: visible; }
+
+/* A single Gemini quota card contains both independent model pools. */
+.gemini-quota-card {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0;
+  overflow: hidden;
+}
+.gemini-quota-card > .codex-ring-card {
+  margin: 0;
+  padding: 13px 13px 11px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.gemini-quota-card > .codex-ring-card + .codex-ring-card {
+  border-inline-start: 1px solid var(--tone-line);
+  padding-inline-start: 12px;
+}
+.cockpit-ai-grid .gemini-quota-card > .codex-ring-card:first-child {
+  padding-inline-end: calc(13px + var(--gemini-grid-gap) / 2);
+}
+.cockpit-ai-grid .gemini-quota-card > .codex-ring-card + .codex-ring-card {
+  padding-inline-start: calc(12px + var(--gemini-grid-gap) / 2);
+}
+.gemini-quota-card .codex-ring-header { flex-wrap: wrap; row-gap: 3px; }
+.gemini-quota-card .codex-ring-header > span { min-width: 0; overflow-wrap: anywhere; }
+.usage-source-option--gemini.is-active {
+  color: var(--p-navy);
+  background: linear-gradient(105deg, var(--gemini-aqua-soft), var(--gemini-honey-soft));
+}
+.capsule-gemini-pair { inline-size: 100%; }
+.quota-orb--multi-row .capsule-tile { overflow: hidden; }
+.quota-orb--multi-row .capsule-ai-pair { flex: 1 1 0; }
+
+/* Keep the provider wash over the macOS material without hiding the desktop tint. */
+.quota-card--compact-capsule.quota-orb[data-capsule-glass] {
+  --capsule-glass-opacity: 72%;
+  --capsule-rim-light: rgba(250, 253, 255, .72);
+  --capsule-rim-shade: rgba(3, 12, 24, .51);
+  --capsule-glass-codex: #163b60;
+  --capsule-glass-claude: #452811;
+  --capsule-glass-blue-wash: color-mix(in srgb, var(--capsule-glass-codex) var(--capsule-glass-opacity), transparent);
+  --capsule-glass-orange-wash: color-mix(in srgb, var(--capsule-glass-claude) var(--capsule-glass-opacity), transparent);
+  --ai-codex-surface: var(--capsule-glass-blue-wash);
+  --ai-claude-surface: var(--capsule-glass-orange-wash);
+  border-color: transparent;
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].quota-card--theme-light {
+  --capsule-glass-opacity: 53%;
+  --capsule-rim-light: rgba(255, 255, 255, .99);
+  --capsule-rim-shade: rgba(35, 65, 82, .40);
+  --capsule-glass-codex: #dceff7;
+  --capsule-glass-claude: #ffebcd;
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass]:is(.cockpit-mode--codex, .cockpit-mode--claude) {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--capsule-glass-tint) 76%, white), var(--capsule-glass-tint));
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].cockpit-mode--codex {
+  --capsule-glass-tint: var(--ai-codex-surface);
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].cockpit-mode--claude {
+  --capsule-glass-tint: var(--ai-claude-surface);
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].cockpit-mode--gemini,
+.quota-card--compact-capsule.quota-orb[data-capsule-glass] .capsule-tile--gemini-row {
+  --gemini-left-surface: color-mix(in srgb, #24505a var(--capsule-glass-opacity), transparent);
+  --gemini-mid-surface: color-mix(in srgb, #3c4843 var(--capsule-glass-opacity), transparent);
+  --gemini-right-surface: color-mix(in srgb, #514126 var(--capsule-glass-opacity), transparent);
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].quota-card--theme-light.cockpit-mode--gemini,
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].quota-card--theme-light .capsule-tile--gemini-row {
+  --gemini-left-surface: color-mix(in srgb, #d1eff1 var(--capsule-glass-opacity), transparent);
+  --gemini-mid-surface: color-mix(in srgb, #fff9e7 var(--capsule-glass-opacity), transparent);
+  --gemini-right-surface: color-mix(in srgb, #ffeecb var(--capsule-glass-opacity), transparent);
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass] .capsule-tile--bottom-pair {
+  --ai-codex-surface: var(--capsule-glass-blue-wash);
+  --ai-claude-surface: var(--capsule-glass-orange-wash);
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass].quota-orb--quad-all {
+  --quad-outline: transparent;
+}
+.quota-card--compact-capsule.quota-orb[data-capsule-glass]::before {
+  display: block;
+  z-index: 1;
+  box-sizing: border-box;
+  padding: 1.5px;
+  border: 0;
+  background:
+    radial-gradient(ellipse at 10% 10%, var(--capsule-rim-light), transparent 44%),
+    radial-gradient(ellipse at 91% 93%, var(--capsule-rim-light), transparent 50%),
+    linear-gradient(155deg, var(--capsule-rim-shade), transparent 49%, var(--capsule-rim-shade));
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quota-card--compact-capsule.quota-orb[data-capsule-glass] .capsule-quota-readout {
+    transition: scale 260ms cubic-bezier(.22, .85, .31, 1.52);
+  }
+  .quota-card--compact-capsule.quota-orb[data-capsule-glass]::before {
+    transition: filter 210ms ease-out;
+  }
+  .quota-card--compact-capsule.quota-orb[data-capsule-glass]:active .capsule-quota-readout {
+    scale: .94;
+    transition: scale 90ms ease-out;
+  }
+  .quota-card--compact-capsule.quota-orb[data-capsule-glass]:active::before {
+    filter: brightness(1.22);
+  }
+}

@@ -3,6 +3,25 @@ import { DEFAULT_WIDGET_PREFERENCES, defaultFontScaleForPlatform, effectiveCompa
 import { UI_FONT_OPTIONS, defaultFontFamilyForPlatform } from "./fonts";
 
 describe("widget preference migration", () => {
+  it("keeps Claude off after restoring Codex and Gemini in AI mode", () => {
+    const toggled = normalizeWidgetPreferences({ cockpitMode: "ai", codexEnabled: true, claudeEnabled: false, geminiEnabled: true });
+    const restored = normalizeWidgetPreferences(JSON.parse(JSON.stringify(toggled)));
+    expect(restored).toMatchObject({ cockpitMode: "ai", codexEnabled: true, claudeEnabled: false, geminiEnabled: true });
+    expect(normalizeWidgetPreferences({ cockpitMode: "ai", claudeEnabled: false }).cockpitMode).toBe("codex");
+  });
+
+  it("infers Claude only for legacy Claude or Codex and Claude profiles", () => {
+    expect(normalizeWidgetPreferences({ cockpitMode: "claude" }).claudeEnabled).toBe(true);
+    expect(normalizeWidgetPreferences({ cockpitMode: "ai" }).claudeEnabled).toBe(true);
+    expect(normalizeWidgetPreferences({ cockpitMode: "ai", geminiEnabled: true }).claudeEnabled).toBe(false);
+  });
+
+  it("defaults to manual updates while honoring saved opt-in", () => {
+    expect(normalizeWidgetPreferences({}).automaticUpdates).toBe(false);
+    expect(normalizeWidgetPreferences({ automaticUpdates: false }).automaticUpdates).toBe(false);
+    expect(normalizeWidgetPreferences({ automaticUpdates: true }).automaticUpdates).toBe(true);
+  });
+
   it("defaults to stable updates without changing an explicit beta preference", () => {
     expect(DEFAULT_WIDGET_PREFERENCES.updateChannel).toBe("stable");
     expect(normalizeWidgetPreferences({}).updateChannel).toBe("stable");
@@ -60,6 +79,11 @@ describe("widget preference migration", () => {
     expect(value.riskFirst).toBe(false);
     expect(value.showHistorySparklines).toBe(true);
     expect(value.notificationsEnabled).toBe(true);
+  });
+
+  it("defaults Liquid Glass to off and preserves an explicit opt-in", () => {
+    expect(normalizeWidgetPreferences({}).capsuleLiquidGlass).toBe(false);
+    expect(normalizeWidgetPreferences({ capsuleLiquidGlass: true }).capsuleLiquidGlass).toBe(true);
   });
 
   it("preserves an explicit no-blur background preference", () => {

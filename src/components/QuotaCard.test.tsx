@@ -229,8 +229,8 @@ describe("QuotaCard platform ledger", () => {
 
   it("sizes the capsule from the visible daily ratio text", () => {
     expect(capsuleLogicalWidth(24, 1.15)).toBe(88);
-    expect(capsuleLogicalWidth(118.8, 1.15)).toBe(123);
-    expect(capsuleLogicalWidth(118.8, 2)).toBe(148);
+    expect(capsuleLogicalWidth(118.8, 1.15)).toBe(100);
+    expect(capsuleLogicalWidth(118.8, 2)).toBe(108);
   });
 
   it("colors only the weekly ring by the remaining-quota bands", () => {
@@ -861,6 +861,42 @@ describe("QuotaCard platform ledger", () => {
     expect(onActivate).not.toHaveBeenCalled();
   });
 
+  it("captures the Mac capsule pointer and finishes a drag without expanding", () => {
+    const platform = vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    try {
+      const move = vi.fn();
+      const finish = vi.fn();
+      const onPointerDrag = vi.fn(() => ({ move, finish }));
+      const onActivate = vi.fn();
+      render(<QuotaOrb snapshot={codex} compactLayout="capsule" onDrag={noop} onPointerDrag={onPointerDrag} onActivate={onActivate} />);
+      const capsule = screen.getByRole("button");
+      Object.assign(capsule, { setPointerCapture: vi.fn() });
+      const pointer = (type: string, x: number, y: number) => {
+        const event = new MouseEvent(type, { bubbles: true, screenX: x, screenY: y });
+        Object.assign(event, { isPrimary: true, pointerId: 1 });
+        fireEvent(capsule, event);
+      };
+
+      pointer("pointerdown", 120, 160);
+      pointer("pointerup", 120, 160);
+      fireEvent.click(capsule, { detail: 1 });
+      expect(onActivate).toHaveBeenCalledOnce();
+      expect(onPointerDrag).not.toHaveBeenCalled();
+
+      pointer("pointerdown", 120, 160);
+      pointer("pointermove", 128, 164);
+      pointer("pointermove", 146, 170);
+      pointer("pointerup", 148, 173);
+      fireEvent.click(capsule, { detail: 1 });
+      expect(onPointerDrag).toHaveBeenCalledOnce();
+      expect(move.mock.calls).toEqual([[8, 4], [26, 10], [28, 13]]);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(onActivate).toHaveBeenCalledOnce();
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it.each(["Win32", "Linux x86_64", "Linux aarch64"])("keeps repeated %s clicks out of the native drag loop but still hands off a real drag", (platformName) => {
     const platform = vi.spyOn(window.navigator, "platform", "get").mockReturnValue(platformName);
     try {
@@ -934,14 +970,14 @@ describe("QuotaCard platform ledger", () => {
           onActivate={noop}
         />,
       );
-      const capsule = screen.getByLabelText(/Weekly quota remaining 74%; Today's used \/ personal cap 118.8%/);
+      const capsule = screen.getByLabelText(/Weekly quota remaining 74%; Today's used \/ personal cap 119%/);
       expect(capsule).toHaveClass("quota-card--compact-capsule");
       expect(capsule.querySelector(".capsule-daily-disc")).toBeInTheDocument();
       expect(capsule.querySelector(".capsule-ring--remaining")).toHaveClass("capsule-ring--quota-high");
       expect(capsule.querySelector(".capsule-quota-readout")).toHaveStyle({ "--remaining-ring-angle": "266.4deg" });
-      expect(capsule).toHaveStyle({ "--capsule-logical-width": "123px" });
+      expect(capsule).toHaveStyle({ "--capsule-logical-width": "100px" });
       expect(capsule.querySelector(".capsule-quota-readout")).toHaveClass("capsule-quota-readout--over");
-      expect(capsule.querySelector(".capsule-daily-value b")?.textContent).toBe("118.8%");
+      expect(capsule.querySelector(".capsule-daily-value b")?.textContent).toBe("119%");
       expect(capsule.querySelector(".capsule-ring--actual")).not.toBeInTheDocument();
       expect(capsule.querySelector(".capsule-ring--suggested")).not.toBeInTheDocument();
     } finally {
@@ -982,11 +1018,11 @@ describe("QuotaCard platform ledger", () => {
     });
     try {
       const { rerender } = render(
-        <QuotaOrb snapshot={codex} dailyUsage={dailyUsage(79.9)} dailyBudgetPercent={100} language="en" compactLayout="capsule" onDrag={noop} onActivate={noop} />,
+        <QuotaOrb snapshot={codex} dailyUsage={dailyUsage(79.4)} dailyBudgetPercent={100} language="en" compactLayout="capsule" onDrag={noop} onActivate={noop} />,
       );
       const getReadout = () => screen.getByRole("button").querySelector(".capsule-quota-readout")!;
       expect(getReadout()).toHaveClass("capsule-quota-readout--normal");
-      expect(getReadout()).toHaveTextContent("79.9%");
+      expect(getReadout()).toHaveTextContent("79%");
 
       rerender(<QuotaOrb snapshot={codex} dailyUsage={dailyUsage(80)} dailyBudgetPercent={100} language="en" compactLayout="capsule" onDrag={noop} onActivate={noop} />);
       expect(getReadout()).toHaveClass("capsule-quota-readout--warning");

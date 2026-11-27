@@ -18,8 +18,7 @@
   color: var(--glass-muted, rgba(224, 232, 245, 0.62));
   font-size: calc(10px * var(--ui-font-scale, 1));
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .task-usage-detail {

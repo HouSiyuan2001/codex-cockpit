@@ -5,8 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES } from "../lib/preferences";
 import { buildClaudeCockpitView } from "../lib/claudeCockpit";
-import { buildClaudePlan, claudeResetWatch, EMPTY_CLAUDE_PLAN, observeClaudeQuota } from "../lib/claudePlan";
-import type { ClaudeQuota, CockpitMode, ProviderSnapshot } from "../types";
+import type { ClaudeQuota, CockpitMode, ProviderSnapshot, SharedClaudeQuota } from "../types";
 import { aiCapsuleLogicalWidth, capsuleLogicalWidth, QuotaCard, QuotaOrb } from "./QuotaCard";
 
 afterEach(cleanup);
@@ -38,26 +37,13 @@ const quota: ClaudeQuota = {
 interface ModeHandlers {
   onClaudeLogin?: () => void;
   onCockpitModeChange?: (mode: CockpitMode) => void;
-  onOpenResetForecast?: (url: string) => void;
-  onClaudeCapChange?: (value: number | null) => void;
-  onClaudeRiskChange?: (value: number | null) => void;
-  onResetRiskChange?: (value: number | null) => void;
 }
 
-const forecast = {
-  checkedAt: now.toISOString(),
-  notice: {
-    observedAt: "2026-11-09T18:00:00Z", expiresAt: "2026-11-11T18:00:00Z",
-    announcementUrl: "https://x.com/ClaudeDevs/status/2120275296637321476",
-  },
-};
-
-function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota) {
+function renderCard(cockpitMode: CockpitMode, handlers: ModeHandlers = {}, claudeQuota: ClaudeQuota = quota, shared: SharedClaudeQuota | null = null) {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, codexFocusMode: true, cockpitMode, claudeEnabled: true };
-  const claudeView = buildClaudeCockpitView(claudeQuota, now);
-  const claudePlan = buildClaudePlan(observeClaudeQuota(EMPTY_CLAUDE_PLAN, claudeQuota, now), claudeQuota, 25, now);
+  const claudeView = buildClaudeCockpitView(claudeQuota, now, shared);
   return render(<QuotaCard snapshot={codex} snapshots={[codex]} preferences={preferences}
-    now={now} claudeView={claudeView} claudePlan={claudePlan} claudeWatch={claudeResetWatch(forecast, now)} {...handlers}
+    now={now} claudeView={claudeView} claudeShared={{ status: "ready", snapshot: shared, refresh: vi.fn() }} {...handlers}
     onSelectProvider={() => {}} onLock={() => {}} onLanguage={() => {}} onDrag={() => {}} onHover={() => {}} consumingProviders={new Set()} />);
 }
 
@@ -72,45 +58,65 @@ it("switches between the Codex, Claude and AI cockpits from one control", () => 
   expect(onCockpitModeChange.mock.calls).toEqual([["claude"], ["ai"]]);
 });
 
-it("shows the shared daily controls next to Claude quota and opens the original announcement", () => {
-  const onOpenResetForecast = vi.fn(), onClaudeCapChange = vi.fn(), onClaudeRiskChange = vi.fn(), onResetRiskChange = vi.fn();
-  const { container } = renderCard("claude", { onOpenResetForecast, onClaudeCapChange, onClaudeRiskChange, onResetRiskChange });
+it("shows separate official weekly and 5-hour quotas with their countdowns", () => {
+  const { container } = renderCard("claude");
   expect(container.querySelector(".codex-focus-card")).toHaveClass("cockpit-mode--claude");
-  expect(screen.getByText("Claude 驾驶舱")).toBeInTheDocument();
   const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
-  expect(weekly).toHaveClass("codex-ring-card--claude");
-  expect(weekly).toHaveTextContent("5h 已用 38%");
-  expect(weekly).toHaveTextContent("5h 重置 2小时30分");
+  const fiveHour = screen.getByRole("group", { name: "5h 已用 38%" });
+  expect(weekly.querySelector(".reset-countdown-footer > span:first-child")).toHaveTextContent("本周已用 57%");
   expect(weekly).toHaveTextContent("周重置 2天20小时");
-  expect(weekly).not.toHaveTextContent("周额度周期");
-  expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "38 62");
-  fireEvent.change(screen.getByRole("slider", { name: "个人上限" }), { target: { value: "26" } });
-  expect(onClaudeCapChange).toHaveBeenCalledWith(26);
-  const risk = screen.getByRole("slider", { name: "重置风险" });
-  expect(risk).toBeEnabled(); // A banked grant is an announcement, not a probability.
-  fireEvent.change(risk, { target: { value: "32" } });
-  expect(onClaudeRiskChange).toHaveBeenCalledWith(32);
-  expect(onResetRiskChange).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: /Claude 重置公告/ }));
-  expect(onOpenResetForecast).toHaveBeenCalledWith(forecast.notice.announcementUrl);
-  expect(screen.queryByText("近 7 天模型")).not.toBeInTheDocument();
+  expect(fiveHour.querySelector(".reset-countdown-footer > span:first-child")).toHaveTextContent("5h 剩余 62%");
+  expect(fiveHour).toHaveTextContent("5h 重置 2小时30分");
+  expect(weekly.querySelector(".codex-ring-progress")).toHaveAttribute("stroke-dasharray", "43 57");
+  expect(fiveHour.querySelector(".codex-ring-progress")).toHaveAttribute("stroke-dasharray", "38 62");
+  expect(weekly.querySelector(".codex-ring-progress--five-hour")).toBeNull();
+  expect(screen.queryByText("官方额度快照")).not.toBeInTheDocument();
+  expect(screen.queryByText("今日已用")).not.toBeInTheDocument();
+  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
 });
 
 it("renders zero used when the 5-hour window is unused", () => {
   renderCard("claude", {}, { ...quota, fiveHour: { usedPercent: 0, resetsAt: null } });
-  const weekly = screen.getByRole("group", { name: "本周剩余 43%" });
-  expect(weekly).toHaveTextContent("5h 已用 0%");
-  expect(weekly).toHaveTextContent("5h 重置 未知");
-  expect(weekly.querySelector(".codex-ring-progress--five-hour")).toHaveAttribute("stroke-dasharray", "0 100");
+  const fiveHour = screen.getByRole("group", { name: "5h 已用 0%" });
+  expect(fiveHour.querySelector(".reset-countdown-footer > span:first-child")).toHaveTextContent("5h 剩余 100%");
+  expect(fiveHour).toHaveTextContent("5h 重置 未知");
+  expect(fiveHour.querySelector(".codex-ring-progress")).toHaveAttribute("stroke-dasharray", "0 100");
+});
+
+it("shows a pending reading when the 5-hour window resets", () => {
+  renderCard("claude", {}, { ...quota, fiveHour: { usedPercent: 85, resetsAt: now.toISOString() } });
+  const fiveHour = screen.getByRole("group", { name: "5h 已用" });
+  expect(fiveHour.querySelector(".reset-countdown-footer > span:first-child")).toHaveTextContent("5h 剩余 —");
+  expect(fiveHour).toHaveTextContent("5h 重置 待更新");
+  expect(fiveHour).not.toHaveTextContent("85%");
+  expect(screen.getByRole("group", { name: "本周剩余 43%" })).toHaveTextContent("LIVE");
 });
 
 it.each(["claude", "ai"] as const)("offers Claude re-login in %s mode when signed out", (mode) => {
   const onClaudeLogin = vi.fn();
   renderCard(mode, { onClaudeLogin }, { ...quota, status: "signed_out", fiveHour: null, sevenDay: null, message: "Claude Code login not found." });
-  expect(screen.getByRole("status")).toHaveTextContent("未找到 Claude Code 登录");
-  fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
+  const icon = screen.getByRole("button", { name: "未找到 Claude Code 登录" });
+  expect(icon).toHaveTextContent(/^$/);
+  expect(screen.queryByRole("button", { name: "查看其他设备额度" })).not.toBeInTheDocument();
+  fireEvent.click(icon);
   expect(onClaudeLogin).toHaveBeenCalledTimes(1);
-  expect(screen.queryByRole("group", { name: /本周剩余/ })).not.toBeInTheDocument();
+});
+
+it.each(["claude", "ai"] as const)("displays synced Claude quotas in %s mode without a click", (mode) => {
+  const shared = { deviceId: "mac", deviceName: "Work Mac", quota: {
+    observedAt: now.toISOString(),
+    fiveHour: { usedPercent: 28, resetsAt: quota.fiveHour?.resetsAt ?? null },
+    sevenDay: { usedPercent: 42, resetsAt: quota.sevenDay?.resetsAt ?? null },
+  } };
+  const signedOut: ClaudeQuota = { ...quota, status: "signed_out", fiveHour: null, sevenDay: null };
+  renderCard(mode, {}, signedOut, shared);
+  const weekly = screen.getByRole("group", { name: mode === "claude" ? "本周剩余 58%" : "Claude 58%" });
+  const fiveHour = mode === "claude" ? screen.getByRole("group", { name: "5h 已用 28%" }) : weekly;
+  expect(fiveHour).toHaveTextContent("5h 重置 2小时30分");
+  const icon = screen.getByRole("button", { name: "未找到 Claude Code 登录" });
+  expect(icon).toHaveTextContent(/^$/);
+  expect(icon).toHaveAccessibleDescription(/同步自 Work Mac/);
+  expect(screen.queryByRole("button", { name: "查看其他设备额度" })).not.toBeInTheDocument();
 });
 
 it("puts Codex and Claude weekly quotas side by side in the AI cockpit", () => {
@@ -148,12 +154,11 @@ it("renders Claude and AI capsules with matching widths", () => {
   expect(aiCapsuleLogicalWidth(5, 38)).toBeGreaterThan(capsuleLogicalWidth(38));
 });
 
-it("falls back to today's use when the plan reports no 5-hour window", () => {
+it("shows a missing 5-hour period and falls back to weekly quota in the capsule", () => {
   renderCard("claude", {}, { ...quota, fiveHour: null });
-  expect(screen.queryByRole("group", { name: /5h 已用/ })).not.toBeInTheDocument();
-  expect(screen.getByRole("group", { name: /^今日已用/ })).toHaveClass("codex-ring-card--claude");
-  const { container } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourUsed={null} claudeTodayRatio={50} dailyBudgetPercent={10} onDrag={() => {}} />);
-  expect(container.querySelector(".quota-orb")?.getAttribute("aria-label")).toMatch(/今日已用\/个人上限 50%/);
+  expect(screen.getByRole("group", { name: "5h 已用" })).toHaveTextContent("—");
+  const { container } = render(<QuotaOrb snapshot={codex} compactLayout="capsule" cockpitMode="claude" claudeWeeklyRemaining={43} claudeFiveHourUsed={null} dailyBudgetPercent={10} onDrag={() => {}} />);
+  expect(container.querySelector(".quota-orb")).toHaveAccessibleName("Claude 本周额度剩余 43%");
 });
 
 it("keeps a Codex-only cockpit when Claude is switched off", () => {

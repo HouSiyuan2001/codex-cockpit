@@ -45,3 +45,17 @@ it("does not reuse yesterday's pending edits",async()=>{
   expect(result.current.pending).toBe(false);
   expect(mock.invoke.mock.calls.some(([,args])=>args?.body?.change)).toBe(false);
 });
+it("uses automatic risk for old shared seeds and keeps explicit edits for today", async () => {
+  mock.invoke.mockImplementation(async (command, args) => {
+    if (command === "get_cloud_sync_status") {
+      return { config: { enabled: true, spaceId: "space-a", deviceId: "mac" } };
+    }
+    const change = args.body.change;
+    return { plan: { basis, people: {}, risk: change ? { value: change.value, revision: 1 } : { value: 60, revision: 0 } } };
+  });
+  const { result } = renderHook(() => useSharedDailyPlan(basis));
+  await waitFor(() => expect(result.current.plan?.risk.value).toBeNull());
+  act(() => result.current.change("risk", 0));
+  expect(result.current.plan?.risk.value).toBe(0);
+  await waitFor(() => expect(result.current.plan?.risk).toEqual({ value: 0, revision: 1 }));
+});

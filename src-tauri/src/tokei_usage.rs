@@ -12,7 +12,6 @@ use std::{
         Mutex,
     },
 };
-use tauri::Manager;
 
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SCAN_BYTES: u64 = 64 * 1024 * 1024;
@@ -250,10 +249,7 @@ pub(crate) fn bootstrap_local_groups(
 #[tauri::command]
 pub fn get_tokei_groups(app: tauri::AppHandle) -> Result<GroupSettings, String> {
     let home = home()?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "settings_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "settings_unavailable")?;
     let id = crate::local_usage::device_id(&data, &home)?;
     bootstrap_local_groups(&data, &home, &id)
 }
@@ -263,10 +259,7 @@ pub async fn save_tokei_groups(
     settings: GroupSettings,
     expected: GroupSettings,
 ) -> Result<GroupSettings, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "settings_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "settings_unavailable")?;
     if crate::cloud_sync::config(&data)?.is_some() {
         return crate::cloud_sync::save_groups(&data, &settings, &expected).await;
     }
@@ -585,10 +578,7 @@ fn load_usage(home: &Path, settings: GroupSettings) -> TokeiUsage {
 #[tauri::command]
 pub async fn get_tokei_usage(app: tauri::AppHandle) -> Result<TokeiUsage, String> {
     let home = home()?;
-    let data_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "settings_unavailable")?;
+    let data_dir = crate::app_config_dir(&app).map_err(|_| "settings_unavailable")?;
     let device_id = crate::local_usage::device_id(&data_dir, &home)?;
     let settings = bootstrap_local_groups(&data_dir, &home, &device_id)?;
     tauri::async_runtime::spawn_blocking(move || {

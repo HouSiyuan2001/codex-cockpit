@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{path::Path, time::Duration};
-use tauri::Manager;
 
 const SERVICE: &str = "app.codexcockpit.desktop.cloud-sync";
 const CONFIG: &str = "cloud-sync.json";
@@ -138,9 +137,7 @@ pub async fn save_groups(
     tokei_usage::validate_groups(settings)?;
     let _guard = usage_sync::RUN_LOCK.lock().await;
     let cfg = config(data)?.ok_or("cloud_not_connected")?;
-    let token = entry(&cfg.endpoint, &cfg.device_id)?
-        .get_password()
-        .map_err(|_| "cloud_keychain_unavailable")?;
+    let token = read_token(&cfg, false)?;
     let remote = request(&cfg.endpoint, "/v2/settings", Some(&token), None).await?;
     let current = &remote["sharedSettings"];
     if current["value"].is_null() {
@@ -205,30 +202,21 @@ pub fn config(data: &Path) -> Result<Option<CloudConfig>, String> {
 
 #[tauri::command]
 pub async fn exchange_daily_plan(app: tauri::AppHandle, body: Value) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let cfg = config(&data)?
         .filter(|cfg| cfg.enabled)
         .ok_or("cloud_not_connected")?;
     if body.get("spaceId").and_then(Value::as_str) != Some(cfg.space_id.as_str()) {
         return Err("cloud_plan_scope_changed".into());
     }
-    let device = cfg.device_id.clone();
-    let endpoint = cfg.endpoint.clone();
-    // Credential UI must not block an async runtime thread.
-    let token = tauri::async_runtime::spawn_blocking(move || {
-        entry(&endpoint, &device)?
-            .get_password()
-            .map_err(|_| "cloud_keychain_unavailable".to_string())
-    })
-    .await
-    .map_err(|_| "cloud_keychain_unavailable")??;
+    let token = read_token(&cfg, false)?;
     request(&cfg.endpoint, "/v2/daily-plan", Some(&token), Some(body)).await
 }
 
 fn entry(endpoint: &str, device: &str) -> Result<keyring::Entry, String> {
+    if crate::credentials_disabled_for_preview() {
+        return Err("cloud_not_connected".into());
+    }
     if !cfg!(any(
         target_os = "macos",
         target_os = "windows",
@@ -238,6 +226,45 @@ fn entry(endpoint: &str, device: &str) -> Result<keyring::Entry, String> {
     }
     keyring::Entry::new(SERVICE, &credential_key(endpoint, device))
         .map_err(|_| "cloud_keychain_unavailable".into())
+}
+
+// The login keychain uses a process-wide interaction switch. Serialize cloud
+// keychain calls and restore the switch before releasing the lock.
+fn with_keychain_access<T>(
+    interactive: bool,
+    operation: impl FnOnce() -> keyring::Result<T>,
+) -> Result<T, String> {
+    #[cfg(target_os = "macos")]
+    let _access = {
+        use security_framework::os::macos::keychain::SecKeychain;
+
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let lock = if interactive {
+            LOCK.lock().map_err(|_| "cloud_keychain_unavailable")?
+        } else {
+            LOCK.try_lock().map_err(|_| "cloud_keychain_unavailable")?
+        };
+        let interaction_allowed =
+            SecKeychain::user_interaction_allowed().map_err(|_| "cloud_keychain_unavailable")?;
+        let interaction = if !interactive && interaction_allowed {
+            Some(
+                SecKeychain::disable_user_interaction()
+                    .map_err(|_| "cloud_keychain_unavailable")?,
+            )
+        } else {
+            None
+        };
+        (interaction, lock)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = interactive;
+
+    operation().map_err(|_| "cloud_keychain_unavailable".into())
+}
+
+pub(crate) fn read_token(cfg: &CloudConfig, interactive: bool) -> Result<String, String> {
+    let credential = entry(&cfg.endpoint, &cfg.device_id)?;
+    with_keychain_access(interactive, || credential.get_password())
 }
 
 async fn request(
@@ -369,10 +396,7 @@ async fn enroll(
 
 #[tauri::command]
 pub fn get_cloud_sync_status(app: tauri::AppHandle) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let mut members =
         tokei_usage::read_json(&data.join("cloud-members.json"), 65536).unwrap_or(json!([]));
     if let Some(rows) = members.as_array_mut() {
@@ -433,10 +457,7 @@ pub async fn connect_cloud_sync(app: tauri::AppHandle, setup: CloudSetup) -> Res
         share_task_details,
     } = setup;
     let _guard = usage_sync::RUN_LOCK.try_lock().map_err(|_| "sync_busy")?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let endpoint = normalize_endpoint(&endpoint)?;
     let name = display_name.trim();
     if name.is_empty() || name.len() > 192 || name.chars().any(char::is_control) {
@@ -453,7 +474,8 @@ pub async fn connect_cloud_sync(app: tauri::AppHandle, setup: CloudSetup) -> Res
         return get_cloud_sync_status(app);
     }
     verify_device(&data, device)?;
-    let token = if let Ok(token) = entry(&endpoint, device)?.get_password() {
+    let credential = entry(&endpoint, device)?;
+    let token = if let Ok(token) = with_keychain_access(false, || credential.get_password()) {
         token
     } else {
         let joined = if let Some(code) = invite_code.filter(|code| !code.trim().is_empty()) {
@@ -486,9 +508,7 @@ pub async fn connect_cloud_sync(app: tauri::AppHandle, setup: CloudSetup) -> Res
             .ok_or("cloud_response_invalid")?
             .to_owned()
     };
-    entry(&endpoint, device)?
-        .set_password(&token)
-        .map_err(|_| "cloud_keychain_unavailable")?;
+    with_keychain_access(true, || credential.set_password(&token))?;
     enroll(&data, &endpoint, token, Some(device), share_task_details).await?;
     if config(&data)?.is_some_and(|cfg| cfg.role == "owner") {
         let path = data.join("usage-groups.json");
@@ -513,14 +533,9 @@ pub async fn connect_cloud_sync(app: tauri::AppHandle, setup: CloudSetup) -> Res
 
 #[tauri::command]
 pub async fn create_cloud_invite(app: tauri::AppHandle) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let cfg = config(&data)?.ok_or("cloud_not_connected")?;
-    let token = entry(&cfg.endpoint, &cfg.device_id)?
-        .get_password()
-        .map_err(|_| "cloud_keychain_unavailable")?;
+    let token = read_token(&cfg, true)?;
     request(
         &cfg.endpoint,
         "/v1/invites",
@@ -535,17 +550,12 @@ pub async fn revoke_cloud_device(
     app: tauri::AppHandle,
     device_id: String,
 ) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let cfg = config(&data)?.ok_or("cloud_not_connected")?;
     if cfg.role != "owner" || device_id == cfg.device_id || !usage_sync::safe_id(&device_id) {
         return Err("cloud_device_revoke_denied".into());
     }
-    let token = entry(&cfg.endpoint, &cfg.device_id)?
-        .get_password()
-        .map_err(|_| "cloud_keychain_unavailable")?;
+    let token = read_token(&cfg, true)?;
     request(
         &cfg.endpoint,
         "/v1/devices/revoke",
@@ -560,10 +570,7 @@ pub async fn revoke_cloud_device(
 #[tauri::command]
 pub fn set_cloud_sync_enabled(app: tauri::AppHandle, enabled: bool) -> Result<Value, String> {
     let _guard = usage_sync::RUN_LOCK.try_lock().map_err(|_| "sync_busy")?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let mut cfg = config(&data)?.ok_or("cloud_not_connected")?;
     cfg.enabled = enabled;
     usage_sync::write_json(&data.join(CONFIG), &cfg)?;
@@ -573,18 +580,124 @@ pub fn set_cloud_sync_enabled(app: tauri::AppHandle, enabled: bool) -> Result<Va
 #[tauri::command]
 pub fn set_cloud_task_sharing(app: tauri::AppHandle, enabled: bool) -> Result<Value, String> {
     let _guard = usage_sync::RUN_LOCK.try_lock().map_err(|_| "sync_busy")?;
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "sync_storage_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
     let mut cfg = config(&data)?.ok_or("cloud_not_connected")?;
     cfg.share_task_details = enabled;
     usage_sync::write_json(&data.join(CONFIG), &cfg)?;
     get_cloud_sync_status(app)
 }
 
-pub async fn exchange(data: &Path, payload: Value) -> Result<(), String> {
-    let cfg = config(data)?.ok_or("cloud_not_connected")?;
+pub(crate) async fn publish_claude_quota(
+    data: &Path,
+    cfg: &CloudConfig,
+    token: &str,
+) -> Result<(), String> {
+    let Some(snapshot) = crate::claude_quota_sync::latest(data) else {
+        return Ok(());
+    };
+    if !cfg.enabled {
+        return Ok(());
+    }
+    let payload = serde_json::to_value(snapshot).map_err(|_| "snapshot_invalid")?;
+    request(
+        &cfg.endpoint,
+        "/v2/claude-quota",
+        Some(token),
+        Some(payload),
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn get_shared_claude_quota(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::claude_quota_sync::Peer>, String> {
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
+    #[cfg(debug_assertions)]
+    if std::env::var_os("CODEX_COCKPIT_CONFIG_DIR")
+        .is_some_and(|root| Path::new(&root).is_absolute())
+    {
+        if let Some(path) = std::env::var_os("CODEX_COCKPIT_CLAUDE_PEERS_FIXTURE") {
+            let value = tokei_usage::read_json(Path::new(&path), 16 * 1024)?;
+            return serde_json::from_value(value).map_err(|_| "cloud_response_invalid".into());
+        }
+    }
+    let cfg = config(&data)?
+        .filter(|cfg| cfg.enabled)
+        .ok_or("cloud_not_connected")?;
+    let token = read_token(&cfg, false)?;
+    let result = request(&cfg.endpoint, "/v2/claude-quota", Some(&token), None).await?;
+    let rows: Vec<crate::claude_quota_sync::Peer> =
+        serde_json::from_value(result["snapshots"].clone())
+            .map_err(|_| "cloud_response_invalid")?;
+    if rows.len() > 31
+        || rows.iter().any(|row| {
+            !usage_sync::safe_id(&row.device_id)
+                || row.device_id == cfg.device_id
+                || row.device_name.chars().count() > 64
+                || !row.quota.valid(chrono::Utc::now())
+        })
+    {
+        return Err("cloud_response_invalid".into());
+    }
+    Ok(rows)
+}
+
+pub(crate) async fn publish_gemini_quota(
+    data: &Path,
+    cfg: &CloudConfig,
+    token: &str,
+) -> Result<(), String> {
+    if !cfg.enabled || !crate::load_preferences(&data.join("preferences.json")).gemini_enabled {
+        return Ok(());
+    }
+    let Some(snapshot) = crate::gemini_quota_sync::latest(data) else {
+        return Ok(());
+    };
+    let payload = serde_json::to_value(snapshot).map_err(|_| "snapshot_invalid")?;
+    request(
+        &cfg.endpoint,
+        "/v2/gemini-quota",
+        Some(token),
+        Some(payload),
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn get_shared_gemini_quota(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::gemini_quota_sync::Peer>, String> {
+    let data = crate::app_config_dir(&app).map_err(|_| "sync_storage_unavailable")?;
+    let cfg = config(&data)?
+        .filter(|cfg| cfg.enabled)
+        .ok_or("cloud_not_connected")?;
+    let token = read_token(&cfg, false)?;
+    let result = request(&cfg.endpoint, "/v2/gemini-quota", Some(&token), None).await?;
+    let rows: Vec<crate::gemini_quota_sync::Peer> =
+        serde_json::from_value(result["snapshots"].clone())
+            .map_err(|_| "cloud_response_invalid")?;
+    if rows.len() > 31
+        || rows.iter().any(|row| {
+            !usage_sync::safe_id(&row.device_id)
+                || row.device_id == cfg.device_id
+                || row.device_name.chars().count() > 64
+                || !row.quota.valid(chrono::Utc::now())
+        })
+    {
+        return Err("cloud_response_invalid".into());
+    }
+    Ok(rows)
+}
+
+pub async fn exchange(
+    data: &Path,
+    cfg: &CloudConfig,
+    token: &str,
+    payload: Value,
+) -> Result<(), String> {
     if payload["_device"] != cfg.device_id {
         return Err("cloud_identity_mismatch".into());
     }
@@ -595,27 +708,39 @@ pub async fn exchange(data: &Path, payload: Value) -> Result<(), String> {
     {
         return Err("cloud_snapshot_too_large".into());
     }
-    let token = entry(&cfg.endpoint, &cfg.device_id)?
-        .get_password()
-        .map_err(|_| "cloud_keychain_unavailable")?;
     let mut body = json!({"deviceId":cfg.device_id,"payload":payload});
     body["clientInfo"] = json!({"protocolVersion":2,"appVersion":env!("CARGO_PKG_VERSION"),"settingsRevision":shared_state(data)["revision"]});
-    let result = request(&cfg.endpoint, "/v1/sync", Some(&token), Some(body)).await?;
-    cache_snapshots(data, &result)?;
-    refresh_members(data, &cfg, &token).await
+    let result = request(
+        &cfg.endpoint,
+        "/v1/sync?providerUsageVersion=1",
+        Some(token),
+        Some(body),
+    )
+    .await?;
+    cache_snapshots(data, cfg, &result)?;
+    refresh_members(data, cfg, token).await
 }
 
 // Download peers before collecting local usage so a blocked local file cannot
 // hide another member's already-uploaded data.
-pub async fn pull(data: &Path) -> Result<(), String> {
+pub async fn pull(data: &Path, cfg: &CloudConfig, token: &str) -> Result<bool, String> {
+    let result = request(
+        &cfg.endpoint,
+        "/v1/snapshots?providerUsageVersion=1",
+        Some(token),
+        None,
+    )
+    .await?;
+    cache_snapshots(data, cfg, &result)?;
+    synchronize_settings(data, cfg, token).await?;
+    refresh_members(data, cfg, token).await?;
+    Ok(result["providerUsageVersion"] == 1)
+}
+
+pub async fn pull_in_background(data: &Path) -> Result<(), String> {
     let cfg = config(data)?.ok_or("cloud_not_connected")?;
-    let token = entry(&cfg.endpoint, &cfg.device_id)?
-        .get_password()
-        .map_err(|_| "cloud_keychain_unavailable")?;
-    let result = request(&cfg.endpoint, "/v1/snapshots", Some(&token), None).await?;
-    cache_snapshots(data, &result)?;
-    synchronize_settings(data, &cfg, &token).await?;
-    refresh_members(data, &cfg, &token).await
+    let token = read_token(&cfg, false)?;
+    pull(data, &cfg, &token).await.map(|_| ())
 }
 
 async fn refresh_members(data: &Path, cfg: &CloudConfig, token: &str) -> Result<(), String> {
@@ -628,7 +753,7 @@ async fn refresh_members(data: &Path, cfg: &CloudConfig, token: &str) -> Result<
     )
 }
 
-fn cache_snapshots(data: &Path, result: &Value) -> Result<(), String> {
+fn cache_snapshots(data: &Path, cfg: &CloudConfig, result: &Value) -> Result<(), String> {
     let rows = result["snapshots"]
         .as_array()
         .filter(|a| a.len() <= 32)
@@ -643,7 +768,10 @@ fn cache_snapshots(data: &Path, result: &Value) -> Result<(), String> {
             || row["payload"]["_ts"]
                 .as_i64()
                 .is_none_or(|ts| ts <= 0 || ts > chrono::Utc::now().timestamp() + 300)
-            || tokei_usage::parse_device(&row["payload"], id, None).is_none()
+            || (tokei_usage::parse_device(&row["payload"], id, None).is_none()
+                && row["payload"]["providerUsage"]
+                    .as_object()
+                    .is_none_or(|providers| providers.is_empty()))
         {
             return Err("cloud_response_invalid".into());
         }
@@ -658,7 +786,11 @@ fn cache_snapshots(data: &Path, result: &Value) -> Result<(), String> {
             .unwrap_or(0)
             <= row["payload"]["_ts"].as_i64().unwrap_or(0)
         {
-            usage_sync::write_json(&path, &row["payload"])?;
+            let mut payload = row["payload"].clone();
+            if payload.get("providerUsage").is_some() {
+                payload["_localProviderSpace"] = json!(cfg.space_id);
+            }
+            usage_sync::write_json(&path, &payload)?;
         }
     }
     Ok(())

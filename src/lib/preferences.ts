@@ -16,6 +16,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   dailyBudgetPercent: 14.3,
   dailyBudgetLocalDate: null,
   resetRiskOverridePercent: null,
+  resetRiskLocalDate: null,
   resetRiskManualEnabled: false,
   locked: false,
   alwaysOnTop: true,
@@ -35,6 +36,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   fontFamily: defaultFontFamilyForPlatform(typeof navigator === "undefined" ? "" : navigator.userAgent),
   fontScale: defaultFontScale,
   backgroundBlur: true,
+  capsuleLiquidGlass: false,
   riskFirst: false,
   showHistorySparklines: true,
   accentColor: "#397ae0",
@@ -46,9 +48,11 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   quietHoursEnd: 8,
   notificationCooldownMinutes: 120,
   updateChannel: "stable",
-  automaticUpdates: true,
+  automaticUpdates: false,
   cockpitMode: "codex",
+  codexEnabled: true,
   claudeEnabled: false,
+  geminiEnabled: false,
 };
 
 export function effectiveCompactLayout(preferences: WidgetPreferences, provider: ProviderId | null): WindowCompactLayout {
@@ -133,6 +137,7 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     dailyBudgetPercent: boundedDecimal(candidate.dailyBudgetPercent, DEFAULT_WIDGET_PREFERENCES.dailyBudgetPercent, 1, 100),
     dailyBudgetLocalDate: safeUsageDate(candidate.dailyBudgetLocalDate),
     resetRiskOverridePercent: optionalBoundedDecimal(candidate.resetRiskOverridePercent, 0, 100),
+    resetRiskLocalDate: safeUsageDate(candidate.resetRiskLocalDate),
     resetRiskManualEnabled: candidate.resetRiskManualEnabled === true,
     locked: booleanValue(candidate.locked, DEFAULT_WIDGET_PREFERENCES.locked),
     alwaysOnTop: booleanValue(candidate.alwaysOnTop, DEFAULT_WIDGET_PREFERENCES.alwaysOnTop),
@@ -152,6 +157,7 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     fontFamily: normalizeFontFamily(candidate.fontFamily, DEFAULT_WIDGET_PREFERENCES.fontFamily),
     fontScale: boundedFontScale(candidate.fontScale),
     backgroundBlur: booleanValue(candidate.backgroundBlur, DEFAULT_WIDGET_PREFERENCES.backgroundBlur),
+    capsuleLiquidGlass: booleanValue(candidate.capsuleLiquidGlass, DEFAULT_WIDGET_PREFERENCES.capsuleLiquidGlass),
     personRingColors: Object.fromEntries(Object.entries(candidate.personRingColors && typeof candidate.personRingColors === "object" && !Array.isArray(candidate.personRingColors) ? candidate.personRingColors : {}).filter(([id, color]) => id.length > 0 && id.length <= 128 && typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)).slice(0, 128)),
     riskFirst: booleanValue(candidate.riskFirst, DEFAULT_WIDGET_PREFERENCES.riskFirst),
     showHistorySparklines: booleanValue(candidate.showHistorySparklines, DEFAULT_WIDGET_PREFERENCES.showHistorySparklines),
@@ -165,9 +171,29 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
     notificationCooldownMinutes: boundedInteger(candidate.notificationCooldownMinutes, DEFAULT_WIDGET_PREFERENCES.notificationCooldownMinutes, 5, 1440),
     updateChannel: candidate.updateChannel === "stable" ? "stable" : candidate.updateChannel === "beta" ? "beta" : DEFAULT_WIDGET_PREFERENCES.updateChannel,
     automaticUpdates: booleanValue(candidate.automaticUpdates, DEFAULT_WIDGET_PREFERENCES.automaticUpdates),
-    cockpitMode: normalizeCockpitMode(candidate.cockpitMode),
-    // Earlier builds had no switch: keep a chosen Claude/AI cockpit enabled.
-    claudeEnabled: candidate.claudeEnabled === true || normalizeCockpitMode(candidate.cockpitMode) !== "codex",
+    ...(() => {
+      const geminiEnabled = candidate.geminiEnabled === true;
+      const requestedMode = normalizeCockpitMode(candidate.cockpitMode, geminiEnabled);
+      // Only profiles saved before the Claude switch need to infer its value.
+      const claudeEnabled = candidate.claudeEnabled === true
+        || (candidate.claudeEnabled === undefined
+          && (requestedMode === "claude" || (requestedMode === "ai" && !geminiEnabled)));
+      const codexEnabled = candidate.codexEnabled !== false || (!claudeEnabled && !geminiEnabled);
+      const enabledCount = Number(codexEnabled) + Number(claudeEnabled) + Number(geminiEnabled);
+      const valid = (requestedMode === "codex" && codexEnabled)
+        || (requestedMode === "claude" && claudeEnabled)
+        || (requestedMode === "gemini" && geminiEnabled)
+        || (requestedMode === "ai" && enabledCount >= 2);
+      const cockpitMode: WidgetPreferences["cockpitMode"] = valid
+        ? requestedMode
+        : codexEnabled ? "codex" : claudeEnabled ? "claude" : "gemini";
+      return {
+        cockpitMode,
+        codexEnabled,
+        claudeEnabled,
+        geminiEnabled,
+      };
+    })(),
   };
 }
 

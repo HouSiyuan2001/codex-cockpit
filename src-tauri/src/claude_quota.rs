@@ -6,7 +6,7 @@
 //! and Linux. Cockpit keeps the access token in memory. Claude Code handles
 //! renewal in its own credential store.
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -27,8 +27,8 @@ static CLAUDE_AUTH_RUNNING: std::sync::atomic::AtomicBool =
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClaudeQuotaWindow {
     pub used_percent: f64,
     pub resets_at: Option<String>,
@@ -405,6 +405,29 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
     // All windows share a single read, including when a poll and the reset timer coincide.
     let mut guard = STATE.lock().await;
     let state = guard.get_or_insert_with(QuotaState::default);
+    if let Some(fixture_path) = std::env::var_os("CODEX_COCKPIT_CLAUDE_FIXTURE")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        if let Ok(raw) = std::fs::read_to_string(&fixture_path) {
+            if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                #[cfg(debug_assertions)]
+                if value["status"] == "signed_out" {
+                    return ClaudeQuota::failure("signed_out", "Claude Code login not found.");
+                }
+                let plan = value
+                    .get("plan")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(parsed) = parse_usage(&value, plan, Utc::now().to_rfc3339()) {
+                    return state.finish_attempt(Ok(parsed));
+                }
+            }
+        }
+    }
+    if crate::credentials_disabled_for_preview() {
+        return ClaudeQuota::failure("unavailable", "Claude preview fixture unavailable.");
+    }
     let now = Instant::now();
     let wall_time = Utc::now();
     if let Some(cached) = state.cached_result(now, wall_time, manual) {

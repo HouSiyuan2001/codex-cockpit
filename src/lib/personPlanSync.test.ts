@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WIDGET_PREFERENCES } from "./preferences";
-import { planPreferences, planDateKey } from "./personPlanSync";
+import { activeManualResetRisk, planPreferences, planDateKey } from "./personPlanSync";
 
 describe("person plan projection", () => {
   it("uses Beijing midnight independently of the 04:00 usage day", () => {
@@ -11,8 +11,12 @@ describe("person plan projection", () => {
   it("activates a shared manual scenario and clears it when following the website", () => {
     const dormant = { ...DEFAULT_WIDGET_PREFERENCES, resetRiskOverridePercent: 35, resetRiskManualEnabled: false };
     const enabled = planPreferences(dormant, { resetRiskOverridePercent: 35 }, "2026-09-11")!;
-    expect(enabled.resetRiskManualEnabled).toBe(true);
-    expect(planPreferences(enabled, { resetRiskOverridePercent: null }, "2026-09-11")).toMatchObject({ resetRiskManualEnabled: false, resetRiskOverridePercent: null });
+    expect(activeManualResetRisk(enabled, "2026-09-11")).toBe(35);
+    expect(activeManualResetRisk(enabled, "2026-09-12")).toBeNull();
+    const nextDay = planPreferences(enabled, { resetRiskOverridePercent: 35 }, "2026-09-12")!;
+    expect(activeManualResetRisk(nextDay, "2026-09-12")).toBe(35);
+    expect(activeManualResetRisk({ ...enabled, resetRiskLocalDate: null }, "2026-09-11")).toBeNull();
+    expect(planPreferences(enabled, { resetRiskOverridePercent: null }, "2026-09-11")).toMatchObject({ resetRiskManualEnabled: false, resetRiskOverridePercent: null, resetRiskLocalDate: null });
     expect(planPreferences(enabled, {}, "2026-09-11")).toBeNull();
   });
   it("updates only allowlisted plan fields and preserves device preferences", () => {

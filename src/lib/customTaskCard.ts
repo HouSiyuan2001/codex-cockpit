@@ -2,7 +2,8 @@ import { formatTokens, type AggregatedTaskUsage } from "./tokeiUsage";
 
 const COLORS = { background: "#eaf0f6", paper: "#fffef9", blue: "#7898ad", dark: "#293f52", muted: "#728696", yellow: "#ffe397", line: "#c9d8e1" };
 const CLAUDE_COLORS = { background: "#fcf0e3", paper: "#fffef9", blue: "#d87643", dark: "#5b3213", muted: "#936747", yellow: "#ffe6b7", line: "#eacfb7" };
-export type ReceiptProvider = "codex" | "claude";
+const GEMINI_COLORS = { background: "#e9f5f3", paper: "#fffef9", blue: "#86b9c0", dark: "#293f52", muted: "#557581", yellow: "#ffe7af", line: "#c1dfe0" };
+export type ReceiptProvider = "codex" | "claude" | "gemini";
 const FONT = '"Smiley Sans", "得意黑", sans-serif';
 const money = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const rowCost = (row: AggregatedTaskUsage) => row.estimatedCostUsd ?? row.knownCostUsd;
@@ -27,7 +28,7 @@ function dottedRule(ctx: CanvasRenderingContext2D, y: number, color: string) {
 }
 
 export function drawCustomTaskCard(rows: AggregatedTaskUsage[], periodLabel: string, zh: boolean, provider: ReceiptProvider = "codex"): HTMLCanvasElement {
-  const colors = provider === "claude" ? CLAUDE_COLORS : COLORS;
+  const colors = provider === "claude" ? CLAUDE_COLORS : provider === "gemini" ? GEMINI_COLORS : COLORS;
   if (!rows.length || rows.length > 100) throw new Error(zh ? "请选择 1–100 项任务" : "Select 1–100 tasks");
   const width = 720;
   const height = 392 + rows.length * 82;

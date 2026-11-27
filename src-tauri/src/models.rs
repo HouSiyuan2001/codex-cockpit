@@ -79,15 +79,20 @@ pub struct WidgetPreferences {
     #[serde(default)]
     pub reset_risk_override_percent: Option<f64>,
     #[serde(default)]
+    pub reset_risk_local_date: Option<String>,
+    #[serde(default)]
     pub reset_risk_manual_enabled: bool,
+    #[serde(default)]
     pub locked: bool,
     #[serde(default = "default_always_on_top")]
     pub always_on_top: bool,
     #[serde(default)]
     pub stay_expanded: bool,
+    #[serde(default = "default_pinned_provider")]
     pub pinned_provider: Option<String>,
     #[serde(default = "default_provider_order")]
     pub provider_order: Vec<String>,
+    #[serde(default = "default_auto_rotate_seconds")]
     pub auto_rotate_seconds: u64,
     #[serde(default = "default_language")]
     pub language: String,
@@ -116,6 +121,8 @@ pub struct WidgetPreferences {
     #[serde(default = "default_true")]
     pub background_blur: bool,
     #[serde(default)]
+    pub capsule_liquid_glass: bool,
+    #[serde(default)]
     pub person_ring_colors: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub risk_first: bool,
@@ -139,13 +146,19 @@ pub struct WidgetPreferences {
     pub notification_cooldown_minutes: u16,
     #[serde(default = "default_update_channel")]
     pub update_channel: String,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub automatic_updates: bool,
     #[serde(default = "default_cockpit_mode")]
     pub cockpit_mode: String,
-    /// Shows the Claude/AI cockpits and Claude usage; off means a Codex-only app.
+    /// Keeps Codex enabled in cockpit switches; at least one provider stays on.
+    #[serde(default = "default_true")]
+    pub codex_enabled: bool,
+    /// Shows the Claude/AI cockpits and Claude usage; off means Claude is hidden.
     #[serde(default)]
     pub claude_enabled: bool,
+    /// Shows the Gemini cockpit and capsule cells; opt-in and off by default.
+    #[serde(default)]
+    pub gemini_enabled: bool,
 }
 
 fn default_cockpit_mode() -> String {
@@ -154,6 +167,12 @@ fn default_cockpit_mode() -> String {
 
 fn default_always_on_top() -> bool {
     true
+}
+fn default_pinned_provider() -> Option<String> {
+    Some("codex".into())
+}
+fn default_auto_rotate_seconds() -> u64 {
+    12
 }
 fn default_language() -> String {
     "zh-CN".into()
@@ -228,6 +247,7 @@ impl Default for WidgetPreferences {
             daily_budget_percent: default_daily_budget_percent(),
             daily_budget_local_date: None,
             reset_risk_override_percent: None,
+            reset_risk_local_date: None,
             reset_risk_manual_enabled: false,
             locked: false,
             always_on_top: true,
@@ -254,6 +274,7 @@ impl Default for WidgetPreferences {
             font_family: default_font_family(),
             font_scale: default_font_scale(),
             background_blur: true,
+            capsule_liquid_glass: false,
             person_ring_colors: Default::default(),
             risk_first: false,
             show_history_sparklines: true,
@@ -268,12 +289,25 @@ impl Default for WidgetPreferences {
             update_channel: default_update_channel(),
             automatic_updates: false,
             cockpit_mode: default_cockpit_mode(),
+            codex_enabled: true,
             claude_enabled: false,
+            gemini_enabled: false,
         }
     }
 }
 
 impl WidgetPreferences {
+    pub fn from_disk_json(raw: &str) -> serde_json::Result<Self> {
+        let value: serde_json::Value = serde_json::from_str(raw)?;
+        let has_claude_switch = value.get("claudeEnabled").is_some();
+        let mut preferences: Self = serde_json::from_value(value)?;
+        if !has_claude_switch {
+            preferences.claude_enabled = preferences.cockpit_mode == "claude"
+                || (preferences.cockpit_mode == "ai" && !preferences.gemini_enabled);
+        }
+        Ok(preferences)
+    }
+
     pub fn normalized(mut self) -> Self {
         self.auto_rotate_seconds = self.auto_rotate_seconds.clamp(5, 300);
         if !matches!(
@@ -386,11 +420,34 @@ impl WidgetPreferences {
                 .is_finite()
                 .then(|| (value.clamp(0.0, 100.0) * 10.0).round() / 10.0)
         });
-        if !matches!(self.cockpit_mode.as_str(), "codex" | "claude" | "ai") {
+        if !matches!(
+            self.cockpit_mode.as_str(),
+            "codex" | "claude" | "ai" | "gemini"
+        ) {
             self.cockpit_mode = default_cockpit_mode();
         }
-        // Earlier builds had no switch: keep a chosen Claude/AI cockpit enabled.
-        self.claude_enabled |= self.cockpit_mode != "codex";
+        if !self.codex_enabled && !self.claude_enabled && !self.gemini_enabled {
+            self.codex_enabled = true;
+        }
+        let enabled_count = usize::from(self.codex_enabled)
+            + usize::from(self.claude_enabled)
+            + usize::from(self.gemini_enabled);
+        let mode_valid = match self.cockpit_mode.as_str() {
+            "codex" => self.codex_enabled,
+            "claude" => self.claude_enabled,
+            "gemini" => self.gemini_enabled,
+            "ai" => enabled_count >= 2,
+            _ => false,
+        };
+        if !mode_valid {
+            self.cockpit_mode = if self.codex_enabled {
+                "codex".into()
+            } else if self.claude_enabled {
+                "claude".into()
+            } else {
+                "gemini".into()
+            };
+        }
         self.alert_threshold = self.alert_threshold.clamp(1, 99);
         self.quiet_hours_start = self.quiet_hours_start.min(23);
         self.quiet_hours_end = self.quiet_hours_end.min(23);
@@ -416,6 +473,45 @@ mod claude_preference_tests {
     use super::*;
 
     #[test]
+    fn keeps_claude_off_in_saved_codex_and_gemini_ai_mode() {
+        let preferences = WidgetPreferences {
+            cockpit_mode: "ai".into(),
+            gemini_enabled: true,
+            ..WidgetPreferences::default()
+        };
+        let saved = serde_json::to_string(&preferences.normalized()).unwrap();
+        let restored = WidgetPreferences::from_disk_json(&saved)
+            .unwrap()
+            .normalized();
+        assert_eq!(restored.cockpit_mode, "ai");
+        assert!(restored.codex_enabled);
+        assert!(restored.gemini_enabled);
+        assert!(!restored.claude_enabled);
+    }
+
+    #[test]
+    fn migrates_the_missing_switch_in_legacy_claude_and_ai_modes() {
+        for (mode, gemini, expected_claude) in [
+            ("claude", false, true),
+            ("ai", false, true),
+            ("ai", true, false),
+        ] {
+            let raw = serde_json::json!({
+                "locked": false,
+                "pinnedProvider": null,
+                "autoRotateSeconds": 12,
+                "cockpitMode": mode,
+                "geminiEnabled": gemini,
+            });
+            let restored = WidgetPreferences::from_disk_json(&raw.to_string())
+                .unwrap()
+                .normalized();
+            assert_eq!(restored.cockpit_mode, mode);
+            assert_eq!(restored.claude_enabled, expected_claude);
+        }
+    }
+
+    #[test]
     fn normalizes_cockpit_mode_and_ignores_retired_claude_fields() {
         let preferences = WidgetPreferences {
             cockpit_mode: "gemini".to_string(),
@@ -423,25 +519,71 @@ mod claude_preference_tests {
         }
         .normalized();
         assert_eq!(preferences.cockpit_mode, "codex");
+        assert!(!preferences.gemini_enabled);
+
+        let gemini = WidgetPreferences {
+            cockpit_mode: "gemini".into(),
+            gemini_enabled: true,
+            ..WidgetPreferences::default()
+        }
+        .normalized();
+        assert_eq!(gemini.cockpit_mode, "gemini");
+        assert!(gemini.gemini_enabled);
+        assert!(!gemini.claude_enabled);
+
+        let gemini_only = WidgetPreferences {
+            codex_enabled: false,
+            gemini_enabled: true,
+            ..WidgetPreferences::default()
+        }
+        .normalized();
+        assert_eq!(gemini_only.cockpit_mode, "gemini");
+        assert!(!gemini_only.codex_enabled);
+        assert!(gemini_only.gemini_enabled);
+
+        let none_enabled = WidgetPreferences {
+            codex_enabled: false,
+            claude_enabled: false,
+            gemini_enabled: false,
+            ..WidgetPreferences::default()
+        }
+        .normalized();
+        assert!(none_enabled.codex_enabled);
+        assert_eq!(none_enabled.cockpit_mode, "codex");
+
         let mode = WidgetPreferences {
             cockpit_mode: "ai".into(),
             ..WidgetPreferences::default()
         }
         .normalized();
-        assert_eq!(mode.cockpit_mode, "ai");
-        assert!(mode.claude_enabled);
+        assert_eq!(mode.cockpit_mode, "codex");
+        assert!(!mode.claude_enabled);
         assert!(!WidgetPreferences::default().normalized().claude_enabled);
+        assert!(!WidgetPreferences::default().normalized().gemini_enabled);
         let legacy: WidgetPreferences = serde_json::from_str(
             r#"{"locked":false,"pinnedProvider":null,"autoRotateSeconds":12,"claudeDailyCapUsd":2}"#,
         )
         .unwrap();
         assert_eq!(legacy.cockpit_mode, "codex");
+        assert!(legacy.codex_enabled);
+        assert!(!legacy.gemini_enabled);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::WidgetPreferences;
+
+    #[test]
+    fn automatic_updates_require_opt_in_when_loading_preferences() {
+        let mut saved = serde_json::to_value(WidgetPreferences::default()).unwrap();
+        saved.as_object_mut().unwrap().remove("automaticUpdates");
+        let legacy: WidgetPreferences = serde_json::from_value(saved.clone()).unwrap();
+        assert!(!legacy.automatic_updates);
+        saved["automaticUpdates"] = true.into();
+        let opted_in: WidgetPreferences = serde_json::from_value(saved).unwrap();
+        assert!(opted_in.automatic_updates);
+    }
 
     #[test]
     fn font_family_defaults_for_existing_preferences_without_changing_font_scale() {
@@ -660,6 +802,23 @@ mod tests {
         let json = serde_json::to_string(&preferences).unwrap();
         let restored: WidgetPreferences = serde_json::from_str(&json).unwrap();
         assert!(!restored.background_blur);
+    }
+
+    #[test]
+    fn capsule_liquid_glass_preserves_opt_in_and_legacy_appearance() {
+        let legacy: WidgetPreferences = serde_json::from_str(
+            r#"{"locked":false,"pinnedProvider":null,"autoRotateSeconds":12}"#,
+        )
+        .unwrap();
+        assert!(!legacy.capsule_liquid_glass);
+
+        let preferences = WidgetPreferences {
+            capsule_liquid_glass: true,
+            ..legacy
+        };
+        let restored: WidgetPreferences =
+            serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
+        assert!(restored.capsule_liquid_glass);
     }
 
     #[test]

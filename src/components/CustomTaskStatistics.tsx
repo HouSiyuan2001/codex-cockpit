@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { formatTokens, type AggregatedTaskUsage } from "../lib/tokeiUsage";
+import { formatTokens, taskUsageMetadata, type AggregatedTaskUsage } from "../lib/tokeiUsage";
 import { copyCustomTaskCard, prepareCustomTaskCardFont, type ReceiptProvider } from "../lib/customTaskCard";
 import "./CustomTaskStatistics.css";
 
@@ -138,7 +138,7 @@ export function CustomTaskStatistics({ rows, zh, loading = false, error = false,
       {loading ? <p>{zh ? "正在读取任务统计…" : "Loading task statistics…"}</p> : !rows.length ? <p>{error ? (zh ? "任务统计暂不可用。" : "Task statistics unavailable.") : (zh ? "这段时间暂无可归属的任务记录。" : "No attributed tasks in this period.")}</p> : <ul>
         {sorted.map(row => { const cost = row.estimatedCostUsd ?? row.knownCostUsd; return <li key={row.id}><label>
           <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} />
-          <span className="custom-task-name"><span>{row.rawName}</span><small>{[row.projectName, row.sourceDevice ? `${zh ? "来自" : "From"} ${row.sourceDevice}` : null, row.self.id.slice(-8), row.children.length ? (zh ? `含 ${row.children.length} 个子 Agent` : `${row.children.length} subagents`) : null].filter(Boolean).join(" · ")}</small></span>
+          <span className="custom-task-name"><span>{row.rawName}</span><small>{taskUsageMetadata(row, zh)}</small></span>
           <span className="custom-task-cost">{cost == null ? (zh ? "暂无估算" : "Estimate unavailable") : money(cost)}{cost != null && (row.estimatedCostUsd == null || row.costIncomplete) && <small>{zh ? "仅已知金额" : "Known amount only"}</small>}</span>
         </label></li>; })}
       </ul>}

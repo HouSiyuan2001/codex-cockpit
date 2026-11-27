@@ -7,7 +7,6 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
-use tauri::Manager;
 
 static LOCK: Mutex<()> = Mutex::new(());
 const FILE: &str = "shared-person-settings.json";
@@ -348,10 +347,7 @@ pub fn save_person_plan(
     field: String,
     value: Value,
 ) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "shared_settings_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "shared_settings_unavailable")?;
     let _guard = LOCK.lock().map_err(|_| "shared_settings_busy")?;
     let mut state = load(&data)?;
     let person = own_person(&data, &state)?;
@@ -364,10 +360,7 @@ pub fn save_person_plan(
 }
 #[tauri::command]
 pub fn get_person_plan(app: tauri::AppHandle, local_date: String) -> Result<Value, String> {
-    let data = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "shared_settings_unavailable")?;
+    let data = crate::app_config_dir(&app).map_err(|_| "shared_settings_unavailable")?;
     if usage_sync::settings_at(&data)?.is_none() {
         return Ok(json!({}));
     }

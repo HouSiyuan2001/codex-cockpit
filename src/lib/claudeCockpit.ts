@@ -1,8 +1,9 @@
-import type { ClaudeQuota, ClaudeQuotaWindow, CockpitMode, Language } from "../types";
+import type { ClaudeQuota, ClaudeQuotaWindow, CockpitMode, Language, SharedClaudeQuota } from "../types";
 
 export const COCKPIT_MODES: readonly CockpitMode[] = ["codex", "claude", "ai"];
 
-export function normalizeCockpitMode(value: unknown): CockpitMode {
+export function normalizeCockpitMode(value: unknown, geminiEnabled = false): CockpitMode {
+  if (value === "gemini") return geminiEnabled ? "gemini" : "codex";
   return value === "claude" || value === "ai" ? value : "codex";
 }
 
@@ -27,19 +28,20 @@ export interface ClaudeCockpitView {
   opusWeeklyRemaining: number | null;
 }
 
-export function buildClaudeCockpitView(quota: ClaudeQuota | null, now = new Date()): ClaudeCockpitView {
+export function buildClaudeCockpitView(quota: ClaudeQuota | null, now = new Date(), shared: SharedClaudeQuota | null = null): ClaudeCockpitView {
   const quotaReadable = quota?.status === "ok" || quota?.status === "stale";
-  const fiveHour = quotaReadable ? quota?.fiveHour : null;
+  const fallback = quota?.status === "signed_out" || quota?.status === "unavailable" ? shared?.quota : null;
+  const fiveHour = quotaReadable ? quota?.fiveHour : fallback?.fiveHour;
   const fiveHourAwaitingRefresh = Date.parse(fiveHour?.resetsAt ?? "") <= now.getTime();
   const fiveHourUsedPercent = fiveHourAwaitingRefresh ? undefined : fiveHour?.usedPercent;
-  const weeklyRemaining = quotaReadable ? remaining(quota?.sevenDay) : null;
-  const weeklyResetsAt = quotaReadable ? quota?.sevenDay?.resetsAt ?? null : null;
+  const sharedWeek = fallback?.sevenDay;
+  const weekly = quotaReadable ? quota?.sevenDay : Date.parse(sharedWeek?.resetsAt ?? "") <= now.getTime() ? null : sharedWeek;
   return {
     quotaStatus: quota?.status ?? "loading",
     quotaMessage: quota?.message ?? null,
     plan: quota?.plan ?? null,
-    weeklyRemaining,
-    weeklyResetsAt,
+    weeklyRemaining: remaining(weekly),
+    weeklyResetsAt: weekly?.resetsAt ?? null,
     fiveHourUsed: fiveHourUsedPercent !== undefined && Number.isFinite(fiveHourUsedPercent)
       ? Math.round(Math.max(0, Math.min(100, fiveHourUsedPercent)) * 10) / 10
       : null,

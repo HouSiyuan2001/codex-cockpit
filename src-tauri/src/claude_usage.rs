@@ -307,19 +307,19 @@ pub struct ClaudeUsageReport {
 }
 
 #[derive(Debug, Clone)]
-struct UsageEntry {
-    key: String,
-    at: DateTime<FixedOffset>,
-    model: String,
-    input: u64,
-    cache_write_5m: u64,
-    cache_write_1h: u64,
-    cache_read: u64,
-    output: u64,
-    fast: bool,
-    us_geo: bool,
-    session: Option<String>,
-    cwd: Option<String>,
+pub(crate) struct UsageEntry {
+    pub(crate) key: String,
+    pub(crate) at: DateTime<FixedOffset>,
+    pub(crate) model: String,
+    pub(crate) input: u64,
+    pub(crate) cache_write_5m: u64,
+    pub(crate) cache_write_1h: u64,
+    pub(crate) cache_read: u64,
+    pub(crate) output: u64,
+    pub(crate) fast: bool,
+    pub(crate) us_geo: bool,
+    pub(crate) session: Option<String>,
+    pub(crate) cwd: Option<String>,
 }
 
 impl UsageEntry {
@@ -653,6 +653,22 @@ fn aggregate(
     today: NaiveDate,
     days: u32,
 ) -> Vec<ClaudeDailyUsage> {
+    aggregate_usage(entries, titles, today, days, |entry| {
+        (
+            canonical_model_id(&entry.model),
+            model_name(&entry.model),
+            entry.cost_usd(),
+        )
+    })
+}
+
+pub(crate) fn aggregate_usage(
+    entries: Vec<UsageEntry>,
+    titles: &HashMap<String, String>,
+    today: NaiveDate,
+    days: u32,
+    model_usage: impl Fn(&UsageEntry) -> (String, String, Option<f64>),
+) -> Vec<ClaudeDailyUsage> {
     let days = days.clamp(1, MAX_HISTORY_DAYS);
     let first = today - ChronoDuration::days(i64::from(days) - 1);
     let mut by_day: BTreeMap<NaiveDate, DayRows> = BTreeMap::new();
@@ -661,7 +677,7 @@ fn aggregate(
         if date < first || date > today {
             continue;
         }
-        let cost = entry.cost_usd();
+        let (model_id, model_name, cost) = model_usage(&entry);
         let rows = by_day.entry(date).or_insert_with(|| DayRows {
             day: ClaudeDailyUsage {
                 local_date: date.to_string(),
@@ -681,8 +697,8 @@ fn aggregate(
         }
         add_usage(
             &mut rows.models,
-            canonical_model_id(&entry.model),
-            || model_name(&entry.model),
+            model_id,
+            || model_name,
             None,
             &entry,
             cost,

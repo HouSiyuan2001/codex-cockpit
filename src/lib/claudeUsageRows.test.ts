@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeTaskName, claudeUsageDevice } from "./claudeUsageRows";
+import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeUsageDevice } from "./claudeUsageRows";
 import { calendarValue } from "./usageCalendar";
 import type { ClaudeDailyUsage, ClaudeModelUsage, ClaudeUsageReport } from "../types";
 
@@ -25,7 +25,7 @@ describe("Claude usage rows", () => {
     expect(review.totalTokens).toBe(270);
     expect(review.inputTokens).toBe(30);
     expect(review.cachedInputTokens).toBe(200);
-    expect(week.details.s1).toBe("Rcusp · s1");
+    expect(week.details.s1).toBe("Rcusp");
     expect(aggregateClaudeRows(report, "all", "tasks", now).rows).toHaveLength(3);
   });
 
@@ -36,7 +36,7 @@ describe("Claude usage rows", () => {
     expect(unpriced.estimatedCostUsd).toBeNull();
     expect(today.summary.costIncomplete).toBe(true);
     expect(today.summary.estimatedCostUsd).toBe(1);
-    expect(claudeTaskName({ id: "s2abcdef99", name: " " })).toBe("Claude s2abcdef");
+    expect(aggregateClaudeRows(report, "today", "tasks", now).rows.find(row => row.id === "s2abcdef99")?.name).toBe("Untitled task");
   });
 
   it("gives the calendar the same daily totals and preserves missing costs and dates", () => {
@@ -58,7 +58,8 @@ describe("AI usage merge", () => {
     expect(ranged.rows.map((item) => item.id)).toEqual(["s1"]);
     const task = claudeTaskAsCodexTask(ranged.rows[0], ranged.projects.s1);
     expect(task.id).toBe("claude:s1");
-    expect(task.projectName).toBe("Claude · Rcusp");
+    expect(task.projectName).toBe("Rcusp");
+    expect(task.sourceProvider).toBe("Claude");
     expect(task.relation).toBe("root");
     expect(task.children).toEqual([]);
     expect(task.estimatedCostUsd).toBe(2);

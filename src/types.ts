@@ -10,7 +10,8 @@ export type AppearanceMode = "system" | "light" | "dark";
 export type UiFontFamily = "system" | "codex" | "yahei" | "smiley" | "wenkai" | "times" | "fz-song";
 export type ResolvedAppearance = Exclude<AppearanceMode, "system">;
 export type UpdateChannel = "stable" | "beta";
-export type CockpitMode = "codex" | "claude" | "ai";
+export type CockpitMode = "codex" | "claude" | "ai" | "gemini";
+export type CapsuleCorner = "right-bottom" | "left-bottom" | "right-top" | "left-top";
 
 export const MAX_DAILY_OBSERVED_PERCENT = 10_000;
 
@@ -238,6 +239,7 @@ export interface WidgetPreferences {
   dailyBudgetPercent: number;
   dailyBudgetLocalDate: string | null;
   resetRiskOverridePercent: number | null;
+  resetRiskLocalDate?: string | null;
   resetRiskManualEnabled?: boolean;
   locked: boolean;
   alwaysOnTop: boolean;
@@ -257,6 +259,7 @@ export interface WidgetPreferences {
   fontFamily: UiFontFamily;
   fontScale: number;
   backgroundBlur: boolean;
+  capsuleLiquidGlass: boolean;
   personRingColors?: Record<string, string>;
   riskFirst: boolean;
   showHistorySparklines: boolean;
@@ -271,8 +274,33 @@ export interface WidgetPreferences {
   updateChannel: UpdateChannel;
   automaticUpdates: boolean;
   cockpitMode: CockpitMode;
-  /** Shows the Claude/AI cockpits and Claude usage; off means a Codex-only app. */
+  /** Keeps Codex enabled in cockpit switches; at least one provider stays on. */
+  codexEnabled?: boolean;
+  /** Shows the Claude/AI cockpits and Claude usage; off means Claude is hidden. */
   claudeEnabled: boolean;
+  /** Shows the Gemini cockpit and capsule cells; opt-in and off by default. */
+  geminiEnabled?: boolean;
+}
+
+export interface GeminiQuotaWindow {
+  remainingPercent: number;
+  resetsAt: string | null;
+}
+
+export interface GeminiQuotaPool {
+  fiveHour: GeminiQuotaWindow | null;
+  weekly: GeminiQuotaWindow | null;
+}
+
+/** Read-only Google Antigravity quota pools (Gemini Models, Claude and GPT models). */
+export interface GeminiQuota {
+  status: "ok" | "stale" | "signed_out" | "unavailable" | "loading";
+  gemini: GeminiQuotaPool | null;
+  claudeGpt: GeminiQuotaPool | null;
+  plan: string | null;
+  observedAt: string | null;
+  message: string | null;
+  sourceDevice?: string;
 }
 
 export interface ClaudeQuotaWindow {
@@ -293,6 +321,16 @@ export interface ClaudeQuota {
 }
 
 /** Calendar-day subscription usage; raw token and cost ledgers are separate. */
+export interface SharedClaudeQuota {
+  deviceId: string;
+  deviceName: string;
+  quota: {
+    observedAt: string;
+    fiveHour: ClaudeQuotaWindow | null;
+    sevenDay: ClaudeQuotaWindow | null;
+  };
+}
+
 export interface ClaudeQuotaDay {
   localDate: string;
   capturedAt: string;
