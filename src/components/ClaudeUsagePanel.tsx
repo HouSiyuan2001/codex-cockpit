@@ -6,6 +6,7 @@ import { rangeLabel, type UsageDateRange } from "../lib/usageCalendar";
 import type { ClaudeUsageReport } from "../types";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { UsageCalendar } from "./UsageCalendar";
+import { UsageGroupSelect } from "./UsageGroupSelect";
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { CustomTaskStatistics } from "./CustomTaskStatistics";
 
@@ -51,15 +52,20 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
   const providerName = gemini ? "Gemini" : "Claude";
   const untitledTaskName = zh ? "未命名任务" : "Untitled task";
   const [localReport, setReport] = useState<ClaudeUsageReport | null>(initialReport);
-  const [scope, setScope] = useState("local");
+  const [selectedScope, setScope] = useState<string | null>(null);
+  const groups = memberUsage?.groups ?? [];
+  const group = groups.find(item => `group:${item.id}` === selectedScope)
+    ?? (selectedScope === "global" ? undefined : groups.find(item => item.id === memberUsage?.localGroupId));
+  const scope = group ? `group:${group.id}` : "global";
+  const includeLocal = !group || group.id === memberUsage?.localGroupId;
   const peers = sharedUsage.filter(peer => peer.usage[provider]);
-  const selectedPeer = peers.find(peer => `device:${peer.deviceId}` === scope);
-  const projection = selectedPeer?.usage[provider];
+  const scopedPeers = group ? peers.filter(peer => group.deviceIds.includes(peer.deviceId)) : peers;
+  const hasLocalDetails = includeLocal && localReport?.status === "ok";
 
   const [error, setError] = useState(false);
   const [period, setPeriod] = useState<UsagePeriod>("today");
   const [dateRange, setDateRange] = useState<UsageDateRange | null>(null);
-  const [view, setView] = useState<ClaudeUsageView | "users">("tasks");
+  const [requestedView, setView] = useState<ClaudeUsageView | "users">("tasks");
   const [metric, setMetric] = useState<UsageMetric>("tokens");
   const [showAll, setShowAll] = useState(false);
 
@@ -75,15 +81,14 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
     return () => { active = false; window.clearInterval(timer); };
   }, [gemini]);
 
-  const byUser = view === "users";
-  const report = byUser ? combineProviderUsage(localReport, peers.flatMap(peer => peer.usage[provider] ?? []))
-    : projection ? combineProviderUsage(null, [projection]) : localReport;
+  const byUser = requestedView === "users" && scope === "global";
+  const view = byUser ? "users" : !hasLocalDetails && scopedPeers.length > 0 ? "models" : requestedView === "users" ? "models" : requestedView;
+  const report = combineProviderUsage(includeLocal ? localReport : null, scopedPeers.flatMap(peer => peer.usage[provider] ?? []));
   const now = new Date();
   const result = report?.status === "ok"
     ? aggregateClaudeRows(report, period, view === "users" ? "models" : view, now, dateRange, untitledTaskName)
     : null;
-  const devices = report?.status === "ok" ? [claudeUsageDevice(report, error)] : [];
-  const groups = memberUsage?.groups ?? [];
+  const devices = report?.status === "ok" ? [claudeUsageDevice(report, includeLocal && error, provider)] : [];
   const userRows = byUser ? [...groups, { id: "", name: zh ? "未归属" : "Unassigned", deviceIds: [] }].flatMap(group => {
     const groupPeers = peers.filter(peer => group.id ? group.deviceIds.includes(peer.deviceId) : !groups.some(member => member.deviceIds.includes(peer.deviceId)));
     const member = combineProviderUsage((memberUsage?.localGroupId ?? "") === group.id ? localReport : null, groupPeers.flatMap(peer => peer.usage[provider] ?? []));
@@ -94,43 +99,41 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
   const rows = [...(byUser ? userRows : result?.rows ?? [])]
     .sort((a, b) => (metricValue(b, metric) ?? -1) - (metricValue(a, metric) ?? -1) || a.name.localeCompare(b.name));
   const tasks = useMemo(() => {
-    if (localReport?.status !== "ok" || byUser || selectedPeer) return [];
+    if (!includeLocal || localReport?.status !== "ok" || byUser) return [];
     const taskData = aggregateClaudeRows(localReport, period, "tasks", new Date(), dateRange, untitledTaskName);
     return taskData.rows.map(row => claudeTaskAsCodexTask(row, taskData.projects[row.id], provider));
-  }, [localReport, byUser, selectedPeer, period, dateRange, untitledTaskName, provider]);
+  }, [localReport, byUser, includeLocal, period, dateRange, untitledTaskName, provider]);
   const toggleMetric = () => setMetric((current) => current === "tokens" ? "cost" : "tokens");
 
-  if (!report) return <section className="codex-usage-panel"><p className={error ? "usage-error" : "usage-note"} role="status">{error ? (zh ? `暂时无法读取 ${providerName} 用量。` : `${providerName} usage is unavailable.`) : (zh ? `正在读取 ${providerName} 用量…` : `Loading ${providerName} usage…`)}</p></section>;
-  if (!result && !peers.length) return <section className="codex-usage-panel"><p className="usage-note" role="status">{zh ? `未找到 ${gemini ? "Antigravity" : "Claude Code"} 的本机记录。` : `No local ${gemini ? "Antigravity" : "Claude Code"} records found.`}</p></section>;
-
-  const summary = result?.summary ?? aggregateClaudeRows({ ...report, days: [] }, period, "models").summary;
-  const costTitle = summary.costIncomplete && summary.estimatedCostUsd !== null
+  const summary = result?.summary;
+  const costTitle = summary?.costIncomplete && summary.estimatedCostUsd !== null
     ? (zh ? "已知成本" : "Known cost")
     : (zh ? "估算成本" : "Estimated cost");
-  const total = metricValue(summary, metric);
+  const total = summary ? metricValue(summary, metric) : null;
   const knownTotal = rows.reduce((sum, row) => sum + (metricValue(row, metric) ?? 0), 0);
   const visibleRows = showAll ? rows : rows.slice(0, 5);
   const memberIds = groups.map(group => group.id).sort();
   const colors = Object.fromEntries(rows.map((row, rank) => [row.id, byUser ? (personColors?.[row.id] ?? (row.id === "unassigned" ? "#929baa" : usageColor(row.id, memberIds))) : usageRankColor(rank, rows.length)]));
-  const max = metricValue(rows[0] ?? summary, metric) ?? 0;
-  const latest = report.latestActivityAt;
+  const max = rows[0] ? metricValue(rows[0], metric) ?? 0 : 0;
+  const latest = report?.latestActivityAt;
 
   return <section className="codex-usage-panel claude-usage-panel" aria-label={zh ? `${providerName} 用量` : `${providerName} usage`}>
     <div className="usage-toolbar">
-      <select aria-label={zh ? "用量分组" : "Usage group"} value={byUser ? "all" : selectedPeer ? scope : "local"} disabled={byUser || !peers.length} onChange={event => { setScope(event.target.value); if (event.target.value !== "local") setView("models"); setShowAll(false); }}>
-        {byUser && <option value="all">{zh ? "全部设备" : "All devices"}</option>}
-        <option value="local">{zh ? "本机" : "This device"}</option>
-        {peers.map(peer => <option key={peer.deviceId} value={`device:${peer.deviceId}`}>{peer.deviceName}</option>)}
-      </select>
+      <UsageGroupSelect zh={zh} groups={groups} value={scope} onChange={value => {
+        setScope(value);
+        if (value === "global") { setView("users"); setMetric("cost"); }
+        else if (byUser) setView("models");
+        setShowAll(false);
+      }} />
       <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setDateRange(null); setPeriod(event.target.value as UsagePeriod); setShowAll(false); }}>
         {dateRange && <option value="calendar" disabled>{rangeLabel(dateRange)}</option>}
         {PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}
       </select>
       <select aria-label={zh ? "查看方式" : "Usage view"} value={view} onChange={(event) => { setView(event.target.value as typeof view); setShowAll(false); }}>
-        {(!selectedPeer || byUser) && <><option value="tasks">{zh ? "按任务" : "By task"}</option>
+        {scope === "global" && <option value="users">{zh ? "按用户" : "By user"}</option>}
+        {(hasLocalDetails || !scopedPeers.length) && <><option value="tasks">{zh ? "按任务" : "By task"}</option>
         <option value="projects">{zh ? "按项目" : "By project"}</option></>}
         <option value="models">{zh ? "按模型" : "By model"}</option>
-        {(groups.length > 0 || byUser) && <option value="users">{zh ? "按用户" : "By user"}</option>}
       </select>
       <UsageCalendar
         devices={devices}
@@ -145,17 +148,25 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
         onSelect={(range) => { setDateRange(range); setShowAll(false); }}
       />
     </div>
-    {!selectedPeer && !byUser && <CustomTaskStatistics rows={tasks} zh={zh} error={error} provider={provider} periodLabel={dateRange ? rangeLabel(dateRange) : periodLabel(period, zh)} />}
-    <div className="usage-total"><small>{metric === "tokens" ? `${costTitle} ${costLabel(summary.estimatedCostUsd, zh)}` : `${formatTokens(summary.totalTokens, zh)} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button></div>
-    <div className="usage-model-today usage-task-today">
-      {rows.length > 0 && <UsageChart rows={rows} total={total} knownTotal={knownTotal} period={period} devices={devices} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks={view === "tasks" || view === "projects"} users={byUser} summaryOnly colors={colors} />}
-      <div className="usage-ranking">
-        {visibleRows.map((row) => <ClaudeUsageRow key={row.id} row={row} detail={view === "tasks" ? [`🤖 ${providerName}`, result?.details[row.id]].filter(Boolean).join(" · ") : undefined} max={max} color={colors[row.id]} metric={metric} total={knownTotal} zh={zh} gemini={gemini} />)}
-        {!rows.length && <p className="usage-empty">{zh ? `这段时间暂无 ${providerName} 用量。` : `No ${providerName} usage in this period.`}</p>}
-        {rows.length > 5 && <button type="button" className="usage-text-button" onClick={() => setShowAll((value) => !value)}>{showAll ? (zh ? "收起" : "Show less") : (zh ? `其余 ${rows.length - 5} 项` : `${rows.length - 5} more`)}</button>}
+    {!summary || !report ? <p className={includeLocal && error ? "usage-error" : "usage-note"} role="status">
+      {includeLocal && !localReport
+        ? error ? (zh ? `暂时无法读取 ${providerName} 用量。` : `${providerName} usage is unavailable.`) : (zh ? `正在读取 ${providerName} 用量…` : `Loading ${providerName} usage…`)
+        : includeLocal
+          ? (zh ? `未找到 ${gemini ? "Antigravity" : "Claude Code"} 的本机记录。` : `No local ${gemini ? "Antigravity" : "Claude Code"} records found.`)
+          : (zh ? `这段时间暂无 ${providerName} 用量。` : `No ${providerName} usage in this period.`)}
+    </p> : <>
+      {hasLocalDetails && !byUser && <CustomTaskStatistics key={scope} rows={tasks} zh={zh} error={error} provider={provider} periodLabel={dateRange ? rangeLabel(dateRange) : periodLabel(period, zh)} />}
+      <div className="usage-total"><small>{metric === "tokens" ? `${costTitle} ${costLabel(summary.estimatedCostUsd, zh)}` : `${formatTokens(summary.totalTokens, zh)} Tokens`}</small><button type="button" className="usage-text-button" onClick={toggleMetric}>{metric === "tokens" ? (zh ? "看成本" : "Costs") : (zh ? "看 Token" : "Tokens")}</button></div>
+      <div className="usage-model-today usage-task-today">
+        {rows.length > 0 && <UsageChart rows={rows} total={total} knownTotal={knownTotal} period={period} devices={devices} ids={[]} zh={zh} metric={metric} onToggle={toggleMetric} tasks={view === "tasks" || view === "projects"} users={byUser} summaryOnly colors={colors} />}
+        <div className="usage-ranking">
+          {visibleRows.map((row) => <ClaudeUsageRow key={row.id} row={row} detail={view === "tasks" ? [`🤖 ${providerName}`, result?.details[row.id]].filter(Boolean).join(" · ") : undefined} max={max} color={colors[row.id]} metric={metric} total={knownTotal} zh={zh} gemini={gemini} />)}
+          {!rows.length && <p className="usage-empty">{zh ? `这段时间暂无 ${providerName} 用量。` : `No ${providerName} usage in this period.`}</p>}
+          {rows.length > 5 && <button type="button" className="usage-text-button" onClick={() => setShowAll((value) => !value)}>{showAll ? (zh ? "收起" : "Show less") : (zh ? `其余 ${rows.length - 5} 项` : `${rows.length - 5} more`)}</button>}
+        </div>
       </div>
-    </div>
-    {report.days.length > 0 && <DailyUsageTrend devices={devices} metric={metric} zh={zh} anchorDate={dateRange?.end} />}
-    <footer className="usage-footer"><span>{!isTauri() ? (zh ? "示例数据" : "Sample data") : latest ? `${zh ? "最近活动" : "Last activity"} ${new Date(latest).toLocaleString(zh ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : (zh ? "尚无用量记录" : "No usage records yet")}{report.priceCheckedAt ? ` · ${zh ? "API 价核对" : "Prices checked"} ${report.priceCheckedAt}` : null}</span></footer>
+      {report.days.length > 0 && <DailyUsageTrend devices={devices} metric={metric} zh={zh} anchorDate={dateRange?.end} />}
+      <footer className="usage-footer"><span>{!isTauri() ? (zh ? "示例数据" : "Sample data") : latest ? `${zh ? "最近活动" : "Last activity"} ${new Date(latest).toLocaleString(zh ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : (zh ? "尚无用量记录" : "No usage records yet")}{report.priceCheckedAt ? ` · ${zh ? "API 价核对" : "Prices checked"} ${report.priceCheckedAt}` : null}</span></footer>
+    </>}
   </section>;
 }

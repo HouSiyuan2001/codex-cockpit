@@ -9,6 +9,7 @@ import { modelUsageColors, UNRANKED_MODEL_COLOR } from "../lib/modelUsageColors"
 import { TaskUsageRow } from "./TaskUsageRow";
 import { PeerTaskStatus } from "./PeerTaskStatus";
 import { UsageCalendar } from "./UsageCalendar";
+import { UsageGroupSelect } from "./UsageGroupSelect";
 import { CustomTaskStatistics } from "./CustomTaskStatistics";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { LocalUsageSourceSettings } from "./LocalUsageSourceSettings";
@@ -214,11 +215,7 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
 
   return <section className="codex-usage-panel" aria-label={zh ? (combined ? "AI 用量" : "Codex 用量") : (combined ? "AI usage" : "Codex usage")}>
     <div className="usage-toolbar">
-      <select aria-label={zh ? "用量分组" : "Usage group"} value={global ? "global" : groupId === null ? "" : `group:${groupId}`} onChange={(event) => { const isGlobal = event.target.value === "global"; setGlobal(isGlobal); if (isGlobal) { setView("users"); setMetric("cost"); } else { setGroupId(event.target.value.slice(6) || null); if (view === "users") setView("models"); } setShowAll(false); }}>
-        <option value="" disabled>{zh ? "选择分组" : "Choose group"}</option>
-        <option value="global">{zh ? "全局" : "Global"}</option>
-        {data.groups.map((item) => <option key={item.id} value={`group:${item.id}`}>{item.name}</option>)}
-      </select>
+      <UsageGroupSelect zh={zh} groups={data.groups} value={global ? "global" : groupId === null ? "" : `group:${groupId}`} onChange={value => { const isGlobal = value === "global"; setGlobal(isGlobal); if (isGlobal) { setView("users"); setMetric("cost"); } else { setGroupId(value.slice(6) || null); if (view === "users") setView("models"); } setShowAll(false); }} />
       <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setDateRange(null); setPeriod(event.target.value as UsagePeriod); setShowAll(false); }}>
         {dateRange && <option value="calendar" disabled>{rangeLabel(dateRange)}</option>}
         {PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}

@@ -637,13 +637,32 @@ it("shows Gemini model usage from a peer in the same usage group", async () => {
   expect(screen.queryByText("Synced Carbon")).not.toBeInTheDocument();
 });
 
-it("opens a peer's Gemini model report including its estimated cost", async () => {
-  render(<ClaudeUsagePanel zh provider="gemini" sharedUsage={[sharedGeminiUsage("peer-pc", "Peer PC", "Synced Carbon")]} />);
-  const source = await screen.findByRole("combobox", { name: "用量分组" });
-  fireEvent.change(source, { target: { value: "device:peer-pc" } });
+it.each(["claude", "gemini"] as const)("uses Codex's scope options and filters %s usage by member devices", async (provider) => {
+  const data = createUsagePreview();
+  data.groups.push({ id: "other", name: "Other member", deviceIds: ["peer-pc", "peer-mac"] });
+  data.groups.push({ id: "empty", name: "No data", deviceIds: ["empty-pc"] });
+  const sharedUsage = [
+    sharedGeminiUsage("peer-pc", "Peer PC", "Synced Carbon"),
+    sharedGeminiUsage("peer-mac", "Peer Mac", "Synced Carbon"),
+  ].map(peer => ({ ...peer, usage: { [provider]: peer.usage.gemini } }));
+  vi.mocked(getTokeiUsage).mockResolvedValue(data);
+  render(<><CodexUsagePanel zh initialUsage={data} /><ClaudeUsagePanel zh provider={provider} memberUsage={data} sharedUsage={sharedUsage} /></>);
+  const [codexScope, source] = screen.getAllByRole("combobox", { name: "用量分组" });
+  const labels = (select: HTMLElement) => within(select).getAllByRole("option").map(option => option.textContent);
+  expect(labels(source)).toEqual(labels(codexScope));
+  expect(source).toHaveValue("group:demo");
+  expect(screen.queryByText("Synced Carbon")).not.toBeInTheDocument();
+  fireEvent.change(source, { target: { value: "group:other" } });
   expect(await screen.findByText("Synced Carbon")).toBeVisible();
-  expect(screen.getByText("估算成本 $3.25")).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "查看方式" })).toHaveValue("models");
+  expect(screen.getByText("估算成本 $6.50")).toBeVisible();
+  const [, providerView] = screen.getAllByRole("combobox", { name: "查看方式" });
+  expect(providerView).toHaveValue("models");
+  fireEvent.change(source, { target: { value: "group:empty" } });
+  expect(screen.queryByText("Synced Carbon")).not.toBeInTheDocument();
+  expect(screen.getByText(`这段时间暂无 ${provider === "claude" ? "Claude" : "Gemini"} 用量。`)).toBeVisible();
+  fireEvent.change(source, { target: { value: "global" } });
+  expect(providerView).toHaveValue("users");
+  expect(screen.getByRole("img", { name: "用户成本与用量占比" })).toBeVisible();
 });
 
 it.each(["claude", "gemini"] as const)("uses shared member groups and their colors in the %s usage ring", async (provider) => {
@@ -662,7 +681,7 @@ it.each(["claude", "gemini"] as const)("uses shared member groups and their colo
   const ring = screen.getByRole("img", { name: "用户成本与用量占比" });
   expect(ring.querySelector('circle[stroke="#3366aa"] title')?.textContent).toMatch(/^First member/);
   expect(ring.querySelector('circle[stroke="#ee8844"] title')?.textContent).toMatch(/^Second member/);
-  expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("all");
+  expect(screen.getByRole("combobox", { name: "用量分组" })).toHaveValue("global");
 });
 
 function sharedGeminiUsage(deviceId: string, deviceName: string, name: string): SharedProviderUsage {
