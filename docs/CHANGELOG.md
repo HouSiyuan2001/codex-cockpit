@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0 - 2026-11-27
+
+- Merge remote-tracking branch 'origin/main'
+- Update the developer repository map for 1.0
+- Merge pull request #8 from Liyou2778/docs/contributing
+- Package provider sync server and document the 1.0 release
+- Use shared member groups across provider usage views
+- Integrate Windows and Linux provider quota discovery
+- Fix Windows Antigravity quota callback and Claude CLI discovery
+- Update vulnerable Rust dependencies for desktop test builds
+- Build cross-platform cockpit test candidate
+- docs: add CONTRIBUTING.md
+
 ## 0.3.8 - 2026-11-18
 
 - Add GPT-6.2 pricing and Claude reconnect, tighten paired capsule
