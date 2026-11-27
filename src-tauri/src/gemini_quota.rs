@@ -345,12 +345,68 @@ exit $child.ExitCode"#
 }
 
 #[cfg(windows)]
-fn add_statusline(settings: &mut Value, command: &str, old_command: &str) -> bool {
+fn is_windows_cockpit_statusline(command: &str) -> bool {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    if let Some(path) = command
+        .strip_prefix("\"\"")
+        .and_then(|value| value.strip_suffix("\" --antigravity-statusline\""))
+    {
+        return Path::new(path).is_absolute()
+            && Path::new(path)
+                .file_name()
+                .is_some_and(|name| name == "quota-float.exe");
+    }
+    let Some(bytes) = command
+        .strip_prefix("powershell.exe -NoProfile -NonInteractive -EncodedCommand ")
+        .and_then(|encoded| STANDARD.decode(encoded).ok())
+    else {
+        return false;
+    };
+    let (pairs, rest) = bytes.as_chunks::<2>();
+    if !rest.is_empty() {
+        return false;
+    }
+    let words: Vec<_> = pairs.iter().copied().map(u16::from_le_bytes).collect();
+    let Ok(script) = String::from_utf16(&words) else {
+        return false;
+    };
+    let Some(path) = script.lines().nth(1).and_then(|line| {
+        line.strip_prefix("$start.FileName = '")
+            .and_then(|value| value.strip_suffix('\''))
+    }) else {
+        return false;
+    };
+    windows_statusline_command(Path::new(&path.replace("''", "'"))).as_deref() == Some(command)
+}
+
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn linux_statusline_command(exe: &Path) -> Option<String> {
+    let exe = exe.to_str()?.replace('\'', "'\"'\"'");
+    Some(format!(
+        "exec '{exe}' --antigravity-statusline # Codex Cockpit"
+    ))
+}
+
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn is_linux_cockpit_statusline(command: &str) -> bool {
+    command.starts_with("exec '") && command.ends_with("' --antigravity-statusline # Codex Cockpit")
+}
+
+#[cfg(any(windows, target_os = "linux", test))]
+fn add_statusline(
+    settings: &mut Value,
+    command: &str,
+    is_managed: impl FnOnce(&str) -> bool,
+) -> bool {
     let Some(settings) = settings.as_object_mut() else {
         return false;
     };
     if let Some(existing) = settings.get_mut("statusLine") {
-        if existing["command"].as_str() == Some(old_command) && old_command != command {
+        if existing["command"]
+            .as_str()
+            .is_some_and(|old| old != command && is_managed(old))
+        {
             existing["command"] = Value::String(command.into());
             return true;
         }
@@ -365,8 +421,8 @@ fn add_statusline(settings: &mut Value, command: &str, old_command: &str) -> boo
     true
 }
 
-#[cfg(windows)]
-fn register_windows_statusline() {
+#[cfg(any(windows, target_os = "linux"))]
+fn register_statusline() {
     let Some(settings_path) = statusline_path().map(|path| path.with_file_name("settings.json"))
     else {
         return;
@@ -389,11 +445,24 @@ fn register_windows_statusline() {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
-    let Some(command) = windows_statusline_command(&exe) else {
+    #[cfg(windows)]
+    let (command, is_managed) = (
+        windows_statusline_command(&exe),
+        is_windows_cockpit_statusline,
+    );
+    #[cfg(target_os = "linux")]
+    let (command, is_managed) = {
+        // current_exe points to a temporary mount when launched from an AppImage.
+        let exe = std::env::var_os("APPIMAGE")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute() && path.is_file())
+            .unwrap_or(exe);
+        (linux_statusline_command(&exe), is_linux_cockpit_statusline)
+    };
+    let Some(command) = command else {
         return;
     };
-    let old_command = format!(r#"""{}" --antigravity-statusline""#, exe.display());
-    if add_statusline(&mut settings, &command, &old_command) {
+    if add_statusline(&mut settings, &command, is_managed) {
         let _ = crate::usage_sync::write_json(&settings_path, &settings);
     }
 }
@@ -473,9 +542,9 @@ pub async fn fetch(manual: bool) -> GeminiQuota {
         .filter(|path| !path.as_os_str().is_empty());
 
     if fixture_path.is_none() {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if state.last_attempt.is_none() {
-            register_windows_statusline();
+            register_statusline();
         }
         if let Some(quota) = read_statusline_quota(wall_time) {
             state.last_attempt = Some((now, wall_time));
@@ -492,8 +561,8 @@ pub async fn fetch(manual: bool) -> GeminiQuota {
         return state.finish_attempt(outcome);
     }
 
-    #[cfg(windows)]
-    register_windows_statusline();
+    #[cfg(any(windows, target_os = "linux"))]
+    register_statusline();
     state.backoff_until = Some(now + FAILURE_BACKOFF);
     state.finish_attempt(Err((
         "unavailable",
@@ -521,18 +590,78 @@ mod tests {
         let words: Vec<_> = pairs.iter().copied().map(u16::from_le_bytes).collect();
         let script = String::from_utf16(&words).unwrap();
         assert!(script.contains(r"D:\Apps %Local%\Codex''s Cockpit\quota-float.exe"));
-        let old = r#"""D:\Apps\Codex Cockpit\quota-float.exe" --antigravity-statusline""#;
+        let old = r#"""D:\Old Apps\Codex Cockpit\quota-float.exe" --antigravity-statusline""#;
         let mut settings = serde_json::json!({"theme": "dark"});
-        assert!(add_statusline(&mut settings, &command, old));
+        assert!(add_statusline(
+            &mut settings,
+            &command,
+            is_windows_cockpit_statusline
+        ));
         assert_eq!(settings["theme"], "dark");
         let mut legacy = serde_json::json!({"statusLine": {"enabled": false, "command": old}});
-        assert!(add_statusline(&mut legacy, &command, old));
+        assert!(add_statusline(
+            &mut legacy,
+            &command,
+            is_windows_cockpit_statusline
+        ));
         assert_eq!(legacy["statusLine"]["enabled"], false);
         assert_eq!(legacy["statusLine"]["command"], command);
+        let moved =
+            windows_statusline_command(Path::new(r"E:\New Install\quota-float.exe")).unwrap();
+        assert!(add_statusline(
+            &mut settings,
+            &moved,
+            is_windows_cockpit_statusline
+        ));
+        assert_eq!(settings["statusLine"]["command"], moved);
         let mut custom = serde_json::json!({"statusLine": {"enabled": false, "command": "custom"}});
         let before = custom.clone();
-        assert!(!add_statusline(&mut custom, &command, old));
+        assert!(!add_statusline(
+            &mut custom,
+            &command,
+            is_windows_cockpit_statusline
+        ));
         assert_eq!(custom, before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quotes_appimage_paths_and_only_replaces_cockpit_hooks() {
+        let path = Path::new("/home/test/Codex's Apps/Cockpit $1.AppImage");
+        let command = linux_statusline_command(path).unwrap();
+        let arguments = command.strip_prefix("exec ").unwrap();
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("printf '%s\\n' {arguments}")])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{}\n--antigravity-statusline\n", path.display())
+        );
+
+        let mut settings = serde_json::json!({"theme": "dark"});
+        assert!(add_statusline(
+            &mut settings,
+            &command,
+            is_linux_cockpit_statusline
+        ));
+        let new = linux_statusline_command(Path::new("/usr/bin/quota-float")).unwrap();
+        assert!(add_statusline(
+            &mut settings,
+            &new,
+            is_linux_cockpit_statusline
+        ));
+        assert_eq!(settings["statusLine"]["command"], new);
+        assert_eq!(settings["theme"], "dark");
+
+        let mut custom = serde_json::json!({"statusLine": {"command": "custom"}});
+        assert!(!add_statusline(
+            &mut custom,
+            &command,
+            is_linux_cockpit_statusline
+        ));
+        assert_eq!(custom["statusLine"]["command"], "custom");
     }
 
     #[test]

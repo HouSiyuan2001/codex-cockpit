@@ -180,6 +180,19 @@ fn claude_program() -> Option<PathBuf> {
             directories.push(PathBuf::from(program_files).join("WinGet/Links"));
         }
     }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(prefix) = std::env::var_os("NPM_CONFIG_PREFIX")
+            .map(PathBuf::from)
+            .filter(|prefix| prefix.is_absolute())
+        {
+            directories.push(prefix.join("bin"));
+        }
+        if let Some(home) = dirs::home_dir() {
+            directories.push(home.join(".npm-global/bin"));
+        }
+        directories.push(PathBuf::from("/usr/local/bin"));
+    }
     find_claude_program(directories)
 }
 
