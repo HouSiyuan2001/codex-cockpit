@@ -314,6 +314,90 @@ fn statusline_path() -> Option<PathBuf> {
         .map(|home| home.join(".gemini/antigravity-cli/codex-cockpit-account-quota.json"))
 }
 
+#[cfg(windows)]
+fn windows_statusline_command(exe: &Path) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // Antigravity passes the hook through cmd.exe. Keep the path and script
+    // out of cmd's quote handling, and forward the original JSON bytes.
+    let exe = exe.to_str()?.replace('\'', "''");
+    let script = format!(
+        r#"$start = New-Object System.Diagnostics.ProcessStartInfo
+$start.FileName = '{exe}'
+$start.Arguments = '--antigravity-statusline'
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.RedirectStandardInput = $true
+$child = [System.Diagnostics.Process]::Start($start)
+try {{
+    [Console]::OpenStandardInput().CopyTo($child.StandardInput.BaseStream)
+}} finally {{
+    $child.StandardInput.Close()
+}}
+$child.WaitForExit()
+exit $child.ExitCode"#
+    );
+    let bytes: Vec<_> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    Some(format!(
+        "powershell.exe -NoProfile -NonInteractive -EncodedCommand {}",
+        STANDARD.encode(bytes)
+    ))
+}
+
+#[cfg(windows)]
+fn add_statusline(settings: &mut Value, command: &str, old_command: &str) -> bool {
+    let Some(settings) = settings.as_object_mut() else {
+        return false;
+    };
+    if let Some(existing) = settings.get_mut("statusLine") {
+        if existing["command"].as_str() == Some(old_command) && old_command != command {
+            existing["command"] = Value::String(command.into());
+            return true;
+        }
+        return false;
+    }
+    settings.insert(
+        "statusLine".into(),
+        serde_json::json!({
+            "type": "command", "command": command, "stack_with_default": true
+        }),
+    );
+    true
+}
+
+#[cfg(windows)]
+fn register_windows_statusline() {
+    let Some(settings_path) = statusline_path().map(|path| path.with_file_name("settings.json"))
+    else {
+        return;
+    };
+    // The CLI only saves non-default settings. It may have initialized its
+    // directory without creating settings.json.
+    let mut settings = match std::fs::symlink_metadata(&settings_path) {
+        Ok(_) => match crate::tokei_usage::read_json(&settings_path, MAX_FIXTURE_BYTES) {
+            Ok(settings) => settings,
+            Err(_) => return,
+        },
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && settings_path.parent().is_some_and(Path::is_dir) =>
+        {
+            serde_json::json!({})
+        }
+        Err(_) => return,
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(command) = windows_statusline_command(&exe) else {
+        return;
+    };
+    let old_command = format!(r#"""{}" --antigravity-statusline""#, exe.display());
+    if add_statusline(&mut settings, &command, &old_command) {
+        let _ = crate::usage_sync::write_json(&settings_path, &settings);
+    }
+}
+
 pub(crate) fn capture_statusline_quota() {
     let Some(path) = statusline_path() else {
         return;
@@ -389,6 +473,14 @@ pub async fn fetch(manual: bool) -> GeminiQuota {
         .filter(|path| !path.as_os_str().is_empty());
 
     if fixture_path.is_none() {
+        #[cfg(windows)]
+        if state.last_attempt.is_none() {
+            register_windows_statusline();
+        }
+        if let Some(quota) = read_statusline_quota(wall_time) {
+            state.last_attempt = Some((now, wall_time));
+            return state.finish_attempt(Ok(quota));
+        }
         if let Some(cached) = state.cached_result(now, wall_time, manual) {
             return cached;
         }
@@ -400,9 +492,8 @@ pub async fn fetch(manual: bool) -> GeminiQuota {
         return state.finish_attempt(outcome);
     }
 
-    if let Some(quota) = read_statusline_quota(wall_time) {
-        return state.finish_attempt(Ok(quota));
-    }
+    #[cfg(windows)]
+    register_windows_statusline();
     state.backoff_until = Some(now + FAILURE_BACKOFF);
     state.finish_attempt(Err((
         "unavailable",
@@ -413,6 +504,36 @@ pub async fn fetch(manual: bool) -> GeminiQuota {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn registers_quoted_callback_without_replacing_an_existing_hook() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        let path = Path::new(r"D:\Apps %Local%\Codex's Cockpit\quota-float.exe");
+        let command = windows_statusline_command(path).unwrap();
+        let encoded = command
+            .strip_prefix("powershell.exe -NoProfile -NonInteractive -EncodedCommand ")
+            .unwrap();
+        let bytes = STANDARD.decode(encoded).unwrap();
+        let (pairs, remainder) = bytes.as_chunks::<2>();
+        assert!(remainder.is_empty());
+        let words: Vec<_> = pairs.iter().copied().map(u16::from_le_bytes).collect();
+        let script = String::from_utf16(&words).unwrap();
+        assert!(script.contains(r"D:\Apps %Local%\Codex''s Cockpit\quota-float.exe"));
+        let old = r#"""D:\Apps\Codex Cockpit\quota-float.exe" --antigravity-statusline""#;
+        let mut settings = serde_json::json!({"theme": "dark"});
+        assert!(add_statusline(&mut settings, &command, old));
+        assert_eq!(settings["theme"], "dark");
+        let mut legacy = serde_json::json!({"statusLine": {"enabled": false, "command": old}});
+        assert!(add_statusline(&mut legacy, &command, old));
+        assert_eq!(legacy["statusLine"]["enabled"], false);
+        assert_eq!(legacy["statusLine"]["command"], command);
+        let mut custom = serde_json::json!({"statusLine": {"enabled": false, "command": "custom"}});
+        let before = custom.clone();
+        assert!(!add_statusline(&mut custom, &command, old));
+        assert_eq!(custom, before);
+    }
 
     #[test]
     fn rejects_signed_out_placeholders_and_reads_both_authenticated_model_groups() {

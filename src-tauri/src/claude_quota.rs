@@ -155,32 +155,44 @@ async fn load_credential() -> Option<Credential> {
 }
 
 fn claude_program() -> Option<PathBuf> {
-    let name = if cfg!(windows) {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-    let mut candidates = Vec::new();
+    let mut directories = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(
-            std::env::split_paths(&path)
-                .filter(|directory| directory.is_absolute())
-                .map(|directory| directory.join(name)),
-        );
+        directories.extend(std::env::split_paths(&path).filter(|dir| dir.is_absolute()));
     }
     if let Some(home) = dirs::home_dir() {
-        candidates.push(home.join(".local").join("bin").join(name));
+        directories.push(home.join(".local/bin"));
     }
     #[cfg(target_os = "macos")]
     {
-        candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
-        candidates.push(PathBuf::from("/usr/local/bin/claude"));
+        directories.push(PathBuf::from("/opt/homebrew/bin"));
+        directories.push(PathBuf::from("/usr/local/bin"));
     }
     #[cfg(windows)]
-    if let Some(local_data) = dirs::data_local_dir() {
-        candidates.push(local_data.join("Microsoft/WinGet/Links").join(name));
+    {
+        if let Some(roaming) = dirs::data_dir() {
+            directories.push(roaming.join("npm"));
+        }
+        if let Some(local) = dirs::data_local_dir() {
+            directories.push(local.join("Programs/Claude"));
+            directories.push(local.join("Microsoft/WinGet/Links"));
+        }
+        if let Some(program_files) = std::env::var_os("ProgramFiles") {
+            directories.push(PathBuf::from(program_files).join("WinGet/Links"));
+        }
     }
-    candidates.into_iter().find(|path| path.is_file())
+    find_claude_program(directories)
+}
+
+fn find_claude_program(directories: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    let names: &[&str] = if cfg!(windows) {
+        &["claude.exe", "claude.cmd"]
+    } else {
+        &["claude"]
+    };
+    directories
+        .into_iter()
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
+        .find(|path| path.is_file())
 }
 
 fn claude_subscription_command() -> Option<Command> {
@@ -508,6 +520,30 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn finds_and_executes_the_windows_npm_shim() {
+        use super::*;
+
+        let dir = std::env::temp_dir().join(format!("Cockpit Claude CLI {}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let shim = dir.join("claude.cmd");
+        std::fs::write(
+            &shim,
+            "@echo off\r\nif \"%1 %2\"==\"auth status\" exit /b 0\r\nexit /b 1\r\n",
+        )
+        .unwrap();
+        let program = find_claude_program([dir.clone()]);
+        let status = Command::new(program.as_ref().unwrap())
+            .args(["auth", "status"])
+            .status()
+            .await;
+        std::fs::remove_file(&shim).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        assert_eq!(program, Some(shim));
+        assert!(status.unwrap().success());
+    }
+
     use super::*;
 
     #[test]
