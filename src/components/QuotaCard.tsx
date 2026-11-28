@@ -32,7 +32,7 @@ import { resetWatchLabel } from "../lib/resetWatch";
 import { isCodexPlus, fiveHourRemaining, fiveHourWindow } from "../lib/plusQuota";
 import type { ResetWatch } from "../types";
 
-import { PersonCostArcs } from "./PersonCostRing";
+import { PersonCostArcs, PersonCostBar } from "./PersonCostRing";
 import type { DailyPersonCosts } from "../lib/dailyPersonCosts";
 
 const GEMINI_SHARED_POOL_LABEL = "Gemini · Claude / GPT";
@@ -1000,6 +1000,9 @@ export const QuotaCard = memo(function QuotaCard({
             <QuotaResetRow label={codexResetLabel} resetsAt={available ? focusWindow?.window.resetsAt ?? null : null} now={now} language={language} />
             {focusWindow?.period !== "5h" && codexFiveHourFooter}
             {hasFiveHour && focusWindow?.period !== "5h" && <QuotaResetRow label={fiveHourResetLabel} resetsAt={available ? short?.resetsAt ?? null : null} now={now} language={language} />}
+            {dailyBudgetUsageRatio !== null && dailyPersonCosts && dailyPersonCosts.people.length > 0 && (
+              <PersonCostBar data={dailyPersonCosts} progress={dailyBudgetUsageRatio} label={dailyLabel} english={language === "en"} />
+            )}
           </div>
         )}
       />

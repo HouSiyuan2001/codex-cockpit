@@ -398,3 +398,36 @@ describe("Gemini floating capsules", () => {
     expect(bottomCells[1]).toHaveTextContent("38%");
   });
 });
+
+it("reuses the daily ring allocation as a segmented bar in the AI Codex card", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
+  try {
+    const preferences = normalizeWidgetPreferences({
+      ...DEFAULT_WIDGET_PREFERENCES,
+      cockpitMode: "ai",
+      codexEnabled: true,
+      claudeEnabled: true,
+      dailyBudgetPercent: 20,
+    });
+    const { container } = render(<QuotaCard
+      snapshot={codex} snapshots={[codex]} preferences={preferences} now={now}
+      claudeView={buildClaudeCockpitView(claudeQuota, now)}
+      codexDailyUsage={{ localDate: "2026-11-26", observedUsedPercent: 10, coverage: "complete", sampleCount: 1, firstObservedAt: codex.updatedAt, lastObservedAt: codex.updatedAt, source: "codex-session-rate-limits" }}
+      dailyPersonCosts={{ partial: false, people: [
+        { id: "alex", name: "成员甲", cost: 30, share: .3, color: "#d37898", unassigned: false },
+        { id: "blair", name: "成员乙", cost: 70, share: .7, color: "#648cca", unassigned: false },
+      ] }}
+      onCockpitModeChange={noop} onSelectProvider={noop} onLock={noop} onLanguage={noop}
+      onDrag={noop} onHover={noop} consumingProviders={new Set()}
+    />);
+    const card = screen.getByRole("group", { name: /Codex 74%/ });
+    expect(within(card).getByText("50%")).toBeInTheDocument();
+    expect(within(card).getByText("15%")).toBeInTheDocument();
+    expect(within(card).getByText("35%")).toBeInTheDocument();
+    expect(card.querySelector(".person-cost-bar-track > span")).toHaveStyle({ width: "15%" });
+    expect(container.querySelector(".codex-ring-card--claude .person-cost-bar")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});

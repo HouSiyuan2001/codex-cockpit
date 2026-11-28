@@ -12,6 +12,40 @@ export function PersonCostArcs({ data, progress }: { data: DailyPersonCosts; pro
   })}</>;
 }
 
+export function PersonCostBar({ data, progress, label, english }: {
+  data: DailyPersonCosts; progress: number; label: string; english: boolean;
+}) {
+  const number = new Intl.NumberFormat(english ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
+  const percent = (value: number) => `${number.format(value)}%`;
+  const filled = Math.min(progress, 100);
+  const basis = english
+    ? (data.partial ? "Estimated from known costs only" : "Estimated from model costs")
+    : (data.partial ? "仅按已知金额估算" : "按模型金额估算");
+  return (
+    <div className="person-cost-bar" title={basis}>
+      <div className="person-cost-bar-heading"><span>{label}</span><strong>{percent(progress)}</strong></div>
+      <div className="person-cost-bar-track" aria-hidden="true">
+        {data.people.map(person => (
+          <span key={person.id} style={{ width: `${filled * person.share}%`, backgroundColor: person.color }} />
+        ))}
+      </div>
+      <div className="person-cost-bar-labels" role="list" aria-label={basis}>
+        {data.people.map(person => {
+          const name = person.unassigned ? (english ? "Unassigned" : "未归属") : person.name;
+          const contribution = percent(progress * person.share);
+          return (
+            <span key={person.id} role="listitem" title={`${name} ${contribution} · ${basis}`}>
+              <i aria-hidden="true" style={{ backgroundColor: person.color }} />
+              <span>{name}</span>
+              <strong>{contribution}</strong>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function PersonCostLegend({ data, english }: { data: DailyPersonCosts; english: boolean }) {
   const percent = new Intl.NumberFormat(english ? "en-US" : "zh-CN", { maximumFractionDigits: 1 });
   return <div className="person-cost-legend" aria-label={english ? "Estimated cost allocation" : "按金额估算分摊"} title={english ? "Shares use today's known calendar-day model costs, not token counts or official per-user quota. Missing prices cannot be quantified; unassigned costs are gray. Cost and quota day boundaries may differ." : "按当日自然日的已知模型金额分摊，不按 Token 数，也不是官方个人额度。缺价部分无法量化；未归属金额用灰色。金额与额度的日界可能不同。"}>

@@ -59,3 +59,34 @@ it("uses automatic risk for old shared seeds and keeps explicit edits for today"
   expect(result.current.plan?.risk.value).toBe(0);
   await waitFor(() => expect(result.current.plan?.risk).toEqual({ value: 0, revision: 1 }));
 });
+
+it("keeps a personal cap draft across restart before the shared plan can load", async () => {
+  let online = false;
+  mock.invoke.mockImplementation(async (command, args) => {
+    if (command === "get_cloud_sync_status") {
+      return { config: { enabled: true, spaceId: "space-a", deviceId: "mac" } };
+    }
+    if (!online) throw new Error("cloud_keychain_unavailable");
+    const change = args.body.change;
+    if (change) expect(change.expectedRevision).toBe(0);
+    return {
+      plan: {
+        basis,
+        people: change ? { alex: { value: change.value, revision: 1 } } : {},
+        risk: { value: null, revision: 0 },
+      },
+    };
+  });
+
+  const first = renderHook(() => useSharedDailyPlan(basis));
+  await waitFor(() => expect(first.result.current.error).toBe(true));
+  act(() => first.result.current.change("person", 12, "alex"));
+  expect(first.result.current.plan?.people.alex.value).toBe(12);
+  expect(first.result.current.pending).toBe(true);
+  first.unmount();
+
+  online = true;
+  const second = renderHook(() => useSharedDailyPlan(basis));
+  await waitFor(() => expect(second.result.current.plan?.people.alex).toEqual({ value: 12, revision: 1 }));
+  expect(second.result.current.pending).toBe(false);
+});

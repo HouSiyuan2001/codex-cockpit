@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 - 2026-11-28
+
+- Show daily Codex usage by member in the combined AI view.
+- Preserve personal cap edits while the shared plan is unavailable.
+- Refresh Gemini quota during active five-hour windows.
+
 ## 1.0.1 - 2026-11-27
 
 - Simplify Codex pacing and improve quota refresh

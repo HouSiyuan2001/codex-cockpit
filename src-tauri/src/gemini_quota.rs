@@ -20,6 +20,7 @@ const MIN_REFRESH: Duration = Duration::from_secs(55);
 const MIN_MANUAL_REFRESH: Duration = Duration::from_secs(10);
 const FAILURE_BACKOFF: Duration = Duration::from_secs(55);
 const STATUSLINE_FRESHNESS_MINUTES: i64 = 15;
+const QUOTA_POLL_MINUTES: i64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -387,16 +388,23 @@ impl QuotaState {
         latest: Option<&GeminiQuota>,
         now: DateTime<Utc>,
     ) -> bool {
+        let observed = latest
+            .and_then(|quota| quota.observed_at.as_deref())
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok());
         manual
-            || (auto_refresh
-                && latest.is_some_and(|quota| {
-                    [quota.gemini.as_ref(), quota.claude_gpt.as_ref()]
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|pool| pool.five_hour.as_ref()?.resets_at.as_deref())
-                        .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
-                        .any(|reset| reset.timestamp() > 0 && reset <= now)
-                }))
+            || observed.is_none_or(|time| {
+                now.signed_duration_since(time) >= chrono::Duration::minutes(QUOTA_POLL_MINUTES)
+            })
+            || (auto_refresh && latest.is_some_and(|quota| Self::has_expired_five_hour(quota, now)))
+    }
+
+    fn has_expired_five_hour(quota: &GeminiQuota, now: DateTime<Utc>) -> bool {
+        [&quota.gemini, &quota.claude_gpt]
+            .into_iter()
+            .flatten()
+            .filter_map(|pool| pool.five_hour.as_ref()?.resets_at.as_deref())
+            .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+            .any(|reset| reset.timestamp() > 0 && reset <= now)
     }
 
     fn idle_windows(quota: &GeminiQuota) -> [bool; 2] {
@@ -777,7 +785,7 @@ pub async fn fetch(manual: bool, auto_refresh: bool) -> GeminiQuota {
                     state.refresh_after_probe = true;
                 }
             }
-            let expired = QuotaState::should_query_cli(false, true, Some(&quota), Utc::now());
+            let expired = QuotaState::has_expired_five_hour(&quota, Utc::now());
             let result = state.finish_attempt(Ok(quota));
             if expired {
                 state.backoff_until = Some(Instant::now() + FAILURE_BACKOFF);
@@ -1014,8 +1022,16 @@ mod tests {
             false,
             false,
             Some(&quota),
-            expired
+            now + chrono::Duration::minutes(4)
         ));
+        assert!(QuotaState::should_query_cli(
+            false,
+            false,
+            Some(&quota),
+            now + chrono::Duration::minutes(5)
+        ));
+        assert!(QuotaState::should_query_cli(false, false, None, now));
+        assert!(QuotaState::has_expired_five_hour(&quota, expired));
         assert!(QuotaState::should_query_cli(
             false,
             true,

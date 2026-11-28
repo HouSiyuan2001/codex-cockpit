@@ -2604,6 +2604,20 @@ textarea {
   filter: drop-shadow(0 0 7px rgba(228, 93, 98, .5));
 }
 .person-cost-arc { fill: none; stroke-width: 8; stroke-linecap: butt; transition: stroke-dasharray .35s ease, stroke-dashoffset .35s ease; }
+.person-cost-bar { display: grid; gap: 4px; min-width: 0; margin-top: 6px; }
+.person-cost-bar-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.person-cost-bar-track {
+  display: flex;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+.person-cost-bar-track > span { flex: none; }
+.person-cost-bar-labels { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: .9em; }
+.person-cost-bar-labels > span { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 100%; }
+.person-cost-bar-labels > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-cost-bar-labels i { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; }
 .person-cost-legend { padding: 0 12px 8px; color: var(--glass-muted); font-size: calc(9px * var(--ui-font-scale, 1)); }
 .person-cost-legend > small { display: block; margin-bottom: 5px; font-size: .9em; }
 .person-cost-legend > div { display: flex; flex-wrap: wrap; gap: 5px 12px; }
