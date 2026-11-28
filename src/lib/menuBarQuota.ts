@@ -6,6 +6,7 @@ import { fiveHourWindow } from "./plusQuota";
 interface Quota {
   weekly: number | null;
   fiveHour: number | null;
+  showWeekly?: boolean;
 }
 
 export interface MenuBarQuotas {
@@ -24,10 +25,12 @@ export function menuBarQuotas(
 ): MenuBarQuotas {
   const remaining = (window: ProviderSnapshot["shortWindow"] | undefined) =>
     window && !(Date.parse(window.resetsAt ?? "") <= now.getTime()) ? window.remainingPercent : null;
+  const codexFiveHour = remaining(codex ? fiveHourWindow(codex) : null);
   return {
     codex: enabled.codex ? {
       weekly: remaining(codex?.weeklyWindow),
-      fiveHour: remaining(codex ? fiveHourWindow(codex) : null),
+      fiveHour: codexFiveHour,
+      ...(codexFiveHour === null && { showWeekly: true }),
     } : null,
     claude: enabled.claude ? {
       weekly: claude.weeklyRemaining,

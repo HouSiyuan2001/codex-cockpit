@@ -6,6 +6,8 @@ use tauri::AppHandle;
 pub(crate) struct Quota {
     weekly: Option<f64>,
     five_hour: Option<f64>,
+    #[serde(default)]
+    show_weekly: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +27,17 @@ fn percentage(value: Option<f64>) -> Option<f64> {
 
 fn label(value: Option<f64>) -> String {
     percentage(value).map_or_else(|| "—".into(), |percent| format!("{percent:.0}%"))
+}
+
+impl Quota {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn displayed_percent(self) -> Option<f64> {
+        if self.show_weekly {
+            self.weekly
+        } else {
+            self.five_hour
+        }
+    }
 }
 
 impl Quotas {
@@ -47,6 +60,9 @@ impl Quotas {
         };
         self.entries()
             .map(|(name, quota)| {
+                if quota.show_weekly && quota.weekly.is_some() {
+                    return format!("{name} · {week} {}", label(quota.weekly));
+                }
                 format!(
                     "{name} · {week} {} · {short} {}",
                     label(quota.weekly),
@@ -100,7 +116,7 @@ pub(crate) async fn set_menu_bar_quotas(app: AppHandle, quotas: Quotas, english:
         let _ = tray.set_title(Some(
             quotas
                 .entries()
-                .map(|(_, quota)| label(quota.five_hour))
+                .map(|(_, quota)| label(quota.displayed_percent()))
                 .collect::<Vec<_>>()
                 .join(" · "),
         ));
@@ -168,7 +184,7 @@ fn macos_quota_title(
             NSSize::new(15.0, 15.0),
         ));
         title.appendAttributedString(&NSAttributedString::attributedStringWithAttachment(&ring));
-        let short = NSString::from_str(&format!(" {}", label(quota.five_hour)));
+        let short = NSString::from_str(&format!(" {}", label(quota.displayed_percent())));
         let text_color = macos_color(if dark { dark_text } else { light_text }, 1.0);
         let attributes = NSDictionary::from_slices(
             &[unsafe { NSForegroundColorAttributeName }],

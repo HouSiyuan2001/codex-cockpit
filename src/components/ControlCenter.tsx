@@ -19,10 +19,9 @@ import { ProviderMark } from "./ProviderMark";
 import { TeamMemberSettings } from "./TeamMemberSettings";
 import { CloudSyncSettings } from "./CloudSyncSettings";
 import { LocalUsageSourceSettings } from "./LocalUsageSourceSettings";
-import { ClaudeQuotaCards, GeminiQuotaCard } from "./QuotaCard";
-import { buildGeminiCockpitView, effectiveCockpitMode, enabledProviderFlags, type GeminiCockpitView } from "../lib/geminiCockpit";
+import { effectiveCockpitMode, enabledProviderFlags } from "../lib/geminiCockpit";
 
-import type { ClaudeCockpitView } from "../lib/claudeCockpit";
+import { loadUsageTimeSelection, saveUsageTimeSelection, type UsageTimeSelection } from "../lib/usageTimeSelection";
 
 export type ControlCenterPage = "quota" | "usage" | "settings";
 
@@ -57,13 +56,9 @@ interface Props {
   onSliderInteraction?: (active: boolean) => void;
   autostartEnabled: boolean;
   onAutostart: (enabled: boolean) => void;
-  geminiView?: GeminiCockpitView;
-  quotaNow?: Date;
-  claudeView?: ClaudeCockpitView;
-  onRefreshClaude?: () => void;
 }
 
-export function ControlCenter({ page: controlledPage, onPageChange, preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onCheckUpdate = () => undefined, updateContent, updateBusy = false, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart, claudeView, onRefreshClaude, geminiView, quotaNow = new Date() }: Props) {
+export function ControlCenter({ page: controlledPage, onPageChange, preferences, language, comfortFeedback = [], dailyUsage = [], dailyUsageHistory = [], dailyRecommendation = null, weeklyRemainingPercent = null, carryInPercent = 0, onComfortFeedback = () => undefined, comfortUsage = null, comfortPersonId = null, comfortUsageError = false, comfortSaving = false, comfortSaveError = null, onComfortPersonChange = () => undefined, onComfortSnapshotRefresh = () => undefined, onUsageGroupsChange = () => undefined, onCheckUpdate = () => undefined, updateContent, updateBusy = false, onClose, onRefresh, onOpenCodexResets = () => undefined, onDrag = () => undefined, onPreferences, onSliderInteraction = () => undefined, autostartEnabled, onAutostart }: Props) {
   const dialogRef = useModalDialog<HTMLElement>(onClose);
   const selectedPersonCurve = useMemo(() => personalizeComfortCurve(
     comfortFeedback.filter(record => (record.personId ?? null) === comfortPersonId)
@@ -71,6 +66,11 @@ export function ControlCenter({ page: controlledPage, onPageChange, preferences,
   ), [comfortFeedback, comfortPersonId, comfortUsage, dailyUsageHistory, dailyUsage]);
   const [localPage, setLocalPage] = useState<ControlCenterPage>("usage");
   const page = controlledPage ?? localPage;
+  const [usageTimeSelection, setUsageTimeSelection] = useState(loadUsageTimeSelection);
+  const changeUsageTimeSelection = (selection: UsageTimeSelection) => {
+    setUsageTimeSelection(selection);
+    saveUsageTimeSelection(selection);
+  };
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarPortalTarget, setCalendarPortalTarget] = useState<HTMLElement | null>(null);
   const zh = language !== "en";
@@ -141,13 +141,8 @@ export function ControlCenter({ page: controlledPage, onPageChange, preferences,
     source === "ai" ? providerFlags.codex && (providerFlags.claude || providerFlags.gemini) : providerFlags[source]);
   const initialUsageMode = usageSources.find(source => source === cockpitMode) ?? usageSources[0] ?? "codex";
   const [selectedUsageSource, setSelectedUsageSource] = useState(initialUsageMode);
-  const quotaSources = (["codex", "claude", "gemini"] as const).filter(source =>
-    providerFlags[source] && (source !== "claude" || claudeView));
-  const initialQuotaSource = quotaSources.find(source => source === cockpitMode) ?? quotaSources[0] ?? "codex";
-  const [selectedQuotaSource, setSelectedQuotaSource] = useState(initialQuotaSource);
   const usageSource = usageSources.includes(selectedUsageSource) ? selectedUsageSource : initialUsageMode;
-  const quotaSource = quotaSources.includes(selectedQuotaSource) ? selectedQuotaSource : initialQuotaSource;
-  const colorMode = page === "settings" ? cockpitMode : page === "quota" ? quotaSource : usageSource;
+  const colorMode = page === "settings" ? cockpitMode : page === "quota" ? "codex" : usageSource;
   const combinedUsage = page === "usage" && usageSource === "ai";
   const sharedProviderUsage = useSharedProviderUsage(page === "usage" && (providerFlags.claude || providerFlags.gemini));
   const claudeUsage = useLocalProviderUsage(combinedUsage && providerFlags.claude, 400);
@@ -212,24 +207,21 @@ export function ControlCenter({ page: controlledPage, onPageChange, preferences,
 
       <nav className="usage-page-tabs" aria-label={zh ? "控制中心页面" : "Control center pages"}>
           <button type="button" aria-pressed={page === "usage"} onClick={() => changePage("usage")}>{zh ? "用量" : "Usage"}</button>
-          <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "额度" : "Quota"}</button>
+          <button type="button" aria-pressed={page === "quota"} onClick={() => changePage("quota")}>{zh ? "Codex 配速" : "Codex pacing"}</button>
           <button type="button" aria-pressed={page === "settings"} onClick={() => changePage("settings")}><GearSix aria-hidden="true" />{labels.settings}</button>
       </nav>
       <div className="control-body control-body--minimal">
-        {((page === "usage" && usageSources.length > 1) || (page === "quota" && quotaSources.length > 1)) ? <div className="usage-source-switch" role="radiogroup" aria-label={page === "quota" ? (zh ? "额度来源" : "Quota source") : (zh ? "用量来源" : "Usage source")}>
-          {(page === "usage" ? usageSources : quotaSources).map((source) => {
-            const selected = (page === "quota" ? quotaSource : usageSource) === source;
+        {page === "usage" && usageSources.length > 1 ? <div className="usage-source-switch" role="radiogroup" aria-label={zh ? "用量来源" : "Usage source"}>
+          {usageSources.map((source) => {
+            const selected = usageSource === source;
             const label = { codex: "Codex", claude: "Claude", gemini: "Gemini", ai: "AI" }[source];
-            return <button key={source} type="button" role="radio" aria-label={label} aria-checked={selected} className={`usage-source-option usage-source-option--${source}${selected ? " is-active" : ""}`} onClick={() => {
-              if (page === "usage") changeUsageSource(source);
-              else if (source !== "ai") setSelectedQuotaSource(source);
-            }}>{source === "ai" ? null : <ProviderMark provider={source} label={label} />}{label}</button>;
+            return <button key={source} type="button" role="radio" aria-label={label} aria-checked={selected} className={`usage-source-option usage-source-option--${source}${selected ? " is-active" : ""}`} onClick={() => changeUsageSource(source)}>{source === "ai" ? null : <ProviderMark provider={source} label={label} />}{label}</button>;
           })}
         </div> : null}
         {page === "usage" ? <>
           {usageSource === "gemini" || usageSource === "claude" ?
-            <ClaudeUsagePanel key={usageSource} provider={usageSource} zh={zh} sharedUsage={sharedProviderUsage} memberUsage={comfortUsage} personColors={preferences.personRingColors} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} />
-            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} combined={combinedUsage} sharedUsage={sharedProviderUsage} claudeEnabled={providerFlags.claude} geminiEnabled={providerFlags.gemini} claudeReport={combinedUsage && providerFlags.claude ? claudeUsage.report : null} geminiReport={combinedUsage && providerFlags.gemini ? geminiUsage.report : null} />}
+            <ClaudeUsagePanel key={usageSource} provider={usageSource} zh={zh} sharedUsage={sharedProviderUsage} memberUsage={comfortUsage} personColors={preferences.personRingColors} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} timeSelection={[usageTimeSelection, changeUsageTimeSelection]} />
+            : <CodexUsagePanel zh={zh} initialUsage={comfortUsage} onOpenSettings={() => changePage("settings")} calendarOpen={calendarOpen} onCalendarOpenChange={changeCalendarOpen} calendarPortalTarget={calendarPortalTarget} timeSelection={[usageTimeSelection, changeUsageTimeSelection]} combined={combinedUsage} sharedUsage={sharedProviderUsage} claudeEnabled={providerFlags.claude} geminiEnabled={providerFlags.gemini} claudeReport={combinedUsage && providerFlags.claude ? claudeUsage.report : null} geminiReport={combinedUsage && providerFlags.gemini ? geminiUsage.report : null} />}
         </> : page === "settings" ? <div className="control-settings-page" aria-label={labels.settings}>
         <section className="minimal-section" aria-labelledby="minimal-display-title">
           <header className="minimal-section-header"><strong id="minimal-display-title">{labels.display}</strong></header>
@@ -345,6 +337,11 @@ export function ControlCenter({ page: controlledPage, onPageChange, preferences,
               }} /><i /></span>
             </label>
             <label className="minimal-toggle-row">
+              <span><strong>{zh ? "5h 到期补刷" : "5h refresh fallback"}</strong><small>{zh ? "可能消耗少量额度" : "May use a small amount of quota"}</small></span>
+              <span className="switch"><input type="checkbox" checked={preferences.autoRefreshFiveHourQuota}
+                onChange={(event) => updatePreferences({ autoRefreshFiveHourQuota: event.target.checked })} /><i /></span>
+            </label>
+            <label className="minimal-toggle-row">
               <span><strong>{labels.autostart}</strong><small>{labels.autostartHint}</small></span>
               <span className="switch"><input type="checkbox" aria-label={labels.autostart} checked={autostartEnabled} onChange={(event) => onAutostart(event.target.checked)} /><i /></span>
             </label>
@@ -361,14 +358,7 @@ export function ControlCenter({ page: controlledPage, onPageChange, preferences,
           </label>
         </section>
         <footer className="minimal-footer"><span>{labels.source}</span><button type="button" onClick={onClose}>{labels.done}</button></footer>
-        </div> : quotaSource === "gemini" ? (
-          <GeminiQuotaCard view={geminiView ?? buildGeminiCockpitView(null, quotaNow)} language={language} now={quotaNow} />
-        ) : quotaSource === "claude" && claudeView ? (
-          <>
-            {onRefreshClaude ? <button type="button" className="minimal-refresh" onClick={onRefreshClaude}><ArrowClockwise /><span>{labels.refresh}</span></button> : null}
-            <ClaudeQuotaCards view={claudeView} language={language} now={quotaNow} />
-          </>
-        ) : <>
+        </div> : <>
         <section className="minimal-status-card" aria-label={labels.status}>
           <div className="minimal-status-mark" aria-hidden="true"><span /></div>
           <div><strong>{productName}</strong></div>

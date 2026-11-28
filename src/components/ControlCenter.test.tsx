@@ -42,23 +42,19 @@ it.each(["en", "zh-CN"] as const)("offers the requested fonts, with clear local-
 it("puts Usage first in the control center navigation", () => {
   render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
   const nav = screen.getByRole("navigation", { name: "控制中心页面" });
-  expect(Array.from(nav.querySelectorAll("button")).map(button => button.textContent)).toEqual(["用量", "额度", "设置"]);
+  expect(Array.from(nav.querySelectorAll("button")).map(button => button.textContent)).toEqual(["用量", "Codex 配速", "设置"]);
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: "额度" })).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(screen.getByRole("button", { name: "额度" }));
-  expect(screen.getByRole("button", { name: "额度" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Codex 配速" })).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(screen.getByRole("button", { name: "Codex 配速" }));
+  expect(screen.getByRole("button", { name: "Codex 配速" })).toHaveAttribute("aria-pressed", "true");
   cleanup();
   render(<ControlCenter preferences={DEFAULT_WIDGET_PREFERENCES} language="zh-CN" onClose={() => {}} onRefresh={() => {}} onPreferences={() => {}} autostartEnabled={false} onAutostart={() => {}} />);
   expect(screen.getByRole("button", { name: "用量" })).toHaveAttribute("aria-pressed", "true");
 });
 
-it("keeps provider choices separate for Usage and Quota, with refreshable Claude quota cards", () => {
+it("shows Codex pacing from Claude mode and keeps the selected usage provider", () => {
   const preferences = { ...DEFAULT_WIDGET_PREFERENCES, cockpitMode: "claude" as const, claudeEnabled: true };
-  const claudeView = { quotaStatus: "ok" as const, quotaMessage: null, plan: "max",
-    weeklyRemaining: 43, weeklyResetsAt: null, fiveHourUsed: 38, fiveHourResetsAt: null,
-    fiveHourAwaitingRefresh: false, opusWeeklyRemaining: null };
-  const onRefreshClaude = vi.fn();
-  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn(), claudeView, onRefreshClaude };
+  const props = { language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn() };
   const { rerender } = render(<ControlCenter {...props} preferences={preferences} />);
   const dialog = screen.getByRole("dialog");
 
@@ -67,17 +63,13 @@ it("keeps provider choices separate for Usage and Quota, with refreshable Claude
   expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
   fireEvent.click(screen.getByRole("radio", { name: "AI" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "ai");
-  fireEvent.click(screen.getByRole("button", { name: "Quota" }));
-  expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
-  fireEvent.click(screen.getByRole("button", { name: "Refresh quota" }));
-  expect(screen.getByRole("group", { name: "Weekly remaining 43%" })).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: "5h used 38%" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Open Claude Resets" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Experience history" })).not.toBeInTheDocument();
-  expect(onRefreshClaude).toHaveBeenCalledOnce();
-  expect(props.onRefresh).not.toHaveBeenCalled();
-  fireEvent.click(within(screen.getByRole("radiogroup", { name: "Quota source" })).getByRole("radio", { name: /Codex/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Codex pacing" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "codex");
+  expect(screen.queryByRole("radiogroup", { name: "Quota source" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: "Claude" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Open Codex Resets" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh quota" }));
+  expect(props.onRefresh).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   expect(dialog).toHaveAttribute("data-cockpit-mode", "claude");
   fireEvent.click(screen.getByRole("button", { name: "Usage" }));
@@ -111,6 +103,22 @@ it("offers AI usage for Codex and Gemini with Claude disabled", async () => {
   expect(await screen.findByRole("region", { name: "Gemini usage" })).toBeInTheDocument();
 });
 
+it("shares the last usage period across providers and restores it when reopened", async () => {
+  const preferences = { ...DEFAULT_WIDGET_PREFERENCES, claudeEnabled: true, geminiEnabled: true };
+  const props = { preferences, language: "en" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false, onAutostart: vi.fn() };
+  const view = render(<ControlCenter {...props} />);
+  const period = () => screen.findByRole("combobox", { name: "Usage period" });
+  expect(await period()).toHaveValue("today");
+  fireEvent.change(await period(), { target: { value: "7d" } });
+  for (const provider of ["Claude", "Gemini", "AI", "Codex"]) {
+    fireEvent.click(screen.getByRole("radio", { name: provider }));
+    expect(await period()).toHaveValue("7d");
+  }
+  view.unmount();
+  render(<ControlCenter {...props} />);
+  expect(await period()).toHaveValue("7d");
+});
+
 it("filters Claude usage through the calendar and shares the cost metric with the trend", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-11T04:00:00Z"));
@@ -136,6 +144,7 @@ it("filters Claude usage through the calendar and shares the cost metric with th
   fireEvent.click(screen.getByRole("radio", { name: /Codex/ }));
   expect(screen.queryByRole("region", { name: "用量日历" })).not.toBeInTheDocument();
   expect(screen.getByRole("dialog")).not.toHaveClass("control-center--calendar-open");
+  expect(await screen.findByRole("combobox", { name: "统计时间" })).toHaveDisplayValue("2026-11-09");
 });
 
 it("changes the UI font from Display while preserving the other preferences", () => {
@@ -198,7 +207,7 @@ it("keeps the heatmap basis, marker, and curve on the selected person's fitted k
     onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: false,
     onAutostart: vi.fn(), comfortUsage, comfortFeedback: records, dailyRecommendation: recommendation, weeklyRemainingPercent: 100 };
   const view = render(<ControlCenter {...props} comfortPersonId="person-a" />);
-  fireEvent.click(screen.getByRole("button", { name: "Quota" }));
+  fireEvent.click(screen.getByRole("button", { name: "Codex pacing" }));
   const legend = () => view.container.querySelector(".reset-risk-heatmap-legend")!.textContent;
   const badge = () => view.container.querySelector(".person-comfort-section header > span")!.textContent!.split(" = ")[1];
   const basis = () => view.container.querySelector(".reset-risk-heatmap > header > span")!.textContent;
@@ -223,7 +232,7 @@ it("keeps the heatmap basis, marker, and curve on the selected person's fitted k
   expect(basis()).toBe("Charlie · Default basis k 25.0% · no usable feedback");
 });
 
-afterEach(() => { cleanup(); delete document.documentElement.dataset.platform; vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); window.localStorage.clear(); delete document.documentElement.dataset.platform; vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function installPointerEvent(): void {
   class TestPointerEvent extends MouseEvent {
@@ -252,7 +261,7 @@ function renderControlCenter(onRefresh = vi.fn(), onPreferences = vi.fn(), onSli
       onAutostart={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: /^(Quota|额度)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Codex (pacing|配速)$/ }));
   return { onPreferences, onSliderInteraction };
 }
 
@@ -267,7 +276,7 @@ describe("ControlCenter essentials", () => {
     })!;
     const props = { preferences: DEFAULT_WIDGET_PREFERENCES, language: "zh-CN" as const, onClose: vi.fn(), onRefresh: vi.fn(), onPreferences: vi.fn(), autostartEnabled: true, onAutostart: vi.fn() };
     const view = render(<ControlCenter {...props} dailyRecommendation={recommendation} weeklyRemainingPercent={23} />);
-    fireEvent.click(screen.getByRole("button", { name: "额度" }));
+    fireEvent.click(screen.getByRole("button", { name: "Codex 配速" }));
     const label = `拟合建议 ${recommendation.targetPercent.toFixed(1)}%`;
     expect(screen.getByText(label)).toBeInTheDocument();
     expect(screen.getByText("未归属旧记录 · 默认基准 k 25.0% · 无有效反馈")).toBeInTheDocument();

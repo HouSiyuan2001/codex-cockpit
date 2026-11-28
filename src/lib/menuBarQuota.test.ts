@@ -38,10 +38,16 @@ describe("menu bar quota", () => {
     });
   });
 
-  it("leaves the short reading empty at its reset and excludes disabled providers", () => {
+  it("uses the weekly reading for a Codex plan without a five-hour window", () => {
+    expect(menuBarQuotas({ codex: true, claude: false, gemini: false }, {
+      ...codex, shortWindow: null,
+    }, claude, gemini, now).codex).toEqual({ weekly: 70, fiveHour: null, showWeekly: true });
+  });
+
+  it("falls back to weekly at reset and excludes disabled providers", () => {
     const next = new Date("2026-11-26T13:00:00Z");
     expect(menuBarQuotas({ codex: true, claude: false, gemini: false }, codex, claude, gemini, next)).toEqual({
-      codex: { weekly: 70, fiveHour: null },
+      codex: { weekly: 70, fiveHour: null, showWeekly: true },
       claude: null, gemini: null, geminiShared: null,
     });
   });

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchClaudeUsage, fetchGeminiUsage, isTauri } from "../lib/bridge";
-import { formatTokens, metricValue, type ModelUsage, type UsageMetric, type UsagePeriod, type TokeiUsage } from "../lib/tokeiUsage";
+import { formatTokens, metricValue, type ModelUsage, type UsageMetric, type TokeiUsage } from "../lib/tokeiUsage";
 import { aggregateClaudeRows, claudeTaskAsCodexTask, claudeUsageDevice, combineProviderUsage, type ClaudeUsageView, type SharedProviderUsage } from "../lib/claudeUsageRows";
-import { rangeLabel, type UsageDateRange } from "../lib/usageCalendar";
+import { rangeLabel } from "../lib/usageCalendar";
 import type { ClaudeUsageReport } from "../types";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { UsageCalendar } from "./UsageCalendar";
@@ -10,8 +10,9 @@ import { UsageGroupSelect } from "./UsageGroupSelect";
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { CustomTaskStatistics } from "./CustomTaskStatistics";
 
-const PERIODS: readonly UsagePeriod[] = ["today", "7d", "30d", "all"];
-const periodLabel = (period: UsagePeriod, zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", week: zh ? "本周" : "This week", month: zh ? "本月" : "This month", all: zh ? "全部时间" : "All time" })[period];
+import { DEFAULT_USAGE_TIME_SELECTION, USAGE_PERIODS, type UsageTimeSelection, type UsageTimeSelectionBinding } from "../lib/usageTimeSelection";
+
+const periodLabel = (period: UsageTimeSelection["period"], zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", all: zh ? "全部时间" : "All time" })[period];
 const costLabel = (value: number | null, zh: boolean) => value === null ? (zh ? "暂无估算" : "Estimate unavailable") : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const HISTORY_DAYS = 400;
 
@@ -45,9 +46,10 @@ interface ClaudeUsagePanelProps {
   calendarOpen?: boolean;
   onCalendarOpenChange?: (open: boolean) => void;
   calendarPortalTarget?: HTMLElement | null;
+  timeSelection?: UsageTimeSelectionBinding;
 }
 
-export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], memberUsage = null, personColors, initialReport = null, calendarOpen, onCalendarOpenChange, calendarPortalTarget }: ClaudeUsagePanelProps) {
+export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], memberUsage = null, personColors, initialReport = null, calendarOpen, onCalendarOpenChange, calendarPortalTarget, timeSelection }: ClaudeUsagePanelProps) {
   const gemini = provider === "gemini";
   const providerName = gemini ? "Gemini" : "Claude";
   const untitledTaskName = zh ? "未命名任务" : "Untitled task";
@@ -63,8 +65,8 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
   const hasLocalDetails = includeLocal && localReport?.status === "ok";
 
   const [error, setError] = useState(false);
-  const [period, setPeriod] = useState<UsagePeriod>("today");
-  const [dateRange, setDateRange] = useState<UsageDateRange | null>(null);
+  const localTimeSelection = useState(DEFAULT_USAGE_TIME_SELECTION);
+  const [{ period, dateRange }, setTimeSelection] = timeSelection ?? localTimeSelection;
   const [requestedView, setView] = useState<ClaudeUsageView | "users">("tasks");
   const [metric, setMetric] = useState<UsageMetric>("tokens");
   const [showAll, setShowAll] = useState(false);
@@ -125,9 +127,9 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
         else if (byUser) setView("models");
         setShowAll(false);
       }} />
-      <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setDateRange(null); setPeriod(event.target.value as UsagePeriod); setShowAll(false); }}>
+      <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setTimeSelection({ period: event.target.value as UsageTimeSelection["period"], dateRange: null }); setShowAll(false); }}>
         {dateRange && <option value="calendar" disabled>{rangeLabel(dateRange)}</option>}
-        {PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}
+        {USAGE_PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}
       </select>
       <select aria-label={zh ? "查看方式" : "Usage view"} value={view} onChange={(event) => { setView(event.target.value as typeof view); setShowAll(false); }}>
         {scope === "global" && <option value="users">{zh ? "按用户" : "By user"}</option>}
@@ -145,7 +147,7 @@ export function ClaudeUsagePanel({ zh, provider = "claude", sharedUsage = [], me
         onOpenChange={onCalendarOpenChange}
         portalTarget={calendarPortalTarget}
         onMetricChange={setMetric}
-        onSelect={(range) => { setDateRange(range); setShowAll(false); }}
+        onSelect={(range) => { setTimeSelection({ period, dateRange: range }); setShowAll(false); }}
       />
     </div>
     {!summary || !report ? <p className={includeLocal && error ? "usage-error" : "usage-note"} role="status">

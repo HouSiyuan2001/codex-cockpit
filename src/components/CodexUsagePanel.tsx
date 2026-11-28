@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GearSix } from "@phosphor-icons/react";
 import { isTauri } from "../lib/bridge";
 import { getProjectUsage, getTokeiUsage } from "../lib/tokeiBridge";
-import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage, type UsagePeriod } from "../lib/tokeiUsage";
+import { aggregateGroupUsage, aggregateGlobalUsage, aggregateProjectUsage, aggregateTaskUsage, aggregateSyncedTaskUsage, formatTokens, metricValue, reconcileTaskUsage, type AggregatedTaskUsage, type UsageMetrics, type UsageMetric, type ProjectUsageSnapshot, type ModelUsage, type TokeiUsage } from "../lib/tokeiUsage";
 import { UsageChart, usageColor, usageRankColor } from "./UsageChart";
 import { modelUsageColors, UNRANKED_MODEL_COLOR } from "../lib/modelUsageColors";
 import { TaskUsageRow } from "./TaskUsageRow";
@@ -13,12 +13,13 @@ import { UsageGroupSelect } from "./UsageGroupSelect";
 import { CustomTaskStatistics } from "./CustomTaskStatistics";
 import { DailyUsageTrend } from "./DailyUsageTrend";
 import { LocalUsageSourceSettings } from "./LocalUsageSourceSettings";
-import { newestDevices, rangeLabel, tasksInRange, usageInRange, type UsageDateRange } from "../lib/usageCalendar";
+import { newestDevices, rangeLabel, tasksInRange, usageInRange } from "../lib/usageCalendar";
 import { addClaudeMetrics, aggregateClaudeRows, claudeTaskAsCodexTask, claudeUsageDevice, combineProviderUsage, type SharedProviderUsage } from "../lib/claudeUsageRows";
 import type { ClaudeUsageReport } from "../types";
 
-const PERIODS: readonly UsagePeriod[] = ["today", "7d", "30d", "all"];
-const periodLabel = (period: UsagePeriod, zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", week: zh ? "本周" : "This week", month: zh ? "本月" : "This month", all: zh ? "全部时间" : "All time" })[period];
+import { DEFAULT_USAGE_TIME_SELECTION, USAGE_PERIODS, type UsageTimeSelection, type UsageTimeSelectionBinding } from "../lib/usageTimeSelection";
+
+const periodLabel = (period: UsageTimeSelection["period"], zh: boolean) => ({ today: zh ? "今日" : "Today", "7d": zh ? "近 7 天" : "Last 7 days", "30d": zh ? "近 30 天" : "Last 30 days", all: zh ? "全部时间" : "All time" })[period];
 const costLabel = (value: number | null, zh: boolean) => value === null ? (zh ? "暂无估算" : "Estimate unavailable") : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function ModelRow({ model, max, zh, color, metric, total }: { model: ModelUsage; max: number; zh: boolean; color: string; metric: UsageMetric; total: number }) {
@@ -41,14 +42,14 @@ function ModelRow({ model, max, zh, color, metric, total }: { model: ModelUsage;
   </details>;
 }
 
-export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget, combined = false, sharedUsage = [], claudeEnabled = false, geminiEnabled = false, claudeReport = null, geminiReport = null }: { zh: boolean; initialUsage?: TokeiUsage | null; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null; combined?: boolean; sharedUsage?: SharedProviderUsage[]; claudeEnabled?: boolean; geminiEnabled?: boolean; claudeReport?: ClaudeUsageReport | null; geminiReport?: ClaudeUsageReport | null }) {
+export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () => undefined, calendarOpen, onCalendarOpenChange, calendarPortalTarget, timeSelection, combined = false, sharedUsage = [], claudeEnabled = false, geminiEnabled = false, claudeReport = null, geminiReport = null }: { zh: boolean; initialUsage?: TokeiUsage | null; onOpenSettings?: () => void; calendarOpen?: boolean; onCalendarOpenChange?: (open: boolean) => void; calendarPortalTarget?: HTMLElement | null; timeSelection?: UsageTimeSelectionBinding; combined?: boolean; sharedUsage?: SharedProviderUsage[]; claudeEnabled?: boolean; geminiEnabled?: boolean; claudeReport?: ClaudeUsageReport | null; geminiReport?: ClaudeUsageReport | null }) {
   const [data, setData] = useState<TokeiUsage | null>(initialUsage);
   const [error, setError] = useState(false);
   const [groupId, setGroupId] = useState<string | null>(initialUsage?.localGroupId ?? null);
   const [global, setGlobal] = useState(!initialUsage?.localGroupId);
   const [metric, setMetric] = useState<UsageMetric>("tokens");
-  const [period, setPeriod] = useState<UsagePeriod>("today");
-  const [dateRange, setDateRange] = useState<UsageDateRange | null>(null);
+  const localTimeSelection = useState(DEFAULT_USAGE_TIME_SELECTION);
+  const [{ period, dateRange }, setTimeSelection] = timeSelection ?? localTimeSelection;
   const [view, setView] = useState<"tasks" | "models" | "projects" | "users">("tasks");
   const [projects, setProjects] = useState<ProjectUsageSnapshot | null>(null);
   const [projectError, setProjectError] = useState(false);
@@ -216,15 +217,15 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
   return <section className="codex-usage-panel" aria-label={zh ? (combined ? "AI 用量" : "Codex 用量") : (combined ? "AI usage" : "Codex usage")}>
     <div className="usage-toolbar">
       <UsageGroupSelect zh={zh} groups={data.groups} value={global ? "global" : groupId === null ? "" : `group:${groupId}`} onChange={value => { const isGlobal = value === "global"; setGlobal(isGlobal); if (isGlobal) { setView("users"); setMetric("cost"); } else { setGroupId(value.slice(6) || null); if (view === "users") setView("models"); } setShowAll(false); }} />
-      <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setDateRange(null); setPeriod(event.target.value as UsagePeriod); setShowAll(false); }}>
+      <select aria-label={zh ? "统计时间" : "Usage period"} value={dateRange ? "calendar" : period} onChange={(event) => { setTimeSelection({ period: event.target.value as UsageTimeSelection["period"], dateRange: null }); setShowAll(false); }}>
         {dateRange && <option value="calendar" disabled>{rangeLabel(dateRange)}</option>}
-        {PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}
+        {USAGE_PERIODS.map((value) => <option key={value} value={value}>{periodLabel(value, zh)}</option>)}
       </select>
       <select aria-label={zh ? "查看方式" : "Usage view"} value={view} onChange={(event) => { setView(event.target.value as typeof view); setShowAll(false); }}>
         {global && <option value="users">{zh ? "按用户" : "By user"}</option>}
         <option value="tasks">{zh ? "按任务" : "By task"}</option><option value="models">{zh ? "按模型" : "By model"}</option>
       </select>
-      <UsageCalendar devices={historyDevices} metric={metric} zh={zh} palette={combined ? "ai" : "codex"} selection={dateRange} open={calendarOpen} onOpenChange={onCalendarOpenChange} portalTarget={calendarPortalTarget} onMetricChange={setMetric} onSelect={range => { setDateRange(range); setShowAll(false); }} />
+      <UsageCalendar devices={historyDevices} metric={metric} zh={zh} palette={combined ? "ai" : "codex"} selection={dateRange} open={calendarOpen} onOpenChange={onCalendarOpenChange} portalTarget={calendarPortalTarget} onMetricChange={setMetric} onSelect={range => { setTimeSelection({ period, dateRange: range }); setShowAll(false); }} />
       <button type="button" className="usage-settings-button" aria-label={zh ? "打开组员设置" : "Open member settings"} title={zh ? "打开组员设置" : "Open member settings"} onClick={onOpenSettings}><GearSix /></button>
     </div>
 
@@ -246,7 +247,7 @@ export function CodexUsagePanel({ zh, initialUsage = null, onOpenSettings = () =
           {view === "tasks" ? (visibleRows as AggregatedTaskUsage[]).map((task) => <TaskUsageRow key={task.id} task={task} max={metricValue(rows[0], metric) ?? 0} color={taskColors[task.id]} zh={zh} metric={metric} total={knownTotal} />) : visibleRows.map((model) => <ModelRow key={model.id} model={model as ModelUsage} max={metricValue(rows[0], metric) ?? 0} color={modelColors ? modelColors[model.id] ?? UNRANKED_MODEL_COLOR : usageColor(model.id, colorIds)} zh={zh} metric={metric} total={view === "projects" ? knownTotal : denominator} />)}
           {!rows.length && <p className="usage-empty">{view === "tasks" ? projectError ? (zh ? "任务统计暂不可用。" : "Task statistics unavailable.") : !projects ? (zh ? "正在读取任务统计…" : "Loading task statistics…") : (zh ? "这段时间暂无可归属的任务记录。" : "No attributed task records in this period.") : view === "projects" ? projectError ? (zh ? "项目统计暂不可用。" : "Project statistics unavailable.") : !projects ? (zh ? "正在读取本机项目统计…" : "Loading local project statistics…") : !projects.deviceId || !(global ? summary?.devices.some(device => device.id === projects.deviceId) : group?.deviceIds.includes(projects.deviceId)) ? (zh ? "此分组未包含本机，暂无项目明细。" : "This group does not include this device.") : (zh ? "这段时间暂无可归属的项目记录。" : "No attributed project records in this period.") : (zh ? "这段时间暂无模型用量记录。" : "No model usage recorded in this period.")}</p>}
           {view === "tasks" && projects && scopedProjects && <PeerTaskStatus source={projects} scopedSource={scopedProjects} deviceIds={fullDevices.map(device => device.id)} period={selectedPeriod} zh={zh}
-            onShowHistory={() => { setDateRange(null); setPeriod("all"); setShowAll(true); }}
+            onShowHistory={() => { setTimeSelection({ period: "all", dateRange: null }); setShowAll(true); }}
             onShowAllMembers={() => { setGlobal(true); setView("tasks"); setShowAll(false); }} />}
           {rows.length > 5 && <button type="button" className="usage-text-button" onClick={() => setShowAll((value) => !value)}>{showAll ? (zh ? "收起" : "Show less") : (zh ? `其余 ${rows.length - 5} 项` : `${rows.length - 5} more`)}</button>}
         </div>

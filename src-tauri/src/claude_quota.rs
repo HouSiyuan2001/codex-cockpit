@@ -1,4 +1,4 @@
-//! Read-only Claude subscription limits (5-hour and weekly), the same figures
+//! Claude subscription limits (5-hour and weekly), the same figures
 //! Claude Code's `/usage` shows.
 //!
 //! The Claude Code OAuth login is read from the macOS Keychain item
@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
@@ -21,6 +22,7 @@ const MIN_REFRESH: Duration = Duration::from_secs(55);
 const MIN_MANUAL_REFRESH: Duration = Duration::from_secs(10);
 const FAILURE_BACKOFF: Duration = Duration::from_secs(15 * 60);
 const RENEWAL_TIMEOUT: Duration = Duration::from_secs(45);
+const REFRESH_MESSAGE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Serializes login and renewal so Claude Code never updates its credentials concurrently.
 static CLAUDE_AUTH_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -46,6 +48,8 @@ pub struct ClaudeQuota {
     pub plan: Option<String>,
     pub observed_at: Option<String>,
     pub message: Option<&'static str>,
+    #[serde(skip)]
+    extra_usage_enabled: bool,
 }
 
 impl ClaudeQuota {
@@ -59,6 +63,7 @@ impl ClaudeQuota {
             plan: None,
             observed_at: None,
             message: Some(message),
+            extra_usage_enabled: false,
         }
     }
 }
@@ -86,6 +91,7 @@ struct QuotaState {
     last_result: Option<ClaudeQuota>,
     backoff_until: Option<Instant>,
     last_renewal_attempt: Option<Instant>,
+    refresh_attempted_since_active_window: bool,
 }
 
 static STATE: Mutex<Option<QuotaState>> = Mutex::const_new(None);
@@ -308,6 +314,101 @@ async fn renew_with_claude_code(config_directory: Option<&Path>) -> Option<Crede
         .filter(|credential| !credential.is_expired())
 }
 
+fn isolated_subscription_command(config_directory: Option<&Path>) -> Option<Command> {
+    let mut command = claude_subscription_command()?;
+    command
+        .args(["--safe-mode", "--setting-sources", ""])
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+        .env_remove("CLAUDE_CODE_USE_GATEWAY")
+        .kill_on_drop(true);
+    if let Some(directory) = config_directory {
+        command.env("CLAUDE_CONFIG_DIR", directory);
+    }
+    Some(command)
+}
+
+async fn send_quota_refresh_message(config_directory: Option<&Path>) -> Option<()> {
+    // Verify that the isolated CLI invocation resolves to the subscription.
+    let mut auth = isolated_subscription_command(config_directory)?;
+    let mut child = auth
+        .args(["auth", "status", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?.take(8193);
+    let mut output = Vec::new();
+    let status = tokio::time::timeout(REFRESH_MESSAGE_TIMEOUT, async {
+        stdout.read_to_end(&mut output).await.ok()?;
+        if output.len() > 8192 {
+            return None;
+        }
+        child.wait().await.ok()
+    })
+    .await
+    .ok()??;
+    if !status.success() {
+        return None;
+    }
+    let auth: Value = serde_json::from_slice(&output).ok()?;
+    if auth["loggedIn"].as_bool() != Some(true)
+        || auth["authMethod"].as_str() != Some("claude.ai")
+        || auth["apiProvider"].as_str() != Some("firstParty")
+    {
+        return None;
+    }
+
+    let mut command = isolated_subscription_command(config_directory)?;
+    let status = tokio::time::timeout(
+        REFRESH_MESSAGE_TIMEOUT,
+        command
+            .args([
+                "--model",
+                "haiku",
+                "--no-session-persistence",
+                "--no-chrome",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+                "--tools",
+                "",
+                "--max-turns",
+                "1",
+                "--system-prompt",
+                "Reply with one word.",
+                "--print",
+                "Hi",
+            ])
+            .status(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    status.success().then_some(())
+}
+
+fn quota_still_on_previous_window(
+    previous: &ClaudeQuota,
+    current: &ClaudeQuota,
+    now: DateTime<Utc>,
+) -> bool {
+    if current.extra_usage_enabled {
+        return false;
+    }
+    let Some(observed) = previous
+        .observed_at
+        .as_deref()
+        .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
+    else {
+        return false;
+    };
+    let reset_at = |window: &Option<ClaudeQuotaWindow>| {
+        DateTime::parse_from_rfc3339(window.as_ref()?.resets_at.as_deref()?).ok()
+    };
+    reset_at(&previous.five_hour).is_some_and(|reset| {
+        observed < reset && reset <= now && reset_at(&current.five_hour) == Some(reset)
+    })
+}
+
 fn percent(value: &Value) -> Option<f64> {
     let number = value.as_f64().or_else(|| value.as_str()?.parse().ok())?;
     number.is_finite().then(|| number.clamp(0.0, 100.0))
@@ -346,6 +447,10 @@ pub fn parse_usage(
         plan,
         observed_at: Some(observed_at),
         message: None,
+        extra_usage_enabled: usage
+            .pointer("/extra_usage/is_enabled")
+            .and_then(Value::as_bool)
+            == Some(true),
     })
 }
 
@@ -397,12 +502,51 @@ impl QuotaState {
         (elapsed < MIN_REFRESH && !manual_ready && !crossed_reset).then(|| result.clone())
     }
 
+    fn begin_quota_refresh(
+        &mut self,
+        current: &ClaudeQuota,
+        now: DateTime<Utc>,
+        enabled: bool,
+    ) -> bool {
+        let Some(window) = current.five_hour.as_ref() else {
+            return false;
+        };
+        if !enabled || current.extra_usage_enabled {
+            return false;
+        }
+        // An idle subscription can report 0% and no reset until its next request.
+        let idle = window.resets_at.is_none() && window.used_percent == 0.0;
+        let should_refresh = (idle && !self.refresh_attempted_since_active_window)
+            || self
+                .last_good
+                .as_ref()
+                .is_some_and(|previous| quota_still_on_previous_window(previous, current, now));
+        // Reserve the attempt before launching the CLI, even if it fails.
+        self.refresh_attempted_since_active_window |= should_refresh;
+        should_refresh
+    }
+
     fn finish_attempt(
         &mut self,
         outcome: Result<ClaudeQuota, (&'static str, &'static str)>,
     ) -> ClaudeQuota {
         let result = match outcome {
             Ok(quota) => {
+                let active_reset = quota
+                    .five_hour
+                    .as_ref()
+                    .and_then(|window| window.resets_at.as_deref())
+                    .and_then(|reset| DateTime::parse_from_rfc3339(reset).ok())
+                    .zip(
+                        quota
+                            .observed_at
+                            .as_deref()
+                            .and_then(|observed| DateTime::parse_from_rfc3339(observed).ok()),
+                    )
+                    .is_some_and(|(reset, observed)| reset > observed);
+                if active_reset {
+                    self.refresh_attempted_since_active_window = false;
+                }
                 self.last_good = Some(quota.clone());
                 self.backoff_until = None;
                 quota
@@ -426,7 +570,7 @@ impl QuotaState {
     }
 }
 
-pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
+pub async fn fetch(client: &reqwest::Client, manual: bool, refresh_message: bool) -> ClaudeQuota {
     // All windows share a single read, including when a poll and the reset timer coincide.
     let mut guard = STATE.lock().await;
     let state = guard.get_or_insert_with(QuotaState::default);
@@ -472,10 +616,6 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
         state.backoff_until = Some(Instant::now() + FAILURE_BACKOFF);
         return state.finish_attempt(Err(("signed_out", "Claude Code login not found.")));
     };
-    let expired = (
-        "signed_out",
-        "Claude Code login expired. Open Claude Code to refresh it.",
-    );
     if state.begin_renewal(&credential, Instant::now()) {
         if let Some(renewed) = renew_with_claude_code(credential.config_directory.as_deref()).await
         {
@@ -484,8 +624,30 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
     }
     if credential.is_expired() {
         state.backoff_until = None;
-        return state.finish_attempt(Err(expired));
+        return state.finish_attempt(Err(CLAUDE_LOGIN_EXPIRED));
     }
+    let outcome = read_subscription_quota(client, state, &credential).await;
+    if outcome
+        .as_ref()
+        .is_ok_and(|current| state.begin_quota_refresh(current, Utc::now(), refresh_message))
+    {
+        let _ = send_quota_refresh_message(credential.config_directory.as_deref()).await;
+        // The next quota poll uses the normal interval to respect the service limit.
+    }
+    state.credential = Some(credential);
+    state.finish_attempt(outcome)
+}
+
+const CLAUDE_LOGIN_EXPIRED: (&str, &str) = (
+    "signed_out",
+    "Claude Code login expired. Open Claude Code to refresh it.",
+);
+
+async fn read_subscription_quota(
+    client: &reqwest::Client,
+    state: &mut QuotaState,
+    credential: &Credential,
+) -> Result<ClaudeQuota, (&'static str, &'static str)> {
     let response = client
         .get(USAGE_URL)
         .bearer_auth(&credential.token)
@@ -495,15 +657,16 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
         .await;
     let observed_at = Utc::now().to_rfc3339();
     let plan = credential.plan.clone();
-    state.credential = Some(credential);
     state.backoff_until = None;
-    let outcome = match response {
+    match response {
         Ok(response) if response.status().is_success() => match read_limited_json(response).await {
             Some(value) => parse_usage(&value, plan, observed_at)
                 .ok_or(("unavailable", "Claude quota response format has changed.")),
             None => Err(("unavailable", "Claude quota response format has changed.")),
         },
-        Ok(response) if matches!(response.status().as_u16(), 401 | 403) => Err(expired),
+        Ok(response) if matches!(response.status().as_u16(), 401 | 403) => {
+            Err(CLAUDE_LOGIN_EXPIRED)
+        }
         Ok(response) if response.status().as_u16() == 429 => {
             let retry_after = response
                 .headers()
@@ -527,8 +690,7 @@ pub async fn fetch(client: &reqwest::Client, manual: bool) -> ClaudeQuota {
             "unavailable",
             "Network unavailable. It will retry automatically.",
         )),
-    };
-    state.finish_attempt(outcome)
+    }
 }
 
 #[cfg(test)]
@@ -639,6 +801,68 @@ mod tests {
         assert!(state.begin_renewal(&credential, started));
         assert!(!state.begin_renewal(&credential, started + MIN_REFRESH));
         assert!(state.begin_renewal(&credential, started + FAILURE_BACKOFF));
+    }
+
+    #[test]
+    fn refresh_message_requires_a_previously_seen_window_that_is_still_expired() {
+        let expired = "2026-11-27T12:00:00Z";
+        let now = expired.parse::<DateTime<Utc>>().unwrap();
+        let usage = serde_json::json!({
+            "five_hour": { "utilization": 100, "resets_at": expired },
+        });
+        let previous = parse_usage(&usage, None, "2026-11-27T11:59:00Z".into()).unwrap();
+        let unchanged = parse_usage(&usage, None, expired.into()).unwrap();
+        assert!(quota_still_on_previous_window(&previous, &unchanged, now));
+        assert!(!quota_still_on_previous_window(&unchanged, &unchanged, now));
+        assert!(!quota_still_on_previous_window(
+            &previous,
+            &unchanged,
+            now - chrono::Duration::seconds(1)
+        ));
+        let mut updated = unchanged.clone();
+        updated.five_hour.as_mut().unwrap().resets_at = Some("2026-11-27T17:00:00Z".into());
+        assert!(!quota_still_on_previous_window(&previous, &updated, now));
+        let weekly_only = serde_json::json!({
+            "seven_day": { "utilization": 100, "resets_at": expired },
+        });
+        let previous_week = parse_usage(&weekly_only, None, "2026-11-27T11:59:00Z".into()).unwrap();
+        let current_week = parse_usage(&weekly_only, None, expired.into()).unwrap();
+        assert!(!quota_still_on_previous_window(
+            &previous_week,
+            &current_week,
+            now
+        ));
+        let mut billed = usage;
+        billed["extra_usage"] = serde_json::json!({ "is_enabled": true });
+        let billed = parse_usage(&billed, None, expired.into()).unwrap();
+        assert!(!quota_still_on_previous_window(&previous, &billed, now));
+    }
+
+    #[test]
+    fn probes_idle_five_hour_quota_once_until_an_active_window_is_seen() {
+        let now = "2026-11-27T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let observed = now.to_rfc3339();
+        let mut state = QuotaState::default();
+        let mut raw = serde_json::json!({
+            "five_hour": { "utilization": 0, "resets_at": null },
+            "seven_day": { "utilization": 10 },
+        });
+        let idle = parse_usage(&raw, None, observed.clone()).unwrap();
+        assert!(!state.begin_quota_refresh(&idle, now, false));
+        raw["five_hour"]["utilization"] = serde_json::json!(10);
+        let unknown_active = parse_usage(&raw, None, observed.clone()).unwrap();
+        assert!(!state.begin_quota_refresh(&unknown_active, now, true));
+        let mut billed = idle.clone();
+        billed.extra_usage_enabled = true;
+        assert!(!state.begin_quota_refresh(&billed, now, true));
+        assert!(state.begin_quota_refresh(&idle, now, true));
+        assert!(!state.begin_quota_refresh(&idle, now, true));
+
+        raw["five_hour"]["resets_at"] = serde_json::json!("2026-11-27T17:00:00Z");
+        let active = parse_usage(&raw, None, observed).unwrap();
+        assert!(!state.begin_quota_refresh(&active, now, true));
+        state.finish_attempt(Ok(active));
+        assert!(state.begin_quota_refresh(&idle, now, true));
     }
 
     #[test]

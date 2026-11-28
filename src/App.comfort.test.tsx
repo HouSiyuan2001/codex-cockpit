@@ -262,7 +262,7 @@ it("refreshes Claude at the 5h boundary and when the user asks to refresh quotas
   await act(async () => { render(<App />); });
   expect(mocks.fetchClaudeQuota.mock.calls).toEqual([[false]]);
   await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
-  expect(mocks.fetchClaudeQuota.mock.calls).toEqual([[false], [false]]);
+  expect(mocks.fetchClaudeQuota.mock.calls).toEqual([[false], [true]]);
 
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "expand" })); });
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "quota refresh" })); });

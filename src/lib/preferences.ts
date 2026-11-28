@@ -51,6 +51,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   automaticUpdates: false,
   cockpitMode: "codex",
   codexEnabled: true,
+  autoRefreshFiveHourQuota: false,
   claudeEnabled: false,
   geminiEnabled: false,
 };
@@ -190,6 +191,7 @@ export function normalizeWidgetPreferences(value: LegacyWidgetPreferences | null
       return {
         cockpitMode,
         codexEnabled,
+        autoRefreshFiveHourQuota: candidate.autoRefreshFiveHourQuota === true,
         claudeEnabled,
         geminiEnabled,
       };

@@ -153,6 +153,8 @@ pub struct WidgetPreferences {
     /// Keeps Codex enabled in cockpit switches; at least one provider stays on.
     #[serde(default = "default_true")]
     pub codex_enabled: bool,
+    #[serde(default)]
+    pub auto_refresh_five_hour_quota: bool,
     /// Shows the Claude/AI cockpits and Claude usage; off means Claude is hidden.
     #[serde(default)]
     pub claude_enabled: bool,
@@ -290,6 +292,7 @@ impl Default for WidgetPreferences {
             automatic_updates: false,
             cockpit_mode: default_cockpit_mode(),
             codex_enabled: true,
+            auto_refresh_five_hour_quota: false,
             claude_enabled: false,
             gemini_enabled: false,
         }

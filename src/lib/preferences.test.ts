@@ -9,6 +9,13 @@ describe("widget preference migration", () => {
     expect(normalizeWidgetPreferences({})).toMatchObject(defaults);
   });
 
+  it("defaults the shared five-hour refresh switch off and preserves the saved choice", () => {
+    expect(normalizeWidgetPreferences({}).autoRefreshFiveHourQuota).toBe(false);
+    const enabled = normalizeWidgetPreferences({ autoRefreshFiveHourQuota: true });
+    expect(normalizeWidgetPreferences(JSON.parse(JSON.stringify(enabled))).autoRefreshFiveHourQuota).toBe(true);
+    expect(normalizeWidgetPreferences({ ...enabled, autoRefreshFiveHourQuota: false }).autoRefreshFiveHourQuota).toBe(false);
+  });
+
   it("keeps Claude off after restoring Codex and Gemini in AI mode", () => {
     const toggled = normalizeWidgetPreferences({ cockpitMode: "ai", codexEnabled: true, claudeEnabled: false, geminiEnabled: true });
     const restored = normalizeWidgetPreferences(JSON.parse(JSON.stringify(toggled)));

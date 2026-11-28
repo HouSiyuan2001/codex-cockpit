@@ -1,7 +1,7 @@
-//! Read-only Google Antigravity quota pools (`Gemini Models` and
+//! Google Antigravity quota pools (`Gemini Models` and
 //! `Claude and GPT models`), each with a 5-hour and weekly remaining balance.
 //!
-//! Antigravity's documented CLI status-line hook supplies the quota buckets.
+//! Antigravity's CLI status-line hook and /usage command supply quota buckets.
 //! The hook persists only the parsed quotas and observation time, never the
 //! raw payload, which can contain identifying session and account metadata.
 use chrono::{DateTime, Utc};
@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use tokio::sync::Mutex;
 
 const MAX_FIXTURE_BYTES: u64 = 64 * 1024;
@@ -59,10 +62,14 @@ impl GeminiQuota {
 
 #[derive(Default)]
 struct QuotaState {
+    #[cfg(any(windows, target_os = "linux"))]
+    statusline_registered: bool,
     last_good: Option<GeminiQuota>,
     last_attempt: Option<(Instant, DateTime<Utc>)>,
     last_result: Option<GeminiQuota>,
     backoff_until: Option<Instant>,
+    idle_probe_attempted: [bool; 2],
+    refresh_after_probe: bool,
 }
 
 static STATE: Mutex<Option<QuotaState>> = Mutex::const_new(None);
@@ -217,6 +224,116 @@ pub fn parse_quota(raw: &Value, observed_at: String) -> Option<GeminiQuota> {
     })
 }
 
+fn parse_usage_command(raw: &Value, now: DateTime<Utc>) -> Option<GeminiQuota> {
+    let command = raw.get("command")?;
+    if raw.get("status")?.as_str()? != "SUCCESS" || command.get("name")?.as_str()? != "usage" {
+        return None;
+    }
+    let groups = command.pointer("/data/groups")?.as_array()?;
+    let buckets: serde_json::Map<String, Value> = groups
+        .iter()
+        .filter_map(|group| group.get("buckets")?.as_array())
+        .flatten()
+        .filter_map(|bucket| Some((bucket.get("id")?.as_str()?.to_owned(), bucket.clone())))
+        .collect();
+    parse_quota(&serde_json::json!({ "quota": buckets }), now.to_rfc3339())
+}
+
+fn agy_program() -> PathBuf {
+    let name = if cfg!(windows) { "agy.exe" } else { "agy" };
+    if let Some(home) = dirs::home_dir() {
+        let installed = home.join(".local").join("bin").join(name);
+        if installed.is_file() {
+            return installed;
+        }
+    }
+    name.into()
+}
+
+fn agy_command() -> Command {
+    let mut command = Command::new(agy_program());
+    command
+        .env_remove("GEMINI_API_KEY")
+        .env_remove("GOOGLE_API_KEY")
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    command
+}
+
+async fn read_cli_output(mut command: Command) -> Option<Vec<u8>> {
+    let mut child = command.spawn().ok()?;
+    let mut output = Vec::new();
+    let mut stdout = child.stdout.take()?.take(MAX_FIXTURE_BYTES + 1);
+    let status = tokio::time::timeout(Duration::from_secs(20), async {
+        stdout.read_to_end(&mut output).await.ok()?;
+        if output.len() as u64 > MAX_FIXTURE_BYTES {
+            return None;
+        }
+        child.wait().await.ok()
+    })
+    .await
+    .ok()??;
+    if !status.success() {
+        return None;
+    }
+    Some(output)
+}
+
+async fn refresh_cli_quota() -> Option<GeminiQuota> {
+    let mut command = agy_command();
+    command.args([
+        "--print",
+        "/usage",
+        "--output-format",
+        "json",
+        "--print-timeout",
+        "15s",
+        "--settings",
+        r#"{"disableSlashCommands":false,"useG1Credits":false}"#,
+    ]);
+    let output = read_cli_output(command).await?;
+    parse_usage_command(&serde_json::from_slice(&output).ok()?, Utc::now())
+}
+
+// Keep the probe in the affected subscription pool. Check the CLI catalog
+// first because unavailable model IDs can fall back to the user's default.
+const IDLE_PROBE_MODELS: [&[&str]; 2] = [
+    &["gemini-3.8-flash-low", "gemini-3.5-flash-low"],
+    &["gpt-oss-120b-medium"],
+];
+
+async fn send_idle_window_probes(probes: [bool; 2]) -> Option<()> {
+    let mut models = agy_command();
+    models.arg("models");
+    let available = read_cli_output(models).await?;
+    let available = std::str::from_utf8(&available).ok()?;
+    for (needed, candidates) in probes.into_iter().zip(IDLE_PROBE_MODELS) {
+        let model = candidates.iter().find(|&&id| {
+            available
+                .lines()
+                .any(|line| line.split_once('\t').is_some_and(|(name, _)| name == id))
+        });
+        if !needed {
+            continue;
+        }
+        if let Some(model) = model {
+            let mut command = agy_command();
+            command.args([
+                "--model", model, "--disable-slash-commands", "--print", "Hi. Reply with one word without using any tools.",
+                "--output-format", "json", "--print-timeout", "15s", "--settings",
+                r#"{"modelProvider":"","useG1Credits":false,"agentMode":"","toolPermission":"strict","allowNonWorkspaceAccess":false,"statusLine":{"enabled":false},"title":{"enabled":false}}"#,
+            ]);
+            let _ = read_cli_output(command).await;
+        }
+    }
+    Some(())
+}
+
 fn read_synthetic_fixture(path: &Path) -> Result<GeminiQuota, (&'static str, &'static str)> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|_| ("unavailable", "Synthetic Gemini fixture could not be read."))?;
@@ -256,6 +373,82 @@ impl QuotaState {
         .into_iter()
         .flatten()
         .filter_map(|window| window.resets_at.as_deref())
+    }
+
+    fn has_expired_window(quota: &GeminiQuota, now: DateTime<Utc>) -> bool {
+        Self::reset_timestamps(quota)
+            .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+            .any(|reset| reset.timestamp() > 0 && reset <= now)
+    }
+
+    fn should_query_cli(
+        manual: bool,
+        auto_refresh: bool,
+        latest: Option<&GeminiQuota>,
+        now: DateTime<Utc>,
+    ) -> bool {
+        manual
+            || (auto_refresh
+                && latest.is_some_and(|quota| {
+                    [quota.gemini.as_ref(), quota.claude_gpt.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|pool| pool.five_hour.as_ref()?.resets_at.as_deref())
+                        .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+                        .any(|reset| reset.timestamp() > 0 && reset <= now)
+                }))
+    }
+
+    fn idle_windows(quota: &GeminiQuota) -> [bool; 2] {
+        [&quota.gemini, &quota.claude_gpt].map(|pool| {
+            let Some(pool) = pool.as_ref() else {
+                return false;
+            };
+            pool.weekly
+                .as_ref()
+                .is_some_and(|week| week.remaining_percent > 0.0)
+                && pool.five_hour.as_ref().is_some_and(|window| {
+                    window.remaining_percent == 100.0
+                        && window
+                            .resets_at
+                            .as_deref()
+                            .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
+                            .is_none_or(|reset| reset.timestamp() <= 0)
+                })
+        })
+    }
+
+    fn observe_active_windows(&mut self, quota: &GeminiQuota, now: DateTime<Utc>) {
+        for (attempted, pool) in self
+            .idle_probe_attempted
+            .iter_mut()
+            .zip([&quota.gemini, &quota.claude_gpt])
+        {
+            if pool
+                .as_ref()
+                .and_then(|pool| pool.five_hour.as_ref()?.resets_at.as_deref())
+                .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
+                .is_some_and(|reset| reset > now)
+            {
+                *attempted = false;
+            }
+        }
+    }
+
+    fn pending_idle_probes(&self, quota: &GeminiQuota) -> [bool; 2] {
+        let [gemini, shared] = Self::idle_windows(quota);
+        [
+            gemini && !self.idle_probe_attempted[0],
+            shared && !self.idle_probe_attempted[1],
+        ]
+    }
+
+    fn begin_idle_probes(&mut self, quota: &GeminiQuota) -> [bool; 2] {
+        let probes = self.pending_idle_probes(quota);
+        for (attempted, probe) in self.idle_probe_attempted.iter_mut().zip(probes) {
+            *attempted |= probe;
+        }
+        probes
     }
 
     fn cached_result(
@@ -422,17 +615,17 @@ fn add_statusline(
 }
 
 #[cfg(any(windows, target_os = "linux"))]
-fn register_statusline() {
+fn register_statusline() -> bool {
     let Some(settings_path) = statusline_path().map(|path| path.with_file_name("settings.json"))
     else {
-        return;
+        return false;
     };
     // The CLI only saves non-default settings. It may have initialized its
     // directory without creating settings.json.
     let mut settings = match std::fs::symlink_metadata(&settings_path) {
         Ok(_) => match crate::tokei_usage::read_json(&settings_path, MAX_FIXTURE_BYTES) {
             Ok(settings) => settings,
-            Err(_) => return,
+            Err(_) => return false,
         },
         Err(error)
             if error.kind() == std::io::ErrorKind::NotFound
@@ -440,10 +633,10 @@ fn register_statusline() {
         {
             serde_json::json!({})
         }
-        Err(_) => return,
+        Err(_) => return false,
     };
     let Ok(exe) = std::env::current_exe() else {
-        return;
+        return false;
     };
     #[cfg(windows)]
     let (command, is_managed) = (
@@ -460,11 +653,10 @@ fn register_statusline() {
         (linux_statusline_command(&exe), is_linux_cockpit_statusline)
     };
     let Some(command) = command else {
-        return;
+        return false;
     };
-    if add_statusline(&mut settings, &command, is_managed) {
-        let _ = crate::usage_sync::write_json(&settings_path, &settings);
-    }
+    !add_statusline(&mut settings, &command, is_managed)
+        || crate::usage_sync::write_json(&settings_path, &settings).is_ok()
 }
 
 pub(crate) fn capture_statusline_quota() {
@@ -531,43 +723,95 @@ fn read_statusline_quota(now: DateTime<Utc>) -> Option<GeminiQuota> {
     parse_quota(&raw, observed)
 }
 
-pub async fn fetch(manual: bool) -> GeminiQuota {
+pub async fn fetch(manual: bool, auto_refresh: bool) -> GeminiQuota {
     let mut guard = STATE.lock().await;
     let state = guard.get_or_insert_with(QuotaState::default);
     let now = Instant::now();
     let wall_time = Utc::now();
 
-    let fixture_path = std::env::var_os("CODEX_COCKPIT_GEMINI_FIXTURE")
+    if let Some(path) = std::env::var_os("CODEX_COCKPIT_GEMINI_FIXTURE")
         .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty());
-
-    if fixture_path.is_none() {
-        #[cfg(any(windows, target_os = "linux"))]
-        if state.last_attempt.is_none() {
-            register_statusline();
-        }
-        if let Some(quota) = read_statusline_quota(wall_time) {
-            state.last_attempt = Some((now, wall_time));
-            return state.finish_attempt(Ok(quota));
-        }
-        if let Some(cached) = state.cached_result(now, wall_time, manual) {
-            return cached;
-        }
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return state.finish_attempt(read_synthetic_fixture(&path));
     }
-    state.last_attempt = Some((now, wall_time));
-
-    if let Some(path) = fixture_path {
-        let outcome = read_synthetic_fixture(&path);
-        return state.finish_attempt(outcome);
+    if crate::credentials_disabled_for_preview() {
+        return GeminiQuota::failure("unavailable", "Gemini preview fixture unavailable.");
     }
 
     #[cfg(any(windows, target_os = "linux"))]
-    register_statusline();
-    state.backoff_until = Some(now + FAILURE_BACKOFF);
-    state.finish_attempt(Err((
-        "unavailable",
-        "Waiting for an Antigravity CLI quota snapshot.",
-    )))
+    if !state.statusline_registered {
+        state.statusline_registered = register_statusline();
+    }
+
+    let latest = read_statusline_quota(wall_time)
+        .into_iter()
+        .chain(state.last_good.clone())
+        .max_by_key(|quota| {
+            quota
+                .observed_at
+                .as_deref()
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        });
+    if let Some(quota) = latest.as_ref().filter(|quota| quota.status == "ok") {
+        state.observe_active_windows(quota, wall_time);
+    }
+    let query_cli = QuotaState::should_query_cli(manual, auto_refresh, latest.as_ref(), wall_time)
+        || (auto_refresh
+            && (state.refresh_after_probe
+                || latest
+                    .as_ref()
+                    .is_some_and(|quota| state.pending_idle_probes(quota).contains(&true))));
+    if query_cli {
+        if let Some(cached) = state.cached_result(now, wall_time, manual) {
+            return cached;
+        }
+        state.last_attempt = Some((now, wall_time));
+        if let Some(quota) = refresh_cli_quota().await {
+            state.refresh_after_probe = false;
+            state.observe_active_windows(&quota, Utc::now());
+            if auto_refresh {
+                let probes = state.begin_idle_probes(&quota);
+                if probes.contains(&true) {
+                    let _ = send_idle_window_probes(probes).await;
+                    state.refresh_after_probe = true;
+                }
+            }
+            let expired = QuotaState::should_query_cli(false, true, Some(&quota), Utc::now());
+            let result = state.finish_attempt(Ok(quota));
+            if expired {
+                state.backoff_until = Some(Instant::now() + FAILURE_BACKOFF);
+            }
+            return result;
+        }
+    }
+
+    let result = if let Some(mut quota) = latest {
+        let stale = query_cli
+            || QuotaState::has_expired_window(&quota, wall_time)
+            || quota
+                .observed_at
+                .as_deref()
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .is_some_and(|observed| {
+                    wall_time.signed_duration_since(observed)
+                        > chrono::Duration::minutes(STATUSLINE_FRESHNESS_MINUTES)
+                });
+        if stale {
+            quota.status = "stale";
+            quota.message = Some("Antigravity quota snapshot is stale.");
+        }
+        state.finish_attempt(Ok(quota))
+    } else {
+        state.finish_attempt(Err((
+            "unavailable",
+            "Waiting for an Antigravity CLI quota snapshot.",
+        )))
+    };
+    if query_cli {
+        state.backoff_until = Some(Instant::now() + FAILURE_BACKOFF);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -723,6 +967,77 @@ mod tests {
         assert_eq!(shared.five_hour.as_ref().unwrap().resets_at, None);
         assert_eq!(shared.weekly.as_ref().unwrap().remaining_percent, 73.2);
         assert_eq!(shared.weekly.as_ref().unwrap().resets_at, None);
+    }
+
+    #[test]
+    fn reads_both_usage_groups_and_detects_only_real_expired_windows() {
+        let now = "2026-11-27T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let mut payload = serde_json::json!({
+            "status": "SUCCESS",
+            "command": { "name": "usage", "data": { "groups": [
+                { "buckets": [
+                    { "id": "gemini-5h", "remaining_fraction": 0.91, "reset_time": "2026-11-27T13:00:00Z" },
+                    { "id": "gemini-weekly", "remaining_fraction": 0.72 }
+                ] },
+                { "buckets": [
+                    { "id": "3p-5h", "remaining_fraction": 1.0, "reset_time": "1970-01-01T00:00:00Z" },
+                    { "id": "3p-weekly", "remaining_fraction": 0.99 }
+                ] }
+            ] } }
+        });
+        let quota = parse_usage_command(&payload, now).unwrap();
+        assert!(!QuotaState::has_expired_window(&quota, now));
+        let mut state = QuotaState::default();
+        assert_eq!(state.pending_idle_probes(&quota), [false, true]);
+        assert_eq!(state.begin_idle_probes(&quota), [false, true]);
+        assert_eq!(state.begin_idle_probes(&quota), [false, false]);
+        let mut active = quota.clone();
+        active
+            .claude_gpt
+            .as_mut()
+            .unwrap()
+            .five_hour
+            .as_mut()
+            .unwrap()
+            .resets_at = Some((now + chrono::Duration::hours(1)).to_rfc3339());
+        state.observe_active_windows(&active, now);
+        assert_eq!(state.pending_idle_probes(&active), [false, false]);
+        assert_eq!(state.pending_idle_probes(&quota), [false, true]);
+        let expired = now + chrono::Duration::hours(1);
+        assert!(!QuotaState::should_query_cli(
+            false,
+            true,
+            Some(&quota),
+            now
+        ));
+        assert!(!QuotaState::should_query_cli(
+            false,
+            false,
+            Some(&quota),
+            expired
+        ));
+        assert!(QuotaState::should_query_cli(
+            false,
+            true,
+            Some(&quota),
+            expired
+        ));
+        assert!(QuotaState::should_query_cli(true, false, Some(&quota), now));
+        assert!(QuotaState::has_expired_window(
+            &quota,
+            now + chrono::Duration::hours(1)
+        ));
+        assert_eq!(
+            quota.gemini.unwrap().five_hour.unwrap().remaining_percent,
+            91.0
+        );
+        assert_eq!(
+            quota.claude_gpt.unwrap().weekly.unwrap().remaining_percent,
+            99.0
+        );
+
+        payload["command"]["name"] = "model".into();
+        assert!(parse_usage_command(&payload, now).is_none());
     }
 
     #[test]

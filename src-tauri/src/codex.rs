@@ -857,6 +857,165 @@ pub async fn fetch_snapshot(client: &reqwest::Client) -> ProviderSnapshot {
     fetch_legacy_snapshot(client).await
 }
 
+fn five_hour_reset_for_refresh(snapshot: &ProviderSnapshot) -> Option<DateTime<FixedOffset>> {
+    if snapshot.status != "ok" || snapshot.rate_limit_snapshot.is_none() {
+        return None;
+    }
+    let window = snapshot
+        .short_window
+        .as_ref()
+        .filter(|window| window.window_seconds == 18_000)?;
+    DateTime::parse_from_rfc3339(window.resets_at.as_deref()?).ok()
+}
+
+fn five_hour_window_still_expired(
+    previous: &ProviderSnapshot,
+    current: &ProviderSnapshot,
+    now: DateTime<Utc>,
+) -> bool {
+    let (Some(before), Some(after)) = (
+        five_hour_reset_for_refresh(previous),
+        five_hour_reset_for_refresh(current),
+    ) else {
+        return false;
+    };
+    previous.plan == current.plan
+        && previous
+            .rate_limit_snapshot
+            .as_ref()
+            .map(|window| &window.source)
+            == current
+                .rate_limit_snapshot
+                .as_ref()
+                .map(|window| &window.source)
+        && before == after
+        && after <= now
+        && DateTime::parse_from_rfc3339(&previous.updated_at)
+            .is_ok_and(|observed| observed < before)
+        && DateTime::parse_from_rfc3339(&current.updated_at).is_ok_and(|observed| observed >= after)
+}
+
+fn codex_refresh_command(home: Option<&Path>) -> Option<Command> {
+    let mut command = Command::new(codex_program()?);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    command
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .args(["-c", r#"forced_login_method="chatgpt""#])
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_CI");
+    if let Some(home) = home {
+        command.env("CODEX_HOME", home);
+    }
+    Some(command)
+}
+
+async fn send_quota_refresh_message(home: Option<&Path>) -> Option<()> {
+    let mut auth = codex_refresh_command(home)?;
+    let output = timeout(
+        APP_SERVER_TIMEOUT,
+        auth.args(["login", "status"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let logged_in_with_subscription = [&output.stdout, &output.stderr].into_iter().any(|output| {
+        std::str::from_utf8(output).is_ok_and(|text| {
+            text.lines()
+                .any(|line| line.trim() == "Logged in using ChatGPT")
+        })
+    });
+    if !output.status.success() || !logged_in_with_subscription {
+        return None;
+    }
+
+    let mut command = codex_refresh_command(home)?;
+    let status = timeout(
+        Duration::from_secs(25),
+        command
+            .args([
+                "exec",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--ignore-rules",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--disable",
+                "shell_tool",
+                "--disable",
+                "hooks",
+                "--disable",
+                "plugins",
+                "--disable",
+                "apps",
+                "--disable",
+                "multi_agent",
+                "--disable",
+                "memories",
+                "-c",
+                r#"approval_policy="never""#,
+                "-c",
+                r#"web_search="disabled""#,
+                "-c",
+                r#"model_reasoning_effort="low""#,
+                "-c",
+                "project_doc_max_bytes=0",
+                "-m",
+                "gpt-6-luna",
+                "Reply with just Hi.",
+            ])
+            .status(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    status.success().then_some(())
+}
+
+pub async fn maybe_refresh_five_hour_window(
+    client: &reqwest::Client,
+    previous: &ProviderSnapshot,
+    current: &mut ProviderSnapshot,
+) {
+    if !five_hour_window_still_expired(previous, current, Utc::now()) {
+        return;
+    }
+    // The legacy usage query reads the selected Codex home. App Server uses the
+    // CLI's inherited environment, which may refer to a different account.
+    let home = match current
+        .rate_limit_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.source.as_str())
+    {
+        Some("legacy-api") => match codex_home() {
+            Some(home) => Some(home),
+            None => return,
+        },
+        Some("app-server") => None,
+        _ => return,
+    };
+    if send_quota_refresh_message(home.as_deref()).await.is_some() {
+        let next = if home.is_some() {
+            Some(fetch_legacy_snapshot(client).await)
+        } else {
+            fetch_app_server_snapshot().await.ok()
+        };
+        if let Some(next) = next.filter(|snapshot| snapshot.status == "ok") {
+            *current = next;
+        }
+    }
+}
+
 async fn fetch_legacy_snapshot(client: &reqwest::Client) -> ProviderSnapshot {
     let auth = match load_auth() {
         Ok(value) => value,
@@ -1182,6 +1341,30 @@ mod tests {
         assert_eq!(observation.used_percent, 32.0);
         assert_eq!(observation.window_minutes, WEEKLY_WINDOW_MINUTES);
         assert_eq!(observation.resets_at, 1_787_011_367);
+    }
+
+    #[test]
+    fn refresh_message_requires_the_same_real_five_hour_window_after_reset() {
+        let reset = "2026-11-27T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let result = serde_json::json!({
+            "rateLimits": {
+                "primary": {"usedPercent": 92, "windowDurationMins": 300, "resetsAt": reset.timestamp()},
+                "secondary": {"usedPercent": 40, "windowDurationMins": 10080, "resetsAt": reset.timestamp() + 86_400}
+            }
+        });
+        let prior = parse_app_server_snapshot(&result, "2026-11-27T11:58:00Z".into()).unwrap();
+        let current = parse_app_server_snapshot(&result, reset.to_rfc3339()).unwrap();
+        assert!(five_hour_window_still_expired(&prior, &current, reset));
+        assert!(!five_hour_window_still_expired(&current, &current, reset));
+
+        let mut updated = current.clone();
+        updated.short_window.as_mut().unwrap().resets_at = Some("2026-11-27T17:00:00Z".into());
+        assert!(!five_hour_window_still_expired(&prior, &updated, reset));
+        updated.short_window = None;
+        assert!(!five_hour_window_still_expired(&prior, &updated, reset));
+        updated.short_window = current.short_window.clone();
+        updated.rate_limit_snapshot = None;
+        assert!(!five_hour_window_still_expired(&prior, &updated, reset));
     }
 
     #[test]

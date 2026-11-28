@@ -137,13 +137,11 @@ describe("Gemini model pools", () => {
     expect(screen.getByRole("radio", { name: "AI 驾驶舱" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("shows statistics under usage and keeps the two model pools under quota", async () => {
+  it("keeps Gemini statistics under Usage and opens Codex pacing from there", async () => {
     render(
       <ControlCenter
         preferences={{ ...DEFAULT_WIDGET_PREFERENCES, geminiEnabled: true }}
         language="zh-CN"
-        geminiView={buildGeminiCockpitView(geminiQuota, now)}
-        quotaNow={now}
         onClose={noop}
         onRefresh={noop}
         onPreferences={noop}
@@ -158,11 +156,12 @@ describe("Gemini model pools", () => {
     expect(within(usage).getByRole("combobox", { name: "查看方式" })).toBeVisible();
     expect(within(usage).getByRole("button", { name: "日历" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "Gemini 额度" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "额度" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Gemini" }));
-    const card = screen.getByRole("region", { name: "Gemini 额度" });
-    expect(within(card).getByRole("group", { name: "Gemini 72%" })).toBeVisible();
-    expect(within(card).getByRole("group", { name: "Gemini · Claude / GPT 64%" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Codex 配速" }));
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-cockpit-mode", "codex");
+    expect(screen.queryByRole("radio", { name: "Gemini" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开 Codex Resets" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "用量" }));
+    expect(screen.getByRole("radio", { name: "Gemini" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("shows check-in for Codex in AI mode and hides it when Codex is off", () => {

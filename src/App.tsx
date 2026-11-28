@@ -13,7 +13,7 @@ import { mergeSyncedComfortFeedback } from "./lib/comfortSync";
 import { getSyncedComfortFeedback } from "./lib/usageSyncBridge";
 import { activeManualResetRisk, getPersonPlan, savePersonPlan, planPreferences, planDateKey, type PersonPlan } from "./lib/personPlanSync";
 import { QuotaCard, QuotaIsland, QuotaOrb } from "./components/QuotaCard";
-import { isCodexPlus, fiveHourRemaining } from "./lib/plusQuota";
+import { isCodexPlus, fiveHourRemaining, fiveHourWindow } from "./lib/plusQuota";
 import { ControlCenter, type ControlCenterPage } from "./components/ControlCenter";
 import { InlineUpdate } from "./components/InlineUpdate";
 import { EMPTY_UPDATE_STATE } from "./components/UpdatePanel";
@@ -215,7 +215,7 @@ export default function App() {
       .map(value => Date.parse(value ?? "") - now).filter(value => value > 0 && value <= 7 * 86_400_000);
     const timers = delays.map(delay => window.setTimeout(() => {
       setPlanningNow(new Date());
-      refreshClaudeQuota();
+      refreshClaudeQuota(true);
       refreshSharedClaudeQuota();
     }, delay + 500));
     return () => timers.forEach(timer => window.clearTimeout(timer));
@@ -540,6 +540,19 @@ export default function App() {
       });
     }
   }, [commitRuntimeState]);
+
+  const codexSnapshot = snapshots.find((item) => item.provider === "codex");
+  const codexFiveHourResetAt = codexSnapshot && fiveHourWindow(codexSnapshot)?.resetsAt;
+  useEffect(() => {
+    if (!startupReady || !providerFlags.codex || !preferences.autoRefreshFiveHourQuota) return;
+    const delay = Date.parse(codexFiveHourResetAt ?? "") - Date.now();
+    if (!(delay > 0 && delay <= 5 * 3_600_000)) return;
+    const timer = window.setTimeout(() => {
+      setPlanningNow(new Date());
+      void refresh(true);
+    }, delay + 500);
+    return () => window.clearTimeout(timer);
+  }, [startupReady, providerFlags.codex, preferences.autoRefreshFiveHourQuota, codexFiveHourResetAt, refresh]);
 
   const refreshQuotas = useCallback((manualProvider = false) => {
     setPlanningNow(new Date());
@@ -1471,10 +1484,6 @@ export default function App() {
           comfortSaveError={comfortSaveError ?? (comfortSyncError ? (language === "en" ? "Synced comfort records could not be read; local records are preserved." : "同步体验暂时无法读取，本地记录已保留。") : null)}
           onComfortPersonChange={handleComfortPersonChange}
           onComfortSnapshotRefresh={handleComfortSnapshotRefresh}
-          geminiView={geminiView}
-          quotaNow={planningNow}
-          claudeView={claudeView}
-          onRefreshClaude={() => { refreshClaudeQuota(true); refreshSharedClaudeQuota(); }}
           onUsageGroupsChange={refreshComfortUsage}
           onCheckUpdate={() => checkUpdate(true, true)}
           updateBusy={["checking", "downloading", "installing"].includes(updateState.phase)}
@@ -1485,7 +1494,10 @@ export default function App() {
           onClose={() => {
             void closeControlSurface(true).catch(() => setOperationError("Control center close failed."));
           }}
-          onRefresh={() => refreshQuotas(true)}
+          onRefresh={() => {
+            setPlanningNow(new Date());
+            void refresh(true);
+          }}
           onOpenCodexResets={() => void openExternalUrl(CODEX_RESETS_URL).catch(() => setOperationError(language === "en" ? "Codex Resets could not be opened." : "无法打开 Codex Resets。"))}
           onDrag={() => { void startDragging().catch(() => setOperationError("Control center drag failed.")); }}
           onPreferences={savePreferences}

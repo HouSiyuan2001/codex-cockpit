@@ -642,13 +642,41 @@ async fn collect_snapshots(client: &reqwest::Client) -> Vec<ProviderSnapshot> {
     values
 }
 
-async fn refresh_snapshots_in_background(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let _guard = state.fetch_lock.lock().await;
-    let values = collect_snapshots(&state.client).await;
+// Callers hold fetch_lock so background and foreground refreshes share the
+// same prior observation before deciding whether to send a message.
+async fn refresh_snapshot_cache(state: &AppState) -> Vec<ProviderSnapshot> {
+    let mut values = collect_snapshots(&state.client).await;
+    let enabled = state.preferences.lock().is_ok_and(|preferences| {
+        preferences.codex_enabled && preferences.auto_refresh_five_hour_quota
+    });
+    if enabled && !credentials_disabled_for_preview() {
+        let previous = state.snapshot_cache.lock().ok().and_then(|cache| {
+            cache
+                .as_ref()?
+                .1
+                .iter()
+                .find(|snapshot| snapshot.provider == "codex")
+                .cloned()
+        });
+        if let (Some(previous), Some(current)) = (
+            previous,
+            values
+                .iter_mut()
+                .find(|snapshot| snapshot.provider == "codex"),
+        ) {
+            codex::maybe_refresh_five_hour_window(&state.client, &previous, current).await;
+        }
+    }
     if let Ok(mut cache) = state.snapshot_cache.lock() {
         *cache = Some((Instant::now(), values.clone()));
     }
+    values
+}
+
+async fn refresh_snapshots_in_background(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let _guard = state.fetch_lock.lock().await;
+    let values = refresh_snapshot_cache(&state).await;
     let values = apply_short_window_test_override(&state, values);
     let _ = app.emit_to("widget", "background-snapshots-updated", values);
 }
@@ -663,10 +691,7 @@ async fn run_background_refresh_loop(app: AppHandle) {
 
 async fn fetch_snapshots_uncached(state: &State<'_, AppState>) -> Vec<ProviderSnapshot> {
     let _guard = state.fetch_lock.lock().await;
-    let values = collect_snapshots(&state.client).await;
-    if let Ok(mut cache) = state.snapshot_cache.lock() {
-        *cache = Some((Instant::now(), values.clone()));
-    }
+    let values = refresh_snapshot_cache(state).await;
     apply_short_window_test_override(state.inner(), values)
 }
 
@@ -884,10 +909,7 @@ async fn get_snapshots(state: State<'_, AppState>) -> Result<Vec<ProviderSnapsho
             }
         }
     }
-    let values = collect_snapshots(&state.client).await;
-    if let Ok(mut cache) = state.snapshot_cache.lock() {
-        *cache = Some((Instant::now(), values.clone()));
-    }
+    let values = refresh_snapshot_cache(&state).await;
     Ok(apply_short_window_test_override(&state, values))
 }
 
@@ -922,7 +944,10 @@ async fn get_claude_quota(
     state: State<'_, AppState>,
     manual: Option<bool>,
 ) -> Result<claude_quota::ClaudeQuota, String> {
-    let quota = claude_quota::fetch(&state.client, manual.unwrap_or(false)).await;
+    let refresh_message = state.preferences.lock().is_ok_and(|preferences| {
+        preferences.claude_enabled && preferences.auto_refresh_five_hour_quota
+    });
+    let quota = claude_quota::fetch(&state.client, manual.unwrap_or(false), refresh_message).await;
     if let Ok(data) = app_config_dir(&app) {
         let _ = claude_quota_sync::remember(&data, &quota);
     }
@@ -961,9 +986,13 @@ pub fn capture_antigravity_statusline_quota() {
 #[tauri::command]
 async fn get_gemini_quota(
     app: AppHandle,
+    state: State<'_, AppState>,
     manual: Option<bool>,
 ) -> Result<gemini_quota::GeminiQuota, String> {
-    let quota = gemini_quota::fetch(manual.unwrap_or(false)).await;
+    let auto_refresh = state.preferences.lock().is_ok_and(|preferences| {
+        preferences.gemini_enabled && preferences.auto_refresh_five_hour_quota
+    });
+    let quota = gemini_quota::fetch(manual.unwrap_or(false), auto_refresh).await;
     if let Ok(data) = app_config_dir(&app) {
         let _ = gemini_quota_sync::remember(&data, &quota);
     }

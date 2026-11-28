@@ -276,6 +276,7 @@ export interface WidgetPreferences {
   cockpitMode: CockpitMode;
   /** Keeps Codex enabled in cockpit switches; at least one provider stays on. */
   codexEnabled?: boolean;
+  autoRefreshFiveHourQuota: boolean;
   /** Shows the Claude/AI cockpits and Claude usage; off means Claude is hidden. */
   claudeEnabled: boolean;
   /** Shows the Gemini cockpit and capsule cells; opt-in and off by default. */
