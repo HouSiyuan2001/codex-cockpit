@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 - 2026-11-27
+
+- Simplify Codex pacing and improve quota refresh
+
 ## 1.0.0 - 2026-11-27
 
 - Merge remote-tracking branch 'origin/main'
